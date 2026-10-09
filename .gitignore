@@ -1,0 +1,14 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Build output
+Keeper.app/
+*.icns
+AppIcon.iconset/
+Keeper-notarize.zip
+*.zip
+
+# macOS
+.DS_Store
