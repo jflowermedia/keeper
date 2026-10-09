@@ -41,6 +41,24 @@ open .
 
 `ditto`, not Finder's Compress — plain zipping can break an app bundle.
 
+## The app icon
+
+`icon.png` is the app's icon — replace it with any square PNG (1024×1024 ideal) and rebuild. `make_icon.py` draws the current one if you'd rather edit than replace: `python3 make_icon.py`, needs `pip install cairosvg`.
+
+## Notarizing (removing the macOS warning)
+
+Downloaders get "Apple could not verify Keeper is free of malware" until the app is notarized. That needs a paid Apple Developer account, $99/year. One-time setup: create a **Developer ID Application** certificate in Xcode → Settings → Accounts, then
+
+```
+xcrun notarytool store-credentials NOTARY --apple-id you@example.com --team-id AB12CD34EF
+```
+
+Then every release build (`security find-identity -v -p codesigning` lists the certificate name):
+
+```
+DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY ./build_app.sh --notarize
+```
+
 ## Version numbering
 
 `MAJOR.MINOR.PATCH`

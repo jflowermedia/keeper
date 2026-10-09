@@ -89,24 +89,6 @@ chmod +x build_app.sh
 
 That builds `Keeper.app`, signs it ad-hoc, and copies it into `/Applications`. Leave off `--install` to leave it in the project folder. `swift run` runs it straight from source while you're changing things.
 
-### Making a release build
-
-Signing with a Developer ID and notarizing removes the right-click-to-open step for everyone who downloads it. It needs a paid Apple Developer account. Create a **Developer ID Application** certificate in Xcode → Settings → Accounts, store notarization credentials once:
-
-```
-xcrun notarytool store-credentials NOTARY --apple-id you@example.com --team-id AB12CD34EF
-```
-
-then build (`security find-identity -v -p codesigning` lists your certificate name):
-
-```
-DEVID="Developer ID Application: Jane Doe (AB12CD34EF)" NOTARY_PROFILE=NOTARY ./build_app.sh --notarize
-```
-
-### The app icon
-
-`icon.png` is the app's icon; replace it with any square PNG and rebuild. `make_icon.py` draws the current one if you'd rather edit it than replace it (`python3 make_icon.py`, needs `pip install cairosvg`).
-
 ## Notes
 
 - Thumbnails and preview use macOS's own decoder, so formats it can't read (some MXF, BRAW, R3D) show a grey thumbnail and won't play. Those files still drag and copy normally.
