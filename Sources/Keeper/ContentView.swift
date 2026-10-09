@@ -27,7 +27,10 @@ struct ContentView: View {
         .sheet(item: $inspecting) { clip in
             XMLInspector(clip: clip, keepWord: state.keepWord)
         }
-        .onAppear { NSApp.activate(ignoringOtherApps: true) }
+        .onAppear {
+            NSApp.activate(ignoringOtherApps: true)
+            Playback.shared.startListening()
+        }
     }
 
     // MARK: Toolbar
@@ -333,33 +336,260 @@ actor ThumbnailCache {
 
 struct PreviewPane: View {
     let clip: Clip?
+    @ObservedObject private var playback = Playback.shared
 
     var body: some View {
         if let clip {
-            PlayerView(url: clip.videoURL).id(clip.id)
+            PlayerView(url: clip.videoURL)
+                .overlay(alignment: .topTrailing) {
+                    TransportHUD(speed: playback.speed)
+                        .padding(14)
+                        .animation(.easeOut(duration: 0.15), value: playback.speed)
+                }
         } else {
-            Text("Select a clip to preview")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 6) {
+                Text("Select a clip to preview")
+                Text("Space or 2 — play / pause\n1 and 3 — shuttle back and forward\npress again for 4x and 8x")
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// Transport keys for the preview: Space or 2 to play/pause, 3 for 2x forward, 1 for 2x reverse.
+///
+/// The clip list keeps keyboard focus while you're selecting, so the player never receives these
+/// keys itself. A local event monitor catches them instead, and steps aside for text fields so
+/// you can still type into them.
+final class Playback: ObservableObject {
+    static let shared = Playback()
+
+    /// Signed: negative is reverse, 0 is stopped. Drives the on-screen readout.
+    @Published private(set) var speed: Double = 0
+
+    static let maxSpeed: Double = 8
+
+    private(set) weak var player: AVPlayer?
+    private var monitor: Any?
+    private var scrubTimer: Timer?
+    private var scrubbing = false
+    private var rateObservation: NSKeyValueObservation?
+
+    // MARK: Wiring
+
+    func attach(_ player: AVPlayer) {
+        stopScrub()
+        self.player = player
+        speed = 0
+
+        // Catches the clip ending, and the player's own on-screen controls, so the readout
+        // never claims to be playing when it isn't.
+        rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, change in
+            guard let self else { return }
+            let rate = Double(change.newValue ?? 0)
+            DispatchQueue.main.async {
+                guard !self.scrubbing else { return }   // the shuttle reports its own speed
+                self.speed = rate
+            }
+        }
+    }
+
+    func startListening() {
+        guard monitor == nil else { return }
+        let blocking: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.modifierFlags.intersection(blocking).isEmpty,
+                  let key = event.charactersIgnoringModifiers
+            else { return event }
+
+            if let responder = event.window?.firstResponder, responder is NSText {
+                return event                        // a text field is being edited
+            }
+
+            let playback = Playback.shared
+            switch key {
+            case " ", "2": return playback.toggle() ? nil : event
+            case "3":      return playback.shuttle(forward: true) ? nil : event
+            case "1":      return playback.shuttle(forward: false) ? nil : event
+            default:       return event
+            }
+        }
+    }
+
+    // MARK: Transport
+
+    var isPlaying: Bool { speed != 0 }
+
+    /// Each of these returns false when nothing is loaded, so the key press falls through untouched.
+    @discardableResult
+    func toggle() -> Bool {
+        guard player?.currentItem != nil else { return false }
+        if isPlaying { pause() } else { play(speed: 1) }
+        return true
+    }
+
+    /// Repeated presses step 2x → 4x → 8x. Pressing the opposite key starts again at 2x.
+    @discardableResult
+    func shuttle(forward: Bool) -> Bool {
+        guard player?.currentItem != nil else { return false }
+        let direction: Double = forward ? 1 : -1
+        let sameWay = speed != 0 && (speed > 0) == forward
+        let magnitude = sameWay ? min(abs(speed) * 2, Self.maxSpeed) : 2
+        return play(speed: magnitude * direction)
+    }
+
+    func pause() {
+        stopScrub()
+        player?.pause()
+        speed = 0
+    }
+
+    /// Same player, different clip: stop any shuttle and clear the readout.
+    func didChangeClip() {
+        stopScrub()
+        speed = 0
+    }
+
+    @discardableResult
+    func play(speed newSpeed: Double) -> Bool {
+        guard let player, let item = player.currentItem else { return false }
+        stopScrub()
+        if newSpeed > 0, atEnd(item) { player.seek(to: .zero) }
+
+        // Not every codec can shuttle natively — 4K all-intra often can't, especially backwards.
+        let nativeOK = newSpeed > 0
+            ? (newSpeed == 1 || item.canPlayFastForward)
+            : item.canPlayFastReverse
+        if nativeOK {
+            player.rate = Float(newSpeed)
+        } else {
+            startScrub(speed: newSpeed)
+        }
+        speed = newSpeed
+        return true
+    }
+
+    private func atEnd(_ item: AVPlayerItem) -> Bool {
+        let duration = item.duration
+        guard duration.isValid, !duration.isIndefinite else { return false }
+        return item.currentTime().seconds >= duration.seconds - 0.05
+    }
+
+    // MARK: Emulated shuttle, for formats AVPlayer won't scrub itself
+
+    private func startScrub(speed: Double) {
+        scrubbing = true
+        player?.pause()
+        let tick = 1.0 / 20.0
+        scrubTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { [weak self] timer in
+            guard let self, let player = self.player, let item = player.currentItem else {
+                timer.invalidate()
+                return
+            }
+            let duration = item.duration
+            let limit = (duration.isValid && !duration.isIndefinite)
+                ? duration.seconds : Double.greatestFiniteMagnitude
+            let target = player.currentTime().seconds + tick * speed
+
+            if target <= 0 || target >= limit {
+                player.seek(to: CMTime(seconds: max(0, min(target, limit)), preferredTimescale: 600))
+                self.stopScrub()
+                self.speed = 0                  // ran off the end of the clip
+                return
+            }
+            // Loose tolerance: lands on the nearest keyframe, which keeps 4K shuttling smooth.
+            player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                        toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+        }
+    }
+
+    private func stopScrub() {
+        scrubTimer?.invalidate()
+        scrubTimer = nil
+        scrubbing = false
+    }
+}
+
+/// The speed readout over the player: direction arrows and a multiplier.
+struct TransportHUD: View {
+    let speed: Double
+
+    var body: some View {
+        if speed != 0 {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                Text(label)
+            }
+            .font(.caption.weight(.semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.62))
+            .clipShape(Capsule())
+            .transition(.opacity)
+        }
+    }
+
+    private var icon: String {
+        if abs(speed) == 1 { return speed > 0 ? "play.fill" : "backward.fill" }
+        return speed > 0 ? "forward.fill" : "backward.fill"
+    }
+
+    private var label: String {
+        let magnitude = abs(speed)
+        let number = magnitude == magnitude.rounded()
+            ? String(Int(magnitude))
+            : String(format: "%.1f", magnitude)
+        return "\(number)×  \(speed > 0 ? "forward" : "reverse")"
     }
 }
 
 /// Uses AppKit's AVPlayerView directly. SwiftUI's VideoPlayer crashes at launch when the app
 /// is run as a plain Swift package (AVKit isn't loaded), so this wraps the AppKit view instead.
+///
+/// One player view is built once and kept: selecting another clip swaps the item inside it.
+/// Rebuilding the view per clip made the pane jump to the video's own size and then settle,
+/// and paid for a fresh AVPlayer every time you clicked a row.
 struct PlayerView: NSViewRepresentable {
     let url: URL
+
+    final class Coordinator {
+        var loadedURL: URL?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .inline
-        view.player = AVPlayer(url: url)
+        view.videoGravity = .resizeAspect
+
+        // Without this the 4K frame size becomes the view's preferred size and shoves the
+        // split view around on the first clip.
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            view.setContentHuggingPriority(.defaultLow, for: axis)
+            view.setContentCompressionResistancePriority(.defaultLow, for: axis)
+        }
+
+        let player = AVPlayer()
+        view.player = player
+        Playback.shared.attach(player)      // so the transport keys can reach it
         return view
     }
 
-    func updateNSView(_ view: AVPlayerView, context: Context) {}
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        guard context.coordinator.loadedURL != url else { return }
+        context.coordinator.loadedURL = url
+        view.player?.pause()
+        view.player?.replaceCurrentItem(with: AVPlayerItem(url: url))
+        Playback.shared.didChangeClip()
+    }
 
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
         view.player?.pause()
         view.player = nil
     }

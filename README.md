@@ -44,6 +44,9 @@ Requires macOS 13 or later. Apple silicon and Intel both work if you build from 
 1. **Choose Card…** (⌘O) and pick your SD card. It scans every folder for `.xml` files.
 2. Filter by **IS KEEP**, **IS NOT KEEP**, or **ALL**.
 3. Click a clip to preview it. Shift or ⌘-click for several, ⌘A for all.
+
+   Transport keys, which work wherever the focus is: **Space** or **2** play and pause, **3** shuttles forward, **1** shuttles back. Press 1 or 3 again to step up through 2x, 4x and 8x; the opposite key starts again at 2x the other way. A readout in the corner of the viewer shows the current direction and speed.
+
 4. Drag out either way:
    - the **grip dots** at the left of a row drag that one clip, or
    - the **drag bar** at the bottom right drags your selection; with nothing selected it drags everything the filter is showing. Its label says how many clips and how much data.
@@ -104,3 +107,11 @@ Built by **JFlowerMedia**
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Disclaimer
+
+Keeper is alpha software, shared in good faith and provided as is, without warranty of any kind.
+
+It is built to be read-only on your cards — it copies files and never modifies or deletes your originals — and it checks every copy against its source before reporting success. But no software is free of bugs, and I can't test against every camera, card, file system and Mac out there.
+
+Your footage remains your responsibility. Confirm your clips have copied across and open correctly before you format a card or delete anything, and keep a second copy of work that matters to you. Use at your own risk: no liability is accepted for footage that is lost, corrupted or missed, however it happens.

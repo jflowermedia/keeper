@@ -249,9 +249,10 @@ final class AppState: ObservableObject {
             }
 
             let finalCopied = copied, finalSkipped = skipped, finalFailed = failed
+            let finalLines = lines + ["Copy finished: \(finalCopied) copied, "
+                                      + "\(finalSkipped) skipped, \(finalFailed) failed"]
             await MainActor.run {
-                self.appendLog(lines + ["Copy finished: \(finalCopied) copied, "
-                                        + "\(finalSkipped) skipped, \(finalFailed) failed"])
+                self.appendLog(finalLines)
                 self.isCopying = false
                 var message = "Copied \(finalCopied) file(s)"
                 if finalSkipped > 0 { message += ", skipped \(finalSkipped) already there" }
