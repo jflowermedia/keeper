@@ -36,11 +36,11 @@ enum NameToken: String, Codable, CaseIterable, Identifiable {
         case .originalName:    return "C7531"
         case .dateShort:       return "261003"
         case .dateLong:        return "2026-10-03"
-        case .teamCode:        return "WHKY"
+        case .teamCode:        return "YWP"
         case .rosterTeam:      return "Yateley-Wood-Pigeons"
-        case .playerSurname:   return "Flower"
-        case .playerFirstName: return "Jack"
-        case .playerNumber:    return "15"
+        case .playerSurname:   return "Marchetti"
+        case .playerFirstName: return "Finn"
+        case .playerNumber:    return "17"
         case .topTag:          return "Goal"
         case .allTags:         return "Goal-Celebration"
         }
@@ -54,10 +54,14 @@ struct RenamePreset: Codable, Identifiable, Hashable {
     var separator: String = "_"
     var tokens: [NameToken] = [.originalName, .dateShort, .teamCode, .playerSurname, .topTag]
 
-    /// The preset asked for first: Original_yymmdd_TEAM_Surname_Tag
-    static func bisons() -> RenamePreset {
-        RenamePreset(name: "Bisons",
-                     teamCode: "WHKY",
+    /// What a new library starts with: Original_yymmdd_TEAM_Surname_Tag.
+    ///
+    /// No team code of its own, so it picks one up from whichever roster the clip's player
+    /// belongs to. Add your own presets per client; this one stays generic because it ships
+    /// with the app.
+    static func standard() -> RenamePreset {
+        RenamePreset(name: "Standard",
+                     teamCode: "",
                      separator: "_",
                      tokens: [.originalName, .dateShort, .teamCode, .playerSurname, .topTag])
     }
@@ -91,7 +95,7 @@ enum Renamer {
     /// Everything except the extension. The caller adds that, so a clip and its XML
     /// end up sharing a base name and still pair up on the next scan.
     /// `rosterCode` is the code on the team the winning tag belongs to. When a roster carries
-    /// one it wins, so a single preset covers Bisons WHKY and Bisons MHKY without duplicating.
+    /// one it wins, so a single preset covers a club's men's and women's sides at once.
     static func baseName(for clip: Clip,
                          tags: [Tag],
                          preset: RenamePreset,

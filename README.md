@@ -59,7 +59,7 @@ Yateley Wood Pigeons,YWP,17,Finn Marchetti,Forward
 Yateley Wood Pigeons,YWP,1,Callum Prentice,Goalie
 ```
 
-The `code` column is the short form used in filenames. Give each roster its own and a single preset serves every team you shoot. Team names must be distinct — "Bisons WHKY" and "Bisons MHKY" are two teams, but calling both "Bisons" makes the second import replace the first.
+The `code` column is the short form used in filenames. Give each roster its own and a single preset serves every team you shoot. Team names must be distinct. A club's men's and women's sides are two teams, so give them names that differ — calling both by the club name alone makes the second import replace the first.
 
 **Tag a clip** — click a player, click a category. The selection clears straight afterwards, so the usual case (one player scores, another assists) is: #15, Goal, #17, Assist. Select several players before clicking a category when they genuinely share it; each gets their own tag.
 
@@ -81,15 +81,15 @@ Two pickers sit beside *Copy to Folder*.
 - *Folder per category* — one copy of each clip, in the folder for its highest-priority tag. The folder and the filename agree, and a clip is never duplicated.
 - *Folder per player* — a copy in each tagged player's folder, so every player's folder is complete. This one duplicates by design.
 
-**Filename preset,** or leave names alone. The built-in **Bisons** preset gives:
+**Filename preset,** or leave names alone. The built-in **Standard** preset gives:
 
 ```
-C7531_261003_WHKY_Flower_Goal.MP4
+C7531_261003_YWP_Marchetti_Goal.MP4
 ```
 
-Original name, shoot date, team code, player surname, tag. The date comes from the XML's `CreationDate`, so it's when the camera rolled rather than when the file was last touched.
+Original name, shoot date, team code, player surname, tag. The team code comes from the roster's `code` column. The date comes from the XML's `CreationDate`, so it's when the camera rolled rather than when the file was last touched.
 
-Build your own in **Edit Presets…**: name it, set a fallback team code, choose the separator, and stack up the parts — original name, date in two formats, team code, roster team, player surname, first name or number, the top tag, or every tag. A live preview shows the result as you go. Empty parts drop out, so an untagged clip comes out `C7532_261003_WHKY.MP4` rather than with gaps.
+Build your own per client in **Edit Presets…**: name it, set a fallback team code, choose the separator, and stack up the parts — original name, date in two formats, team code, roster team, player surname, first name or number, the top tag, or every tag. A live preview shows the result as you go. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
 
 **Tag priority** decides which tag lands in the filename, and which folder the clip goes to, when it carries several. It's the order of the category list, set in the preset editor.
 

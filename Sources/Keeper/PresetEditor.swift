@@ -106,7 +106,7 @@ struct PresetEditor: View {
                     GridRow {
                         Text("Team code").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            TextField("WHKY", text: binding(preset, \.teamCode))
+                            TextField("YWP", text: binding(preset, \.teamCode))
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 120)
                             Text("Used when the roster has no code of its own. Give each roster CSV a `code` column and one preset covers every team.")

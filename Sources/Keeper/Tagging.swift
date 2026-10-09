@@ -15,7 +15,7 @@ struct Player: Codable, Identifiable, Hashable {
 struct Team: Codable, Identifiable, Hashable {
     var id: String
     var name: String
-    /// Short code for filenames, e.g. WHKY. A preset's own code is the fallback.
+    /// Short code for filenames, e.g. YWP. A preset's own code is the fallback.
     ///
     /// Optional on purpose: Swift's generated decoder throws on a missing key for a
     /// non-optional property, default value or not, so adding one as `String = ""` would
@@ -80,7 +80,7 @@ final class TagLibrary: ObservableObject {
     /// Order matters: it is also the tag priority used when naming a clip that has several.
     @Published var categories: [String] = TagLibrary.defaultCategories
     @Published private(set) var tags: [Tag] = []
-    @Published var presets: [RenamePreset] = [.bisons()]
+    @Published var presets: [RenamePreset] = [.standard()]
 
     private init() { load() }
 
@@ -315,7 +315,7 @@ final class TagLibrary: ObservableObject {
         teams = archive.teams
         categories = archive.categories.isEmpty ? Self.defaultCategories : archive.categories
         tags = archive.tags
-        presets = archive.presets ?? [.bisons()]
+        presets = archive.presets ?? [.standard()]
         rebuildIndex()
     }
 

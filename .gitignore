@@ -10,5 +10,9 @@ AppIcon.iconset/
 Keeper-notarize.zip
 *.zip
 
+# Client rosters stay out of the repo. The fictional sample is the exception.
+roster-*.csv
+!roster-yateley-wood-pigeons.csv
+
 # macOS
 .DS_Store

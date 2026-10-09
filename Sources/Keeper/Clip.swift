@@ -191,7 +191,7 @@ enum ClipScanner {
         }
 
         // Last resort: the video was renamed on copy while the sidecar kept its camera name,
-        // so C7531M01.XML needs to find C7531_261003_WHKY_Flower_Goal.MP4. Only a prefix that
+        // so C7531M01.XML needs to find C7531_261003_YWP_Marchetti_Goal.MP4. Only a prefix that
         // ends at a separator counts, or C753 would claim C7531.
         for key in keys where !key.isEmpty {
             var matches: [URL] = []
