@@ -92,9 +92,13 @@ struct ContentView: View {
     private var clipList: some View {
         Group {
             if state.visible.isEmpty {
-                Text(state.clips.isEmpty ? state.status : "No clips match this filter.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if state.clips.isEmpty {
+                    welcome
+                } else {
+                    Text("No clips match this filter.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 List(state.visible, selection: $state.selection) { clip in
                     ClipRow(clip: clip, urls: state.urls(for: clip), includeXML: state.includeXML)
@@ -109,10 +113,69 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Welcome
+
+    private var welcome: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 10) {
+                Image(systemName: "sdcard")
+                    .font(.system(size: 46, weight: .thin))
+                    .foregroundStyle(.tertiary)
+
+                Text(AppInfo.name)
+                    .font(.title2.weight(.semibold))
+
+                Text(AppInfo.versionLabel.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.18))
+                    .clipShape(Capsule())
+
+                Text(state.status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
+
+                Button("Choose Card…") { state.chooseCard() }
+                    .controlSize(.large)
+                    .disabled(state.isScanning)
+                    .padding(.top, 2)
+            }
+            Spacer()
+            VStack(spacing: 4) {
+                Text("Built by JFlowerMedia")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Link("jflowermedia.com", destination: AppInfo.website)
+                    Text("·").foregroundStyle(.tertiary)
+                    Link("Instagram", destination: AppInfo.instagram)
+                }
+                .font(.caption)
+            }
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     // MARK: Footer
 
     private var footer: some View {
         HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Link("JFlowerMedia", destination: AppInfo.website)
+                    .font(.caption.weight(.medium))
+                Text(AppInfo.versionLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Divider().frame(height: 26)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
                     .font(.callout)

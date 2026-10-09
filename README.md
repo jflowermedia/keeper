@@ -1,6 +1,10 @@
 # Keeper
 
+Built by [JFlowerMedia](https://jflowermedia.com/)
+
 A small macOS app for sorting camera clips by the KEEP flag your camera writes into its XML sidecars.
+
+> **Alpha — version 0.1.** Tested against one camera on one Mac. It never modifies or deletes anything on your card, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
 
 Point it at an SD card and it pairs every clip with its XML, reads the flag, and shows you two lists: the clips you marked to keep and the ones you didn't. Preview them, then drag either group straight into Finder.
 
@@ -11,7 +15,7 @@ Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status=
 
 ## Download
 
-Grab the latest `Keeper.zip` from [Releases](../../releases), unzip it, and drag **Keeper.app** to your Applications folder.
+Grab the latest `Keeper.zip` from [Releases](../../releases), unzip it, and drag **Keeper.app** to your Applications folder. Releases are marked pre-release while the app is in alpha.
 
 **The first time you open it,** right-click the app and choose **Open**, then click Open in the dialog. macOS blocks apps that aren't notarized by Apple, and notarizing requires a paid developer account. After that first time it opens normally. If you'd rather clear the flag outright:
 
@@ -93,6 +97,13 @@ DEVID="Developer ID Application: Jane Doe (AB12CD34EF)" NOTARY_PROFILE=NOTARY ./
 
 - Thumbnails and preview use macOS's own decoder, so formats it can't read (some MXF, BRAW, R3D) show a grey thumbnail and won't play. Those files still drag and copy normally.
 - Proxy files are not handled yet: only the main clip and its XML.
+
+## Credits
+
+Built by **JFlowerMedia**
+
+- Website: [jflowermedia.com](https://jflowermedia.com/)
+- Instagram: [@jflowermedia](https://www.instagram.com/jflowermedia/)
 
 ## License
 
