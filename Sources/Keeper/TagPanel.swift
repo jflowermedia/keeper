@@ -86,6 +86,12 @@ struct TagPanel: View {
                 if let team {
                     Divider()
                     Button("Remove \(team.name)", role: .destructive) {
+                        // Clear any filter pointing at it, or the list goes empty with no
+                        // way to see why: the menus no longer offer what's filtering it.
+                        if state.filterTeamID == team.id { state.filterTeamID = nil }
+                        if state.filterPlayerID?.hasPrefix("\(team.id)/") == true {
+                            state.filterPlayerID = nil
+                        }
                         library.deleteTeam(id: team.id)
                         selectedTeamID = nil
                         selectedPlayerIDs = []
@@ -218,6 +224,7 @@ struct TagPanel: View {
                     .opacity(clip == nil ? 0.4 : 1)
                     .contextMenu {
                         Button("Remove \"\(category)\"", role: .destructive) {
+                            if state.filterCategory == category { state.filterCategory = nil }
                             library.removeCategory(category)
                         }
                     }
