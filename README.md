@@ -17,7 +17,21 @@ Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status=
 
 Grab the latest `Keeper.zip` from [Releases](../../releases), unzip it, and drag **Keeper.app** to your Applications folder. Releases are marked pre-release while the app is in alpha.
 
-**The first time you open it,** right-click the app and choose **Open**, then click Open in the dialog. macOS blocks apps that aren't notarized by Apple, and notarizing requires a paid developer account. After that first time it opens normally. If you'd rather clear the flag outright:
+### First launch: macOS will block it
+
+You'll see **"Apple could not verify Keeper is free of malware."** That's expected. Keeper isn't notarized by Apple, which needs a paid developer account. The app is open source — every line of it is in this repo, and you can build it yourself if you'd rather not take my word for it.
+
+To open it anyway:
+
+1. Double-click Keeper, then click **Done** on the warning.
+2. Open **System Settings → Privacy & Security** and scroll down to **Security**. There'll be a line saying *"Keeper" was blocked to protect your Mac*, with an **Open Anyway** button.
+3. Click **Open Anyway**, authenticate, then open Keeper again and click **Open**.
+
+Once per version, then it opens normally.
+
+On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same thing in one step. Apple removed that shortcut in macOS 15 Sequoia.
+
+Either way, this one command skips the whole dance:
 
 ```
 xattr -dr com.apple.quarantine /Applications/Keeper.app
