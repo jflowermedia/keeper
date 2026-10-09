@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.1"
+    static let version = "0.2"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -14,6 +14,9 @@ enum AppInfo {
 @main
 struct KeeperApp: App {
     @StateObject private var state = AppState()
+    // Same UserDefaults key as ContentView's, so the menu item and the toolbar button
+    // stay in step with each other.
+    @AppStorage("showTagging") private var showTagging = true
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -28,7 +31,7 @@ struct KeeperApp: App {
                 Button("About Keeper") { Self.showAbout() }
             }
             CommandGroup(after: .newItem) {
-                Button("Choose Card…") { state.chooseCard() }
+                Button("Choose Folder…") { state.chooseCard() }
                     .keyboardShortcut("o", modifiers: .command)
                 Button("Rescan") { state.scan() }
                     .keyboardShortcut("r", modifiers: .command)
@@ -39,6 +42,8 @@ struct KeeperApp: App {
                     .disabled(state.dragClips.isEmpty)
             }
             CommandGroup(after: .sidebar) {
+                Toggle("Tagging Panel", isOn: $showTagging)
+                    .keyboardShortcut("e", modifiers: .command)
                 Toggle("Debug Log", isOn: $state.debugMode)
                     .keyboardShortcut("d", modifiers: .command)
             }

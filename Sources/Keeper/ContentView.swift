@@ -4,18 +4,30 @@ import AVFoundation
 
 struct ContentView: View {
     @ObservedObject var state: AppState
+    @ObservedObject private var library = TagLibrary.shared
     @State private var inspecting: Clip?
+    @State private var editingPresets = false
+    @AppStorage("showTagging") private var showTagging = true
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+            if !state.library.teams.isEmpty {
+                Divider()
+                tagFilterBar
+            }
             Divider()
             HSplitView {
                 clipList
-                    .frame(minWidth: 420, idealWidth: 500)
+                    .frame(minWidth: 400, idealWidth: 460, maxHeight: .infinity)
                 PreviewPane(clip: state.previewClip)
-                    .frame(minWidth: 320)
+                    .frame(minWidth: 300, maxHeight: .infinity)
+                if showTagging {
+                    TagPanel(state: state)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             if state.debugMode {
                 Divider()
                 DebugPanel(state: state)
@@ -23,9 +35,15 @@ struct ContentView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 940, minHeight: 580)
+        // Without the .infinity maxima the whole window's content sizes to itself
+        // and floats in the middle of a larger window.
+        .frame(minWidth: 1020, maxWidth: .infinity,
+               minHeight: 620, maxHeight: .infinity)
         .sheet(item: $inspecting) { clip in
             XMLInspector(clip: clip, keepWord: state.keepWord)
+        }
+        .sheet(isPresented: $editingPresets) {
+            PresetEditor()
         }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
@@ -37,7 +55,7 @@ struct ContentView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            Button("Choose Card…") { state.chooseCard() }
+            Button("Choose Folder…") { state.chooseCard() }
                 .disabled(state.isScanning || state.isCopying)
 
             if let root = state.root {
@@ -76,8 +94,14 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .help("Rescan the card")
+            .help("Rescan")
             .disabled(state.root == nil || state.isScanning || state.isCopying)
+
+            Toggle(isOn: $showTagging) {
+                Label("Tagging", systemImage: "number")
+            }
+            .toggleStyle(.button)
+            .help("Show or hide the tagging panel (⌘E)")
 
             Toggle(isOn: $state.debugMode) {
                 Label("Debug", systemImage: "ladybug")
@@ -88,6 +112,112 @@ struct ContentView: View {
             if state.isScanning || state.isCopying { ProgressView().controlSize(.small) }
         }
         .padding(10)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let failure = state.library.loadFailure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.8))
+            }
+        }
+    }
+
+    // MARK: Tag filter bar
+
+    private var tagFilterBar: some View {
+        HStack(spacing: 10) {
+            Text("Filter by tag")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if state.library.teams.count > 1 {
+                Menu {
+                    Button("Any team") { state.filterTeamID = nil }
+                    Divider()
+                    ForEach(state.library.teams) { team in
+                        Button(team.name) { state.filterTeamID = team.id }
+                    }
+                } label: {
+                    Text(state.library.team(id: state.filterTeamID)?.name ?? "Any team")
+                }
+                .frame(width: 170)
+                .help("Narrows the clips, and the player menu, to one roster")
+            }
+
+            Menu {
+                Button("Any player") { state.filterPlayerID = nil }
+                Divider()
+                if state.teamsForFilter.count == 1, let only = state.teamsForFilter.first {
+                    ForEach(only.players) { player in
+                        Button(player.label) { state.filterPlayerID = player.id }
+                    }
+                } else {
+                    ForEach(state.teamsForFilter) { team in
+                        Section(team.name) {
+                            ForEach(team.players) { player in
+                                Button(player.label) { state.filterPlayerID = player.id }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text(playerFilterLabel)
+            }
+            .frame(width: 190)
+
+            if !positionsForFilter.isEmpty {
+                Menu {
+                    Button("Any position") { state.filterPosition = nil }
+                    Divider()
+                    ForEach(positionsForFilter, id: \.self) { position in
+                        Button(position) { state.filterPosition = position }
+                    }
+                } label: {
+                    Text(state.filterPosition ?? "Any position")
+                }
+                .frame(width: 140)
+            }
+
+            Menu {
+                Button("Any category") { state.filterCategory = nil }
+                Divider()
+                ForEach(state.library.categories, id: \.self) { category in
+                    Button(category) { state.filterCategory = category }
+                }
+            } label: {
+                Text(state.filterCategory ?? "Any category")
+            }
+            .frame(width: 150)
+
+            if state.isTagFiltered {
+                Button("Clear") { state.clearTagFilters() }
+                    .buttonStyle(.link)
+            }
+
+            Spacer()
+
+            Text("\(state.taggedCount) of \(state.clips.count) clips tagged")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var playerFilterLabel: String {
+        guard let id = state.filterPlayerID,
+              let player = state.library.allPlayers.first(where: { $0.id == id })
+        else { return "Any player" }
+        return player.label
+    }
+
+    /// Only the positions in play for the chosen team, for the same reason as the players.
+    private var positionsForFilter: [String] {
+        let players = state.teamsForFilter.flatMap(\.players)
+        return Array(Set(players.map(\.position).filter { !$0.isEmpty })).sorted()
     }
 
     // MARK: List
@@ -104,11 +234,20 @@ struct ContentView: View {
                 }
             } else {
                 List(state.visible, selection: $state.selection) { clip in
-                    ClipRow(clip: clip, urls: state.urls(for: clip), includeXML: state.includeXML)
+                    ClipRow(clip: clip,
+                            urls: state.urls(for: clip),
+                            includeXML: state.includeXML,
+                            tags: state.library.tags(forUMID: clip.umid))
                         .contextMenu {
                             Button("Show XML…") { inspecting = clip }
                             Button("Reveal in Finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([clip.videoURL])
+                            }
+                            if let umid = clip.umid, state.library.isTagged(umid) {
+                                Divider()
+                                Button("Remove all tags from this clip", role: .destructive) {
+                                    state.library.removeAllTags(forUMID: umid)
+                                }
                             }
                         }
                 }
@@ -144,7 +283,7 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 2)
 
-                Button("Choose Card…") { state.chooseCard() }
+                Button("Choose Folder…") { state.chooseCard() }
                     .controlSize(.large)
                     .disabled(state.isScanning)
                     .padding(.top, 2)
@@ -169,6 +308,34 @@ struct ContentView: View {
     // MARK: Footer
 
     private var footer: some View {
+        VStack(spacing: 8) {
+            footerControls
+            if state.isCopying {
+                copyProgressBar
+            }
+        }
+        .padding(10)
+    }
+
+    private var copyProgressBar: some View {
+        VStack(spacing: 3) {
+            ProgressView(value: state.copyFraction)
+                .progressViewStyle(.linear)
+            HStack {
+                Text("\(state.copyFilesDone) of \(state.copyFilesTotal) files")
+                Spacer()
+                Text("\(FileUtil.sizeText(state.copyBytesDone)) of \(FileUtil.sizeText(state.copyBytesTotal))")
+                    .monospacedDigit()
+                Text("·")
+                Text("\(Int(state.copyFraction * 100))%")
+                    .monospacedDigit()
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var footerControls: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 Link("JFlowerMedia", destination: AppInfo.website)
@@ -195,6 +362,34 @@ struct ContentView: View {
                 .toggleStyle(.checkbox)
                 .help("Take each clip's XML sidecar along with its video")
 
+            Picker("", selection: $state.grouping) {
+                ForEach(AppState.Grouping.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 150)
+            .help("""
+                  How Copy to Folder lays out the destination.
+                  Per category: one copy of each clip, in the folder for its highest-priority tag — the same tag its filename uses.
+                  Per player: a copy in each tagged player's folder, so every player's folder is complete.
+                  """)
+
+            Menu {
+                Button("Keep original names") { state.renamePresetID = nil }
+                if !state.library.presets.isEmpty {
+                    Divider()
+                    ForEach(state.library.presets) { preset in
+                        Button(preset.name) { state.renamePresetID = preset.id }
+                    }
+                }
+                Divider()
+                Button("Edit Presets…") { editingPresets = true }
+            } label: {
+                Text(state.activePreset?.name ?? "Original names")
+            }
+            .frame(width: 150)
+            .help(state.activePreset.map { "Copies are renamed: \(Renamer.preview(preset: $0))" }
+                  ?? "Copies keep their camera filenames. Pick a preset to rename them.")
+
             Button("Copy to Folder…") { state.copyToFolder() }
                 .disabled(state.dragClips.isEmpty || state.isCopying || state.isScanning)
 
@@ -202,7 +397,6 @@ struct ContentView: View {
                 .frame(width: 250, height: 36)
                 .help(dragHelp)
         }
-        .padding(10)
     }
 
     private var dragLabel: String {
@@ -227,6 +421,7 @@ struct ClipRow: View {
     let clip: Clip
     let urls: [URL]
     let includeXML: Bool
+    let tags: [Tag]
 
     var body: some View {
         HStack(spacing: 10) {
@@ -243,6 +438,7 @@ struct ClipRow: View {
                 Text("\(clip.xmlURL.lastPathComponent) · \(FileUtil.sizeText(clip.videoSize))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                TagChips(tags: tags)
             }
 
             Spacer()

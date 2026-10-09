@@ -8,8 +8,24 @@ struct Clip: Identifiable, Hashable {
     let videoSize: Int64
     let xmlSize: Int64
 
+    /// The camera's unique material ID from the XML. Tags hang off this rather than the
+    /// filename, because cards restart their numbering and C0001.MP4 comes round again.
+    let umid: String?
+
+    /// When the camera recorded it, from the XML's CreationDate. Used by the rename presets,
+    /// and more trustworthy than a file date that copying can change.
+    let shotDate: Date?
+
     var name: String { videoURL.lastPathComponent }
     var totalSize: Int64 { videoSize + xmlSize }
+
+    /// Name of the disk this clip is sitting on, for tags to remember.
+    var volumeName: String {
+        guard let values = try? videoURL.resourceValues(forKeys: [.volumeNameKey]),
+              let name = values.volumeName
+        else { return "Unknown volume" }
+        return name
+    }
 }
 
 // MARK: - File helpers (deliberately not main-actor bound: used from background copy tasks)
@@ -22,6 +38,24 @@ enum FileUtil {
     static func size(of url: URL) -> Int64 {
         guard let v = try? url.resourceValues(forKeys: [.fileSizeKey]), let s = v.fileSize else { return -1 }
         return Int64(s)
+    }
+
+    /// Finds a base name free for *every* extension in the set, so a clip and its sidecar
+    /// are renamed together. Uniquifying them separately can leave a video called
+    /// "X 2.MP4" beside a sidecar called "X.XML", and then they stop pairing up.
+    static func freeBase(_ base: String, in folder: URL, extensions: [String]) -> String {
+        func taken(_ candidate: String) -> Bool {
+            extensions.contains { ext in
+                let name = ext.isEmpty ? candidate : "\(candidate).\(ext)"
+                return FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path)
+            }
+        }
+        guard taken(base) else { return base }
+        for n in 2...999 {
+            let candidate = "\(base) \(n)"
+            if !taken(candidate) { return candidate }
+        }
+        return "\(base) \(UUID().uuidString.prefix(6))"
     }
 
     /// "C0001.MP4" -> "C0001 2.MP4" -> "C0001 3.MP4", so a copy never overwrites a different file.
@@ -110,7 +144,12 @@ enum ClipScanner {
                               xmlURL: xml,
                               isKeep: parsed.isKeep,
                               videoSize: sizes[video] ?? 0,
-                              xmlSize: sizes[xml] ?? 0))
+                              xmlSize: sizes[xml] ?? 0,
+                              umid: parsed.umid,
+                              shotDate: parsed.creationDate))
+            if parsed.umid == nil {
+                log.append("⚠︎ \(xml.lastPathComponent): no UMID in the XML, so this clip can't be tagged")
+            }
             let verdict = parsed.isKeep ? "KEEP    " : "NOT KEEP"
             let why = parsed.reason.map { "  [\($0)]" } ?? ""
             log.append("\(verdict) \(video.lastPathComponent) ← \(xml.lastPathComponent)\(why)")
@@ -150,6 +189,21 @@ enum ClipScanner {
                     ?? list.sorted { $0.path < $1.path }.first
             }
         }
+
+        // Last resort: the video was renamed on copy while the sidecar kept its camera name,
+        // so C7531M01.XML needs to find C7531_261003_WHKY_Flower_Goal.MP4. Only a prefix that
+        // ends at a separator counts, or C753 would claim C7531.
+        for key in keys where !key.isEmpty {
+            var matches: [URL] = []
+            for (base, list) in videos where base.hasPrefix(key) && base.count > key.count {
+                let next = base[base.index(base.startIndex, offsetBy: key.count)]
+                guard !next.isLetter, !next.isNumber else { continue }
+                matches.append(contentsOf: list)
+            }
+            guard !matches.isEmpty else { continue }
+            return matches.first { $0.deletingLastPathComponent() == xmlDir }
+                ?? matches.sorted { $0.path < $1.path }.first
+        }
         return nil
     }
 }
@@ -163,12 +217,27 @@ final class XMLFlags: NSObject, XMLParserDelegate {
         var isKeep: Bool
         var referencedNames: [String]
         var reason: String?      // what in the XML triggered KEEP (shown in debug mode)
+        var umid: String?        // the clip's permanent identity, which tags are keyed to
+        var creationDate: Date?  // when the camera recorded it
     }
+
+    /// Reads the camera's wall-clock time and ignores its UTC offset deliberately. A clip shot
+    /// at 23:30 in one timezone must not be dated the next day because the Mac sits in another.
+    /// Renaming formats it back with the same fixed zone, so the date is the one on the camera.
+    private static let isoParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
 
     private static let falsey: Set<String> = ["false", "0", "off", "no", "none", "null", "n"]
 
     private let word: String
     private var reason: String?
+    private var umid: String?
+    private var created: Date?
     private var refs: [String] = []
     private var stack: [(name: String, attrs: [String: String], text: String)] = []
 
@@ -185,13 +254,31 @@ final class XMLFlags: NSObject, XMLParserDelegate {
         let parser = XMLParser(data: data)
         parser.delegate = handler
         _ = parser.parse()   // a partial parse still yields usable results
-        return Parsed(isKeep: handler.reason != nil, referencedNames: handler.refs, reason: handler.reason)
+        return Parsed(isKeep: handler.reason != nil,
+                      referencedNames: handler.refs,
+                      reason: handler.reason,
+                      umid: handler.umid,
+                      creationDate: handler.created)
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
                 qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
         stack.append((elementName, attributeDict, ""))
-        for v in attributeDict.values { noteReference(v) }
+        for (key, value) in attributeDict {
+            noteReference(value)
+            // Sony writes it as umidRef on <TargetMaterial>; other makers vary the spelling.
+            if umid == nil, key.lowercased().contains("umid") {
+                let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !clean.isEmpty { umid = clean }
+            }
+        }
+
+        // <CreationDate value="2026-10-03T11:31:12-06:00"/>
+        if created == nil, elementName.lowercased().contains("creationdate"),
+           let raw = attributeDict.first(where: { $0.key.lowercased() == "value" })?.value {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            created = Self.isoParser.date(from: String(trimmed.prefix(19)))   // drop the offset
+        }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {

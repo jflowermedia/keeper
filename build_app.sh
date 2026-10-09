@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Keeper.app from the Swift package.
+# Builds "Keeper.app" from the Swift package.
 #
 #   ./build_app.sh             build Keeper.app in this folder
 #   ./build_app.sh --install   build it and copy it into /Applications
@@ -63,7 +63,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>Built by JFlowerMedia · jflowermedia.com</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSRemovableVolumesUsageDescription</key><string>Keeper reads clip XML files and videos from your SD card.</string>
+    <key>NSRemovableVolumesUsageDescription</key><string>Keeper reads clip XML files and videos from your cards and drives.</string>
 </dict>
 </plist>
 PLIST

@@ -72,12 +72,28 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | File | Holds |
 |---|---|
 | `Sources/Keeper/KeeperApp.swift` | app entry point, menus, About box, version and links |
-| `Sources/Keeper/ContentView.swift` | the whole UI: toolbar, list, preview, debug panel, welcome screen |
+| `Sources/Keeper/ContentView.swift` | the whole UI: toolbar, filter bar, list, preview, transport keys, debug panel |
 | `Sources/Keeper/AppState.swift` | what the app knows and does: scanning, filtering, copying, logging |
-| `Sources/Keeper/Clip.swift` | card scanning and the XML flag parsing |
+| `Sources/Keeper/Clip.swift` | card scanning, XML parsing (KEEP flag, UMID, shoot date), file helpers |
+| `Sources/Keeper/Tagging.swift` | teams, players, tags, the JSON library, roster CSV import |
+| `Sources/Keeper/TagPanel.swift` | the tagging panel and the chips on each row |
+| `Sources/Keeper/Renaming.swift` | filename tokens, presets, and building a name |
+| `Sources/Keeper/PresetEditor.swift` | the preset builder sheet |
 | `Sources/Keeper/MultiDragHandle.swift` | the drag-to-Finder handles |
 | `build_app.sh` | turns the build into Keeper.app, makes the icon, signs it |
 | `icon.png` / `make_icon.py` | the app icon and the script that draws it |
+
+## Rules worth keeping
+
+**Every new field on a stored type must be optional.** Swift's generated decoder throws on a
+missing key for a non-optional property even when it has a default value, so adding
+`var thing: String = ""` to `Team`, `Player` or `Tag` stops every existing `library.json`
+from loading. Use `String?`. This has bitten once already.
+
+**A clip's video and its XML must always end up with the same base name**, or they stop
+pairing on the next scan. That's why `CopyJob` carries a whole clip rather than one file.
+
+**Tags key off the UMID**, never the filename or path.
 
 ## Handy
 
