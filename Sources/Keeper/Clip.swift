@@ -35,9 +35,67 @@ enum FileUtil {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    /// The two readings macOS offers for free space. Either can be missing or zero
+    /// depending on the file system — an exFAT drive, which is how most external video
+    /// drives are formatted, does not report the APFS-aware figure.
+    static func freeSpaceReadings(at url: URL) -> (important: Int64?, plain: Int64?) {
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityKey
+        ]) else { return (nil, nil) }
+        return (values.volumeAvailableCapacityForImportantUsage,
+                values.volumeAvailableCapacity.map(Int64.init))
+    }
+
+    /// Free space at a folder, or nil when neither reading is usable.
+    ///
+    /// Takes the larger of the two. Apple's own documentation warns that "a zero or
+    /// unexpectedly small result doesn't necessarily mean the volume is full", and this
+    /// figure only drives an advisory warning — wrongly blocking a copy onto a half-empty
+    /// drive is a far worse failure than not warning about a genuinely full one, which the
+    /// copy itself would report anyway.
+    static func freeSpace(at url: URL) -> Int64? {
+        let readings = freeSpaceReadings(at: url)
+        let usable = [readings.important, readings.plain].compactMap { $0 }.filter { $0 > 0 }
+        return usable.max()
+    }
+
+    /// True when a file sits inside a camera's own folder structure. Used to refuse
+    /// in-place renaming on a card — Keeper only ever reads those.
+    static func looksLikeCameraCard(_ url: URL) -> Bool {
+        let path = url.path.uppercased()
+        return path.contains("/PRIVATE/M4ROOT/")
+            || path.contains("/DCIM/")
+            || path.contains("/AVCHD/")
+            || path.contains("/BDMV/")
+            || path.contains("/XDROOT/")
+    }
+
     static func size(of url: URL) -> Int64 {
         guard let v = try? url.resourceValues(forKeys: [.fileSizeKey]), let s = v.fileSize else { return -1 }
         return Int64(s)
+    }
+
+    /// A folder's standardized path with a trailing slash, so a prefix test can decide
+    /// containment without "/Cam A" also matching "/Cam A copy".
+    static func folderPath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasSuffix("/") ? path : path + "/"
+    }
+
+    /// Whether two URLs name the same file on disk. Two URLs for one file can differ as
+    /// strings — a relative component, a symlinked volume path — so they're resolved first.
+    static func sameFile(_ a: URL, _ b: URL) -> Bool {
+        a.standardizedFileURL.resolvingSymlinksInPath().path
+            == b.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// A folder that exists right now. A remembered export destination on a drive that has
+    /// since been unplugged still looks like a perfectly good URL.
+    static func isReachableFolder(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
     }
 
     /// Finds a base name free for *every* extension in the set, so a clip and its sidecar

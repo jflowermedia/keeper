@@ -29,6 +29,28 @@ struct TagPanel: View {
         library.tags(forUMID: clip?.umid).sorted { $0.created < $1.created }
     }
 
+    /// Categories already on the clip in the viewer. Clicking a category tags instantly and
+    /// clears the player selection, so there's no lasting "selected" state to show — what's
+    /// worth showing is what's already been applied.
+    private var categoriesOnClip: Set<String> {
+        Set(currentTags.map(\.category))
+    }
+
+    /// Players already tagged on the clip in the viewer. `Tag.playerID` is built the same way
+    /// as `Player.id`, so the two compare directly.
+    private var playersOnClip: Set<String> {
+        Set(currentTags.compactMap(\.playerID))
+    }
+
+    /// Accent means "picked, about to be tagged". Green means "already on this clip". Picking
+    /// wins the fill when a player is both, because that's the state you're about to act on —
+    /// the tick keeps the other half visible.
+    private func playerTint(picked: Bool, onClip: Bool) -> Color? {
+        if picked { return .accentColor }
+        if onClip { return .green }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
@@ -66,6 +88,12 @@ struct TagPanel: View {
         .padding(12)
         .frame(minWidth: 280, idealWidth: 300, maxWidth: 380,
                maxHeight: .infinity, alignment: .top)
+        // A picked player is armed for the clip you're looking at, so it doesn't follow you
+        // to the next one: the ring would sit on a player who has nothing to do with it,
+        // and hide the green of whoever is actually tagged on the clip now in view.
+        .onChange(of: clip?.id) { _ in
+            selectedPlayerIDs = []
+        }
     }
 
     // MARK: Header
@@ -140,7 +168,9 @@ struct TagPanel: View {
     }
 
     private var playerGrid: some View {
-        ScrollView {
+        // Resolved once for the whole grid rather than per chip.
+        let onClip = playersOnClip
+        return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 6)], spacing: 6) {
                 ForEach(players) { player in
                     Button {
@@ -150,28 +180,36 @@ struct TagPanel: View {
                             selectedPlayerIDs.insert(player.id)
                         }
                     } label: {
-                        HStack(spacing: 6) {
-                            Text(player.number.isEmpty ? "–" : player.number)
-                                .font(.caption.weight(.bold).monospacedDigit())
-                                .frame(minWidth: 22)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(player.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                if !player.position.isEmpty {
-                                    Text(player.position)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                        let picked = selectedPlayerIDs.contains(player.id)
+                        let tagged = onClip.contains(player.id)
+                        TagChip(tint: playerTint(picked: picked, onClip: tagged)) {
+                            HStack(spacing: 6) {
+                                Text(player.number.isEmpty ? "–" : player.number)
+                                    .font(.caption.weight(.bold).monospacedDigit())
+                                    .frame(minWidth: 22)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(player.name)
+                                        .font(.caption.weight(picked ? .semibold : .regular))
+                                        .lineLimit(1)
+                                        // Semibold is wider, so a long name shrinks slightly
+                                        // instead of truncating the moment it's picked.
+                                        .minimumScaleFactor(0.85)
+                                    if !player.position.isEmpty {
+                                        Text(player.position)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                                // Always green, so "green tick = already on this clip" holds
+                                // whether the chip is picked or not.
+                                if tagged {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(Color.green)
                                 }
                             }
-                            Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: .infinity)
-                        .background(selectedPlayerIDs.contains(player.id)
-                                    ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
                 }
@@ -183,7 +221,9 @@ struct TagPanel: View {
     // MARK: Categories
 
     private var categoryRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Resolved once for the whole grid rather than per chip.
+        let onThisClip = categoriesOnClip
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(hint)
                     .font(.caption)
@@ -208,20 +248,36 @@ struct TagPanel: View {
                 }
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 6)], spacing: 6) {
+            // 96, not 84: an adaptive grid packs in as many columns of at least the minimum
+            // as will fit and only then widens them, so a wider panel gives *narrower*
+            // cells. At 84 a 300pt panel lands on 88pt cells, and the tick on an applied
+            // chip then costs a letter off "Celebration". 96 keeps three columns at worst.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
                 ForEach(library.categories, id: \.self) { category in
+                    let applied = onThisClip.contains(category)
                     Button { tag(with: category) } label: {
-                        Text(category)
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.secondary.opacity(0.14))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        TagChip(tint: applied ? Color.green : nil, alignment: .center) {
+                            HStack(spacing: 4) {
+                                if applied {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption2.weight(.bold))
+                                }
+                                Text(category)
+                                    .font(.caption.weight(applied ? .semibold : .medium))
+                                    .lineLimit(1)
+                                    // A long category you've added yourself shrinks a little
+                                    // rather than losing its end to an ellipsis.
+                                    .minimumScaleFactor(0.85)
+                            }
+                        }
                     }
                     .buttonStyle(.plain)
                     .disabled(clip == nil)
                     .opacity(clip == nil ? 0.4 : 1)
+                    .help(applied
+                          ? "\(category) is already on this clip. Clicking again adds it for "
+                            + "whoever you've got selected."
+                          : "Tag this clip as \(category)")
                     .contextMenu {
                         Button("Remove \"\(category)\"", role: .destructive) {
                             if state.filterCategory == category { state.filterCategory = nil }
@@ -259,6 +315,19 @@ struct TagPanel: View {
                         .font(.caption.weight(.semibold))
                     if let who = tag.playerLabel {
                         Text(who).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    // The green chips above only cover the roster on show, so a tag belonging
+                    // to another team would otherwise look like nothing was highlighted.
+                    if let other = tag.teamName, tag.teamID != team?.id {
+                        Text(other)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.18))
+                            .clipShape(Capsule())
+                            .lineLimit(1)
+                            .help("Tagged under \(other). Switch the team picker to see it "
+                                  + "highlighted in the roster.")
                     }
                     if let position = tag.playerPosition {
                         Text(position).font(.caption2).foregroundStyle(.tertiary)
@@ -352,6 +421,36 @@ struct TagPanel: View {
             importMessage = error.localizedDescription
             state.status = "Roster import failed: \(error.localizedDescription)"
         }
+    }
+}
+
+/// One pill for players and categories alike, so the panel reads as a single system.
+///
+/// `tint` nil is the resting state — a plain grey chip. A tint means the chip is on, shown
+/// as a stronger fill *and* a ring around the edge. The ring is what makes it unmistakable:
+/// a fill alone, at any opacity that still leaves the text readable, is easy to miss at a
+/// glance mid-game, and it disappears entirely for a colour-blind viewer. Call sites add a
+/// checkmark on top where there's room for one.
+///
+/// The colours mean different things and shouldn't be swapped: accent is "picked, about to
+/// be tagged", green is "already on this clip".
+private struct TagChip<Content: View>: View {
+    var tint: Color?
+    var alignment: Alignment = .leading
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .background(tint?.opacity(0.28) ?? Color.secondary.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            // strokeBorder draws inside the shape, so the ring isn't half-clipped.
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(tint ?? .clear, lineWidth: 2)
+            )
     }
 }
 

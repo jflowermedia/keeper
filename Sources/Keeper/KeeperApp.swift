@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.2"
+    static let version = "0.3"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -30,6 +30,24 @@ struct KeeperApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About Keeper") { Self.showAbout() }
             }
+            CommandMenu("Mark") {
+                Button("Toggle KEEP on Previewed Clip") {
+                    if let clip = state.previewClip { state.toggleKeep(clip) }
+                }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(state.previewClip == nil)
+
+                Divider()
+                Button("Mark Selection KEEP") { state.setKeepInScope(true) }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .disabled(state.dragClips.isEmpty)
+                Button("Mark Selection NOT KEEP") { state.setKeepInScope(false) }
+                    .keyboardShortcut("k", modifiers: [.command, .option])
+                    .disabled(state.dragClips.isEmpty)
+                Button("Revert Selection to Camera Flags") { state.revertKeepInScope() }
+                    .disabled(state.dragClips.isEmpty)
+            }
+
             CommandGroup(after: .newItem) {
                 Button("Choose Folder…") { state.chooseCard() }
                     .keyboardShortcut("o", modifiers: .command)
@@ -37,9 +55,10 @@ struct KeeperApp: App {
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(state.root == nil)
                 Divider()
-                Button("Copy to Folder…") { state.copyToFolder() }
+                Button("Export…") { state.requestExport() }
                     .keyboardShortcut("s", modifiers: .command)
-                    .disabled(state.dragClips.isEmpty)
+                    .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
+                Button("Edit Filename Presets…") { state.showPresetEditor = true }
             }
             CommandGroup(after: .sidebar) {
                 Toggle("Tagging Panel", isOn: $showTagging)

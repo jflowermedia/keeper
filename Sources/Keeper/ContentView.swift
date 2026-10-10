@@ -6,7 +6,6 @@ struct ContentView: View {
     @ObservedObject var state: AppState
     @ObservedObject private var library = TagLibrary.shared
     @State private var inspecting: Clip?
-    @State private var editingPresets = false
     @AppStorage("showTagging") private var showTagging = true
 
     var body: some View {
@@ -37,12 +36,17 @@ struct ContentView: View {
         }
         // Without the .infinity maxima the whole window's content sizes to itself
         // and floats in the middle of a larger window.
-        .frame(minWidth: 1020, maxWidth: .infinity,
+        .frame(minWidth: 1100, maxWidth: .infinity,
                minHeight: 620, maxHeight: .infinity)
         .sheet(item: $inspecting) { clip in
             XMLInspector(clip: clip, keepWord: state.keepWord)
         }
-        .sheet(isPresented: $editingPresets) {
+        .sheet(isPresented: $state.showExportSheet) {
+            ExportSheet(state: state)
+        }
+        // The export sheet opens this itself. This is the route from the menu, so presets
+        // are still reachable without going through an export.
+        .sheet(isPresented: $state.showPresetEditor) {
             PresetEditor()
         }
         .onAppear {
@@ -237,11 +241,23 @@ struct ContentView: View {
                     ClipRow(clip: clip,
                             urls: state.urls(for: clip),
                             includeXML: state.includeXML,
-                            tags: state.library.tags(forUMID: clip.umid))
+                            tags: state.library.tags(forUMID: clip.umid),
+                            isKeep: state.isKeep(clip),
+                            isChanged: state.isKeepChanged(clip),
+                            onToggleKeep: { state.toggleKeep(clip) })
                         .contextMenu {
                             Button("Show XML…") { inspecting = clip }
                             Button("Reveal in Finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([clip.videoURL])
+                            }
+                            Divider()
+                            Button(state.isKeep(clip) ? "Mark NOT KEEP" : "Mark KEEP") {
+                                state.toggleKeep(clip)
+                            }
+                            if state.isKeepChanged(clip), let umid = clip.umid {
+                                Button("Revert to the camera's flag") {
+                                    state.library.clearKeepOverride(umid: umid)
+                                }
                             }
                             if let umid = clip.umid, state.library.isTagged(umid) {
                                 Divider()
@@ -347,8 +363,19 @@ struct ContentView: View {
             Divider().frame(height: 26)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
-                    .font(.callout)
+                HStack(spacing: 6) {
+                    Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
+                        .font(.callout)
+                    if state.changedKeepCount > 0 {
+                        Text("\(state.changedKeepCount) changed")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.25))
+                            .clipShape(Capsule())
+                            .help("Flags you changed. They're written into the XML on export, never onto the card.")
+                    }
+                }
                 Text(state.status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -360,38 +387,14 @@ struct ContentView: View {
 
             Toggle("Include XML", isOn: $state.includeXML)
                 .toggleStyle(.checkbox)
-                .help("Take each clip's XML sidecar along with its video")
+                .help("Take each clip's XML sidecar along with its video. Applies to dragging and to export.")
 
-            Picker("", selection: $state.grouping) {
-                ForEach(AppState.Grouping.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .labelsHidden()
-            .frame(width: 150)
-            .help("""
-                  How Copy to Folder lays out the destination.
-                  Per category: one copy of each clip, in the folder for its highest-priority tag — the same tag its filename uses.
-                  Per player: a copy in each tagged player's folder, so every player's folder is complete.
-                  """)
-
-            Menu {
-                Button("Keep original names") { state.renamePresetID = nil }
-                if !state.library.presets.isEmpty {
-                    Divider()
-                    ForEach(state.library.presets) { preset in
-                        Button(preset.name) { state.renamePresetID = preset.id }
-                    }
-                }
-                Divider()
-                Button("Edit Presets…") { editingPresets = true }
-            } label: {
-                Text(state.activePreset?.name ?? "Original names")
-            }
-            .frame(width: 150)
-            .help(state.activePreset.map { "Copies are renamed: \(Renamer.preview(preset: $0))" }
-                  ?? "Copies keep their camera filenames. Pick a preset to rename them.")
-
-            Button("Copy to Folder…") { state.copyToFolder() }
-                .disabled(state.dragClips.isEmpty || state.isCopying || state.isScanning)
+            // Everything about getting footage out now lives behind this one button, so the
+            // choice between copying and renaming is made with the numbers in front of you.
+            Button("Export…") { state.requestExport() }
+                .buttonStyle(.borderedProminent)
+                .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
+                .help("Copy the clips somewhere else, or rename them where they already are")
 
             MultiDragHandle(urls: state.isCopying ? [] : state.dragURLs, label: dragLabel, style: .bar)
                 .frame(width: 250, height: 36)
@@ -422,6 +425,9 @@ struct ClipRow: View {
     let urls: [URL]
     let includeXML: Bool
     let tags: [Tag]
+    let isKeep: Bool
+    let isChanged: Bool
+    let onToggleKeep: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -443,14 +449,44 @@ struct ClipRow: View {
 
             Spacer()
 
-            Text(clip.isKeep ? "KEEP" : "—")
-                .font(.caption.weight(.bold))
-                .padding(.horizontal, 7)
+            Button(action: onToggleKeep) {
+                HStack(spacing: 4) {
+                    if isChanged {
+                        Image(systemName: "pencil")
+                            .font(.caption2)
+                    }
+                    Text(isKeep ? "KEEP" : "—")
+                        .font(.caption.weight(.bold))
+                }
+                .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(clip.isKeep ? Color.green.opacity(0.25) : Color.clear)
+                .background(badgeFill)
+                .overlay(
+                    Capsule().strokeBorder(isChanged ? Color.orange.opacity(0.9) : .clear,
+                                           lineWidth: 1)
+                )
                 .clipShape(Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(clip.umid == nil)      // no UMID, nothing to hang an override on
+            .help(helpText)
         }
         .padding(.vertical, 2)
+    }
+
+    private var badgeFill: Color {
+        if isKeep { return isChanged ? .orange.opacity(0.28) : .green.opacity(0.25) }
+        return isChanged ? .orange.opacity(0.18) : .clear
+    }
+
+    private var helpText: String {
+        guard clip.umid != nil else { return "No UMID in this clip's XML, so its flag can't be changed" }
+        if isChanged {
+            return "You changed this to \(isKeep ? "KEEP" : "NOT KEEP"). The camera says "
+                 + "\(clip.isKeep ? "KEEP" : "NOT KEEP"). Click to change back. Applied to the copy, never the card."
+        }
+        return "From the camera. Click to mark \(isKeep ? "NOT KEEP" : "KEEP")."
     }
 }
 

@@ -82,7 +82,64 @@ final class TagLibrary: ObservableObject {
     @Published private(set) var tags: [Tag] = []
     @Published var presets: [RenamePreset] = [.standard()]
 
+    /// Clips you've marked or unmarked yourself, by UMID. The card is never touched: the
+    /// override is applied to the sidecar at the destination when the clip is copied out.
+    @Published private(set) var keepOverrides: [String: Bool] = [:]
+
     private init() { load() }
+
+    // MARK: Keep overrides
+
+    func keepOverride(for umid: String?) -> Bool? {
+        guard let umid else { return nil }
+        return keepOverrides[umid]
+    }
+
+    /// Setting it back to the camera's own flag clears the override rather than storing it,
+    /// so "changed" only ever means genuinely different from the card.
+    func setKeep(_ keep: Bool, umid: String, cameraFlag: Bool) {
+        if keep == cameraFlag {
+            keepOverrides[umid] = nil
+        } else {
+            keepOverrides[umid] = keep
+        }
+        save()
+    }
+
+    /// Bulk version: one write of the library rather than one per clip. Marking a hundred
+    /// clips individually rewrote every tag a hundred times.
+    func setKeep(_ keep: Bool, for clips: [(umid: String, cameraFlag: Bool)]) {
+        guard !clips.isEmpty else { return }
+        for clip in clips {
+            if keep == clip.cameraFlag {
+                keepOverrides[clip.umid] = nil
+            } else {
+                keepOverrides[clip.umid] = keep
+            }
+        }
+        save()
+    }
+
+    func clearKeepOverride(umid: String) {
+        guard keepOverrides[umid] != nil else { return }
+        keepOverrides[umid] = nil
+        save()
+    }
+
+    @discardableResult
+    func clearKeepOverrides(umids: [String]) -> Int {
+        let hits = umids.filter { keepOverrides[$0] != nil }
+        guard !hits.isEmpty else { return 0 }
+        for umid in hits { keepOverrides[umid] = nil }
+        save()
+        return hits.count
+    }
+
+    func clearAllKeepOverrides() {
+        guard !keepOverrides.isEmpty else { return }
+        keepOverrides = [:]
+        save()
+    }
 
     static let defaultCategories = [
         "Goal", "Assist", "Save", "Hit", "Penalty",
@@ -261,11 +318,14 @@ final class TagLibrary: ObservableObject {
 
     // MARK: Persistence
 
+    // Every field added after the first release is optional, because Swift's generated
+    // decoder throws on a missing key even when the property has a default value.
     private struct Archive: Codable {
         var teams: [Team]
         var categories: [String]
         var tags: [Tag]
-        var presets: [RenamePreset]?      // optional: libraries written before presets existed
+        var presets: [RenamePreset]?
+        var keepOverrides: [String: Bool]?
     }
 
     static var storeURL: URL {
@@ -316,12 +376,17 @@ final class TagLibrary: ObservableObject {
         categories = archive.categories.isEmpty ? Self.defaultCategories : archive.categories
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
+        keepOverrides = archive.keepOverrides ?? [:]
         rebuildIndex()
     }
 
     func save() {
         guard loadFailure == nil else { return }   // never overwrite a library we couldn't read
-        let archive = Archive(teams: teams, categories: categories, tags: tags, presets: presets)
+        let archive = Archive(teams: teams,
+                              categories: categories,
+                              tags: tags,
+                              presets: presets,
+                              keepOverrides: keepOverrides)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

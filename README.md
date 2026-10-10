@@ -6,7 +6,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status="KEEP"` on `<TargetMaterial>`. The flag word is configurable, so other cameras are likely to work too.
 
-> **Alpha — version 0.2.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
+> **Alpha — version 0.3.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
 
 <!-- Add a screenshot here: press Cmd-Shift-4 then Space to grab the window, then drag the
      file into the README editor on github.com and it uploads and inserts the link for you. -->
@@ -38,14 +38,21 @@ xattr -dr com.apple.quarantine /Applications/Keeper.app
 3. Click a clip to preview it. Shift or ⌘-click for several, ⌘A for all.
 
    Transport keys work wherever the focus is: **Space** or **2** play and pause, **3** shuttles forward, **1** shuttles back. Press 1 or 3 again to step up through 2x, 4x and 8x. A readout in the corner of the viewer shows direction and speed.
-4. Drag out, either way:
-   - the **grip dots** at the left of a row drag that one clip, or
-   - the **drag bar** at the bottom right drags your selection; with nothing selected it drags everything the filter is showing. Its label says how many clips and how much data.
-5. **Copy to Folder…** (⌘S) does the same through a folder picker, with renaming and folder grouping.
+4. Get them out, either way:
+   - **drag** them — the **grip dots** at the left of a row drag that one clip, and the **drag bar** at the bottom right drags your selection, or everything the filter is showing when nothing is selected, or
+   - **Export…** (⌘S) for anything more than a plain drag: renaming, folder layout, writing changed flags. See [Exporting](#exporting).
 
-**Include XML** decides whether each clip's sidecar travels with its video. It applies everywhere.
+**Include XML** decides whether each clip's sidecar travels with its video when you drag.
 
-Nothing on your cards is ever modified or deleted.
+### Changing the flag
+
+Click a clip's **KEEP** badge to mark or unmark it, or press ⌘K for the one in the viewer. The **Mark** menu does a whole selection at once.
+
+Changed clips show an orange badge with a pencil, and the footer counts how many you've changed. The tooltip tells you what the camera originally said, and the right-click menu can put it back.
+
+**Nothing is written to your card.** The change lives in Keeper's library until you export the clip, and then only the *exported* sidecar is edited — `status="KEEP"` added to or removed from its `<TargetMaterial>`, with the rest of the file left byte-for-byte alone. The card keeps whatever you flagged in camera.
+
+Two things follow from that. A change only reaches a copy if the sidecar goes with it, and the export sheet says so in as many words when it won't. And because the marks are keyed to the clip's UMID, they survive rescanning, renaming and moving the footage to another drive.
 
 ## Tagging
 
@@ -63,6 +70,10 @@ The `code` column is the short form used in filenames. Give each roster its own 
 
 **Tag a clip** — click a player, click a category. The selection clears straight afterwards, so the usual case (one player scores, another assists) is: #15, Goal, #17, Assist. Select several players before clicking a category when they genuinely share it; each gets their own tag.
 
+Colour tells you two different things. A ring in the accent colour means **picked, about to be tagged**. Green with a tick means **already on this clip** — both for players and for categories — so you can see what a clip already carries without reading the list underneath. A player who is both shows the accent ring and keeps the green tick.
+
+Picking a player applies to the clip you're looking at, so it clears when you move to another one. Green updates to match whatever is now in the viewer. The chips only cover the roster currently on show, so a tag belonging to another team is labelled with its team name in the list instead.
+
 **Categories** start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview, B-Roll. Add your own with the **+**, remove one by right-clicking it. Their order is also the tag priority — see below.
 
 **Re-importing updates what's already tagged.** Fix a spelling or add a column, import again, and existing tags pick it up, matched on team and jersey number. There's also *Update Tags from Roster* in the panel's menu.
@@ -71,17 +82,34 @@ The `code` column is the short form used in filenames. Give each roster its own 
 
 **Remove tags** in bulk with the button at the foot of the panel. It acts on your selection, or everything the filter is showing when nothing is selected, and asks first.
 
-## Delivering
+## Exporting
 
-Two pickers sit beside *Copy to Folder*.
+**Export…** (⌘S) opens one sheet that asks four things and shows you the answer to each before you commit.
 
-**Folder layout:**
+**Which clips** — the ones you've selected, or everything the filter is showing. It opens on whichever you'd expect: your selection if you made one, otherwise everything in view. The filters in play are printed underneath, so there's no exporting last week's team by accident.
+
+**Naming** — a preset, or the camera's own names. Pick one and the sheet shows a real before-and-after from the first clip in the batch.
+
+**Where they go** — the whole decision, in two lines:
+
+- *Copy to another folder* — a renamed, sorted copy somewhere else. The originals stay exactly where they are.
+- *Rename them where they already are* — nothing is copied, so you don't end up with the same footage twice. See [below](#renaming-footage-youve-already-offloaded).
+
+**Along with the video** — whether each clip's sidecar comes too, and what happens to any KEEP flags you changed.
+
+The button at the bottom right says what is actually about to happen — *Copy 70 Clips*, *Rename 35 Clips*, *Write 3 Flags* — and the line beside it totals the files and the data. If something's missing, that line says what instead of leaving the button to fail quietly.
+
+### Folder layout
+
+When you're copying, *Layout* decides how the destination is arranged:
 
 - *One folder* — everything together.
 - *Folder per category* — one copy of each clip, in the folder for its highest-priority tag. The folder and the filename agree, and a clip is never duplicated.
 - *Folder per player* — a copy in each tagged player's folder, so every player's folder is complete. This one duplicates by design.
 
-**Filename preset,** or leave names alone. The built-in **Standard** preset gives:
+### Filenames
+
+Pick a preset, or leave names alone. The built-in **Standard** preset gives:
 
 ```
 C7531_261003_YWP_Marchetti_Goal.MP4
@@ -93,7 +121,17 @@ Build your own per client in **Edit Presets…**: name it, set a fallback team c
 
 **Tag priority** decides which tag lands in the filename, and which folder the clip goes to, when it carries several. It's the order of the category list, set in the preset editor.
 
-Each clip's XML is renamed to match its video, so the pair still finds each other when you scan that folder later. Renaming applies to *Copy to Folder* only — dragging to Finder keeps the camera names, because macOS gives the app no say in what a dropped file is called.
+### Renaming footage you've already offloaded
+
+If you pulled footage off in a hurry to cut something on the day, it's sitting on your drive under the camera's names. Tagging it later and copying it out again would leave you with the same footage twice — once named, once not.
+
+Instead, scan that folder, tag it, then export with **Rename them where they already are**. It renames the footage in place, sidecars included, and writes in any KEEP flags you've changed. Nothing is copied, so you don't end up with the footage twice.
+
+So the workflow for footage already on your drive is: scan the folder → tag → Export → *Rename them where they already are*. There's no copy step, because the files are already where you want them.
+
+Two things to know. It's refused on a camera card — Keeper only ever reads those, so copy the footage off first. And it will **break the media links in any edit already built on those files**, which the sheet warns you about in orange. Use it on footage whose rush edit is finished, or before you start cutting.
+
+Each clip's XML is renamed to match its video, so the pair still find each other when you scan that folder later. Renaming only happens on export — dragging to Finder keeps the camera names, because macOS gives the app no say in what a dropped file is called.
 
 ## Copy safety
 
