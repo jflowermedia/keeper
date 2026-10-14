@@ -1,187 +1,69 @@
 # Keeper
 
-Built by [JFlowerMedia](https://jflowermedia.com/)
-
 A macOS app for getting sports footage off a card and into a delivery. It reads the KEEP flag your camera writes into its XML sidecars, lets you tag clips to players and events, and copies them out renamed and sorted.
 
-Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status="KEEP"` on `<TargetMaterial>`. The flag word is configurable, so other cameras are likely to work too.
+Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha — version 0.4.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.4.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
-## Download
+## What it does
 
-Grab the latest `Keeper.zip` from [Releases](../../releases), unzip it, and drag **Keeper.app** to your Applications folder. Requires macOS 13 or later.
+**Reads the flag you set in camera.** Point it at a card, an SSD, or any folder of footage. It finds the XML sidecars, pairs each to its video, and filters to the clips you marked KEEP — or the ones you didn't, for warmups and B-roll. You can mark and unmark clips in the app too; those changes go into the exported sidecar, never onto the card.
 
-### First launch: macOS will block it
+**Previews without leaving the app.** Space plays and pauses, 1 and 3 shuttle back and forward through 2x, 4x and 8x.
 
-You'll see **"Apple could not verify Keeper is free of malware."** That's expected. Keeper isn't notarized by Apple, which needs a paid developer account. The app is open source — every line of it is in this repo, and you can build it yourself if you'd rather not take my word for it.
+**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
 
-To open it anyway:
+![The roster editor: teams listed down the left under their league headings, and on the right the selected team's name, filename code and league, above a list of players with editable number, name and position](docs/rosters.png)
+
+**Filters by what you tagged.** Team, player, position and category, in any combination, on top of the KEEP filter. Every save by a goalie, or every clip of #17 you marked KEEP, is a few clicks.
+
+**Renames to a client's convention.** Build a preset from the parts you want — original name, shoot date, team code, player surname, event — and keep one per client.
+
+```
+C7531_261003_WHKY_Marchetti_Goal.MP4
+```
+
+![The filename preset editor: a preview of the resulting filename at the top, then the preset name, team code and separator, then the name parts listed in order with a live example beside each, and the tag priority list below](docs/presets.png)
+
+**Exports in one sheet.** It shows which clips are included, the names it will produce, where they're going and how much data that is, before anything moves. Copy them out into one folder, a folder per player, or a folder per event — or rename footage you already offloaded where it sits, so you don't end up holding the same game twice. Clips can also be dragged straight into Finder.
+
+![The Export sheet: radio buttons choosing between the selected clip and all 18 the filter is showing, a naming preset, a choice between copying to another folder and renaming in place, and a checkbox for the XML sidecar. The footer totals the clips, files and data, and the action button is disabled with a line saying to choose where the copies should go](docs/export.png)
+
+## Copy safety
+
+- Keeper never writes to, renames or deletes anything on a camera card. A flag you changed is applied to the copy; the card keeps what you set in camera.
+- Free space at the destination is checked before anything is written.
+- Every copy is size-checked against its source afterwards. A mismatch is reported as a failure, not a success.
+- A file already there with the same name and size is skipped as a duplicate.
+- A clip's video and sidecar are named together, so a filename clash can't separate them.
+- Tags are keyed to the camera's UMID rather than the filename, so they survive renaming, copying to another drive, and a card restarting its numbering.
+
+## Which cameras
+
+Built against a **Sony ILCE-7SM3 (A7S III)**, where a flagged clip's XML carries `status="KEEP"` on `<TargetMaterial>`. The flag word is configurable and detection is deliberately loose, so other cameras that write an XML sidecar are likely to work. If yours doesn't, debug mode shows what's in your sidecars — open an issue with it.
+
+## Install
+
+Download `Keeper.zip` from [Releases](../../releases), unzip, and drag **Keeper.app** to Applications.
+
+### macOS will block it on first launch
+
+You'll see *"Apple could not verify Keeper is free of malware."* Keeper isn't notarized by Apple, which needs a paid developer account. The app is open source: every line is in this repo, and you can build it yourself rather than take my word for it.
 
 1. Double-click Keeper, then click **Done** on the warning.
-2. Open **System Settings → Privacy & Security** and scroll to **Security**. There'll be a line saying *"Keeper" was blocked to protect your Mac*, with an **Open Anyway** button.
-3. Click **Open Anyway**, authenticate, then open Keeper again and click **Open**.
+2. Open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** beside the line about Keeper.
+3. Authenticate, open Keeper again, click **Open**.
 
-Once per version, then it opens normally. On macOS 14 and earlier, right-clicking the app and choosing **Open** does the same in one step — Apple removed that shortcut in macOS 15. Either way, this one command skips the whole dance:
+Once per version. Or skip it in one command:
 
 ```
 xattr -dr com.apple.quarantine /Applications/Keeper.app
 ```
 
-## Sorting clips
-
-1. **Choose Folder…** (⌘O) and pick a card, an SSD, or any folder of clips. It scans everything underneath for `.xml` sidecars.
-2. Filter by **IS KEEP**, **IS NOT KEEP**, or **ALL**.
-3. Click a clip to preview it. Shift or ⌘-click for several, ⌘A for all.
-
-   Transport keys work wherever the focus is: **Space** or **2** play and pause, **3** shuttles forward, **1** shuttles back. Press 1 or 3 again to step up through 2x, 4x and 8x. A readout in the corner of the viewer shows direction and speed.
-4. Get them out, either way:
-   - **drag** them — the **grip dots** at the left of a row drag that one clip, and the **drag bar** at the bottom right drags your selection, or everything the filter is showing when nothing is selected, or
-   - **Export…** (⌘S) for anything more than a plain drag: renaming, folder layout, writing changed flags. See [Exporting](#exporting).
-
-**Include XML** decides whether each clip's sidecar travels with its video when you drag.
-
-### Changing the flag
-
-Click a clip's **KEEP** badge to mark or unmark it, or press ⌘K for the one in the viewer. The **Mark** menu does a whole selection at once.
-
-Changed clips show an orange badge with a pencil, and the footer counts how many you've changed. The tooltip tells you what the camera originally said, and the right-click menu can put it back.
-
-**Nothing is written to your card.** The change lives in Keeper's library until you export the clip, and then only the *exported* sidecar is edited — `status="KEEP"` added to or removed from its `<TargetMaterial>`, with the rest of the file left byte-for-byte alone. The card keeps whatever you flagged in camera.
-
-Two things follow from that. A change only reaches a copy if the sidecar goes with it, and the export sheet says so in as many words when it won't. And because the marks are keyed to the clip's UMID, they survive rescanning, renaming and moving the footage to another drive.
-
-## Tagging
-
-Press ⌘E for the tagging panel.
-
-**Import a roster** — a CSV of `team, number, name`, plus optional `code`, `position` and `league` columns. A header row is optional; without a team column the file's own name becomes the team. Several teams can live in one file. `roster-yateley-wood-pigeons.csv` is in this repo to test with.
-
-```csv
-league,team,code,number,name,position
-MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
-MJHL,Virden Oil Capitals,VIR,31,Micky Gross,Goalie
-```
-
-The `code` column is the short form used in filenames. Give each roster its own and a single preset serves every team you shoot. Team names must be distinct. A club's men's and women's sides are two teams, so give them names that differ — calling both by the club name alone makes the second import replace the first.
-
-The `league` column files rosters under a heading in the team menus — `MJHL`, a club name, a client, whatever you sort by. Once there's more than one heading, both team menus group by it; with one, they stay flat. Anything without a league sits under *Other*, at the bottom. `org`, `organisation`, `organization` and `group` all work as the column name too.
-
-Re-importing a roster with columns missing keeps what's already set, so fixing a spelling with a bare `team, number, name` file won't cost you the team's code or league.
-
-**Tag a clip** — click a player, click a category. The selection clears straight afterwards, so the usual case (one player scores, another assists) is: #15, Goal, #17, Assist. Select several players before clicking a category when they genuinely share it; each gets their own tag.
-
-Colour tells you two different things. A ring in the accent colour means **picked, about to be tagged**. Green with a tick means **already on this clip** — both for players and for categories — so you can see what a clip already carries without reading the list underneath. A player who is both shows the accent ring and keeps the green tick.
-
-Picking a player applies to the clip you're looking at, so it clears when you move to another one. Green updates to match whatever is now in the viewer. The chips only cover the roster currently on show, so a tag belonging to another team is labelled with its team name in the list instead.
-
-**Categories** start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview, B-Roll. Add your own with the **+**, remove one by right-clicking it. Their order is also the tag priority — see below.
-
-**Re-importing updates what's already tagged.** Fix a spelling or add a column, import again, and existing tags pick it up, matched on team and jersey number. There's also *Update Tags from Roster* in the panel's menu.
-
-**Edit rosters in the app** — ⌘⇧R, or *Edit Rosters…* in the panel's menu. Change a team's name, filename code or league, fix a name or position, add and remove players, or add a team and type a roster in from scratch when there's no CSV to be had.
-
-![The roster editor: teams listed down the left under their league headings, and on the right the selected team's name, filename code and league, above a list of players with editable number, name and position](docs/rosters.png)
-
-Edits are applied in one go rather than as you type, so a half-typed number can't collide with a real player. *Apply* saves without closing; switching team saves too, and if something's wrong it keeps you where you are with the reason rather than losing what you typed.
-
-Two things it won't let you do, both for the same reason — Keeper tells players apart by team and jersey number:
-
-- **Two players can't share a number.** This is the one to know about if a roster lists an affiliate on a call-up sharing a number with a regular. Give one of them their real number, or leave them off.
-- **Two teams can't share a name**, since an import of one would replace the other.
-
-Renumbering a player moves every tag already recorded against them — the row turns orange while that's pending and the footer says how many tags will move. Renaming a team keeps its underlying identity, so tags stay attached; only the name you see changes.
-
-**Prefer renumbering to removing.** Renumbering carries a player's tags with them; removing leaves those tags behind on a number that someone else may end up wearing, and the next roster refresh would rewrite them to that person's name. The footer counts tags that would be stranded before you apply.
-
-**Filter by tag** — the bar under the toolbar narrows by team, player, position and category, in any combination, on top of the KEEP filter. "Every clip of #17 scoring that I marked KEEP" is three clicks, and so is "every save by a goalie". Choosing a team also narrows the player and position menus to that roster.
-
-**Remove tags** in bulk with the button at the foot of the panel. It acts on your selection, or everything the filter is showing when nothing is selected, and asks first.
-
-## Exporting
-
-**Export…** (⌘S) opens one sheet that asks four things and shows you the answer to each before you commit.
-
-![The Export sheet: radio buttons choosing between the selected clip and all 18 the filter is showing, a naming preset, a choice between copying to another folder and renaming in place, and a checkbox for the XML sidecar. The footer totals the clips, files and data, and the action button is disabled with a line saying to choose where the copies should go](docs/export.png)
-
-**Which clips** — the ones you've selected, or everything the filter is showing. It opens on whichever you'd expect: your selection if you made one, otherwise everything in view. The filters in play are printed underneath, so there's no exporting last week's team by accident.
-
-**Naming** — a preset, or the camera's own names. Pick one and the sheet shows a real before-and-after from the first clip in the batch.
-
-**Where they go** — the whole decision, in two lines:
-
-- *Copy to another folder* — a renamed, sorted copy somewhere else. The originals stay exactly where they are.
-- *Rename them where they already are* — nothing is copied, so you don't end up with the same footage twice. See [below](#renaming-footage-youve-already-offloaded).
-
-**Along with the video** — whether each clip's sidecar comes too, and what happens to any KEEP flags you changed.
-
-The button at the bottom right says what is actually about to happen — *Copy 70 Clips*, *Rename 35 Clips*, *Write 3 Flags* — and the line beside it totals the files and the data. If something's missing, that line says what instead of leaving the button to fail quietly.
-
-### Folder layout
-
-When you're copying, *Layout* decides how the destination is arranged:
-
-- *One folder* — everything together.
-- *Folder per category* — one copy of each clip, in the folder for its highest-priority tag. The folder and the filename agree, and a clip is never duplicated.
-- *Folder per player* — a copy in each tagged player's folder, so every player's folder is complete. This one duplicates by design.
-
-### Filenames
-
-Pick a preset, or leave names alone. The built-in **Standard** preset gives:
-
-```
-C7531_261003_YWP_Marchetti_Goal.MP4
-```
-
-Original name, shoot date, team code, player surname, tag. The team code comes from the roster's `code` column. The date comes from the XML's `CreationDate`, so it's when the camera rolled rather than when the file was last touched.
-
-![The filename preset editor: a preview of the resulting filename at the top, then the preset name, team code and separator, then the name parts listed in order with a live example beside each, and the tag priority list below](docs/presets.png)
-
-Build your own per client in **Edit Presets…**. The buttons under the list add a preset, **duplicate** the selected one, or delete it — a new client is usually a small change to a convention that already works, so copying beats rebuilding the token list. A copy comes in as "Bisons copy", then "Bisons copy 2", because presets are picked from a menu that shows nothing but their names.
-
-To build one from scratch: name it, set a fallback team code, choose the separator, and stack up the parts — original name, date in two formats, team code, roster team, player surname, first name or number, the top tag, or every tag. A live preview shows the result as you go. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
-
-**Tag priority** decides which tag lands in the filename, and which folder the clip goes to, when it carries several. It's the order of the category list, set in the preset editor.
-
-### Renaming footage you've already offloaded
-
-If you pulled footage off in a hurry to cut something on the day, it's sitting on your drive under the camera's names. Tagging it later and copying it out again would leave you with the same footage twice — once named, once not.
-
-Instead, scan that folder, tag it, then export with **Rename them where they already are**. It renames the footage in place, sidecars included, and writes in any KEEP flags you've changed. Nothing is copied, so you don't end up with the footage twice.
-
-So the workflow for footage already on your drive is: scan the folder → tag → Export → *Rename them where they already are*. There's no copy step, because the files are already where you want them.
-
-Two things to know. It's refused on a camera card — Keeper only ever reads those, so copy the footage off first. And it will **break the media links in any edit already built on those files**, which the sheet warns you about in orange. Use it on footage whose rush edit is finished, or before you start cutting.
-
-Each clip's XML is renamed to match its video, so the pair still find each other when you scan that folder later. Renaming only happens on export — dragging to Finder keeps the camera names, because macOS gives the app no say in what a dropped file is called.
-
-## Copy safety
-
-- Free space at the destination is checked against the total before anything is written.
-- A file already there with the same name and size is skipped as a duplicate.
-- A clip's video and sidecar are named together, so they can never be split apart by a clash.
-- Every copy is size-checked afterwards; a mismatch is reported as a failure, not a success.
-- A progress bar along the bottom tracks bytes, not file count, so it doesn't lurch.
-
-## Debug mode
-
-⌘D for a log showing how many XML and video files were found, which XML paired with which video, exactly what in each XML marked it KEEP, sidecars that matched no video, videos with no sidecar, and the result of every copy. **Copy Log** puts it on the clipboard — the most useful thing to paste into a bug report.
-
-## If KEEP clips aren't detected
-
-Right-click a clip and choose **Show XML…** to see what yours contains, then type the exact word it uses into **Flag word** and press Return. A clip counts as KEEP when that word turns up in an element name, attribute name, attribute value or text, and isn't set to false/0/off/no.
-
-## How tags stay attached
-
-Tags are keyed to the **UMID** in each clip's XML — the unique ID the camera writes per clip. Not the filename, which comes round again every time a card's numbering resets, and not the path, which changes the moment you move footage to a drive.
-
-So a tag follows its clip when you rename it, copy it to an SSD, or archive it. Each tag also records the clip's name, drive and path, so the library stays readable when that drive isn't plugged in.
-
-Everything lives in `~/Library/Application Support/Keeper/library.json` — teams, categories, presets and tags in one readable file. Worth backing up once you've tagged a game you care about.
-
-## Build from source
+### Build from source instead
 
 Needs macOS 13+ and Xcode's command line tools (`xcode-select --install`).
 
@@ -192,20 +74,114 @@ chmod +x build_app.sh
 ./build_app.sh --install
 ```
 
-See [DEVELOPING.md](DEVELOPING.md) for the rest.
+[DEVELOPING.md](DEVELOPING.md) has the rest.
+
+---
+
+# Guide
+
+## Shortcuts
+
+| | |
+|---|---|
+| ⌘O | Choose folder |
+| ⌘R | Rescan |
+| Space or 2 | Play, pause |
+| 1 and 3 | Shuttle back and forward — press again for 2x, 4x, 8x |
+| ⌘K | Toggle KEEP on the previewed clip |
+| ⌘E | Tagging panel |
+| ⌘I | Import roster CSV |
+| ⌘⇧R | Edit rosters |
+| ⌘S | Export |
+| ⌘D | Debug log |
+
+## Scanning
+
+**Choose Folder…** takes a card, an SSD, or any folder, and scans everything underneath for `.xml` sidecars. Filter by **IS KEEP**, **IS NOT KEEP** or **ALL**. Click a clip to preview it, shift or ⌘-click for several, ⌘A for all.
+
+## Changing a flag
+
+Click a clip's **KEEP** badge, or ⌘K for the one in the viewer. The **Mark** menu does a whole selection at once. Changed clips get an orange badge; right-click to put it back.
+
+Nothing is written to your card. The change is applied to the sidecar on export, and only if the sidecar goes with it — the export sheet says so when it won't.
+
+## Rosters
+
+Import a CSV with ⌘I. `roster-yateley-wood-pigeons.csv` is in this repo to test with.
+
+```csv
+league,team,code,number,name,position
+MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
+MJHL,Virden Oil Capitals,VIR,31,Micky Gross,Goalie
+```
+
+Only `number` and `name` are needed. A header row is optional, several teams can share a file, and without a `team` column the filename becomes the team.
+
+- **`code`** is the short form used in filenames.
+- **`league`** groups the team menus. `org`, `organisation`, `organization` and `group` work too.
+
+Team names must be distinct, since importing one replaces any team of the same name — a club's men's and women's sides need names that differ. Re-importing updates existing tags, matched on team and number, and columns you leave out keep what's already set.
+
+**⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams.
+
+Two players can't share a number and two teams can't share a name, because that's how Keeper tells them apart. Renumbering a player carries their existing tags across; removing a player leaves their tags behind, so prefer renumbering.
+
+## Tagging
+
+⌘E for the panel. Click a player, then a category. The selection clears straight after, so one player gets the goal and the next gets the assist. Select several players first when they genuinely share a category.
+
+An accent ring means **picked**. A green tick means **already on this clip**.
+
+Categories start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview and B-Roll. Add with **+**, remove by right-clicking. Their order decides which tag wins when a clip has several.
+
+The bar under the toolbar filters by team, player, position and category, on top of the KEEP filter.
+
+## Exporting
+
+⌘S opens one sheet, which asks four things:
+
+- **Which clips** — your selection, or everything the filter is showing
+- **Naming** — a preset or the camera's names, with a before-and-after
+- **Where they go** — copy to another folder, or rename them in place
+- **Along with the video** — whether the sidecar travels, and what happens to changed flags
+
+The button names what it's about to do, and the line beside it totals the files and the data.
+
+**Layout**, when copying:
+
+- *One folder* — everything together
+- *Folder per category* — one copy of each clip, in its top tag's folder
+- *Folder per player* — a copy in each tagged player's folder, so every player's folder is complete
+
+**Rename them where they already are** is for footage you've offloaded already: it renames in place so you don't end up holding the same game twice. It's refused on a card, and it breaks the media links in any edit already built on those files.
+
+Dragging to Finder keeps the camera names — macOS gives the app no say in what a dropped file is called.
+
+## Filenames
+
+The built-in **Standard** preset gives `C7531_261003_YWP_Marchetti_Goal.MP4` — original name, shoot date, team code, player surname, tag. The date comes from the XML, so it's when the camera rolled.
+
+Build your own in **Edit Presets…**: a name, a fallback team code, a separator, and the parts in order. Duplicate an existing preset for a new client rather than starting over. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
+
+## If something's wrong
+
+**No KEEP clips found** — right-click a clip, choose **Show XML…** to see what your camera writes, then type that word into **Flag word**.
+
+**⌘D** opens the debug log: which sidecar paired with which video, what marked each clip, and the result of every copy. **Copy Log** puts it on the clipboard for a bug report.
+
+**Your tags live in** `~/Library/Application Support/Keeper/library.json`, with teams, categories and presets. Worth backing up — there's no undo.
+
+---
 
 ## Known gaps
 
 - No undo on tag deletion, or on a roster edit.
-- Proxy files in a `SUB` folder aren't handled, only the main clip and its XML.
+- Proxy files in a `SUB` folder aren't handled, only the main clip and its sidecar.
 - Clips with no XML sidecar can't be listed or tagged. Debug mode names them.
 
 ## Credits
 
-Built by **JFlowerMedia**
-
-- Website: [jflowermedia.com](https://jflowermedia.com/)
-- Instagram: [@jflowermedia](https://www.instagram.com/jflowermedia/)
+Built by **JFlowerMedia** — [jflowermedia.com](https://jflowermedia.com/) · [@jflowermedia](https://www.instagram.com/jflowermedia/)
 
 ## License
 
@@ -215,6 +191,6 @@ MIT, see [LICENSE](LICENSE).
 
 Keeper is alpha software, shared in good faith and provided as is, without warranty of any kind.
 
-It is built to be read-only on your cards and drives — it copies files and never modifies or deletes your originals — and it checks every copy against its source before reporting success. But no software is free of bugs, and I can't test against every camera, card, file system and Mac out there.
+It is built to be read-only on your cards and drives, and it checks every copy against its source before reporting success. But no software is free of bugs, and I can't test against every camera, card, file system and Mac out there.
 
 Your footage remains your responsibility. Confirm your clips have copied across and open correctly before you format a card or delete anything, and keep a second copy of work that matters to you. Use at your own risk: no liability is accepted for footage that is lost, corrupted or missed, however it happens.
