@@ -8,8 +8,7 @@ Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status=
 
 > **Alpha — version 0.4.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
 
-<!-- Add a screenshot here: press Cmd-Shift-4 then Space to grab the window, then drag the
-     file into the README editor on github.com and it uploads and inserts the link for you. -->
+![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
 ## Download
 
@@ -84,6 +83,8 @@ Picking a player applies to the clip you're looking at, so it clears when you mo
 
 **Edit rosters in the app** — ⌘⇧R, or *Edit Rosters…* in the panel's menu. Change a team's name, filename code or league, fix a name or position, add and remove players, or add a team and type a roster in from scratch when there's no CSV to be had.
 
+![The roster editor: teams listed down the left under their league headings, and on the right the selected team's name, filename code and league, above a list of players with editable number, name and position](docs/rosters.png)
+
 Edits are applied in one go rather than as you type, so a half-typed number can't collide with a real player. *Apply* saves without closing; switching team saves too, and if something's wrong it keeps you where you are with the reason rather than losing what you typed.
 
 Two things it won't let you do, both for the same reason — Keeper tells players apart by team and jersey number:
@@ -93,6 +94,8 @@ Two things it won't let you do, both for the same reason — Keeper tells player
 
 Renumbering a player moves every tag already recorded against them — the row turns orange while that's pending and the footer says how many tags will move. Renaming a team keeps its underlying identity, so tags stay attached; only the name you see changes.
 
+**Prefer renumbering to removing.** Renumbering carries a player's tags with them; removing leaves those tags behind on a number that someone else may end up wearing, and the next roster refresh would rewrite them to that person's name. The footer counts tags that would be stranded before you apply.
+
 **Filter by tag** — the bar under the toolbar narrows by team, player, position and category, in any combination, on top of the KEEP filter. "Every clip of #17 scoring that I marked KEEP" is three clicks, and so is "every save by a goalie". Choosing a team also narrows the player and position menus to that roster.
 
 **Remove tags** in bulk with the button at the foot of the panel. It acts on your selection, or everything the filter is showing when nothing is selected, and asks first.
@@ -100,6 +103,8 @@ Renumbering a player moves every tag already recorded against them — the row t
 ## Exporting
 
 **Export…** (⌘S) opens one sheet that asks four things and shows you the answer to each before you commit.
+
+![The Export sheet: radio buttons choosing between the selected clip and all 18 the filter is showing, a naming preset, a choice between copying to another folder and renaming in place, and a checkbox for the XML sidecar. The footer totals the clips, files and data, and the action button is disabled with a line saying to choose where the copies should go](docs/export.png)
 
 **Which clips** — the ones you've selected, or everything the filter is showing. It opens on whichever you'd expect: your selection if you made one, otherwise everything in view. The filters in play are printed underneath, so there's no exporting last week's team by accident.
 
@@ -131,6 +136,8 @@ C7531_261003_YWP_Marchetti_Goal.MP4
 ```
 
 Original name, shoot date, team code, player surname, tag. The team code comes from the roster's `code` column. The date comes from the XML's `CreationDate`, so it's when the camera rolled rather than when the file was last touched.
+
+![The filename preset editor: a preview of the resulting filename at the top, then the preset name, team code and separator, then the name parts listed in order with a live example beside each, and the tag priority list below](docs/presets.png)
 
 Build your own per client in **Edit Presets…**. The buttons under the list add a preset, **duplicate** the selected one, or delete it — a new client is usually a small change to a convention that already works, so copying beats rebuilding the token list. A copy comes in as "Bisons copy", then "Bisons copy 2", because presets are picked from a menu that shows nothing but their names.
 
