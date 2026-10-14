@@ -21,6 +21,12 @@ struct Team: Codable, Identifiable, Hashable {
     /// non-optional property, default value or not, so adding one as `String = ""` would
     /// make every library saved before this field existed fail to load.
     var code: String?
+
+    /// What this roster is filed under in the team menus — "MJHL", "Bisons", whatever you
+    /// like. Free text rather than a fixed list, because one person's leagues are another's
+    /// clients. Optional for the same decoding reason as `code`.
+    var league: String?
+
     var players: [Player] = []
 
     static func slug(_ name: String) -> String {
@@ -244,6 +250,165 @@ final class TagLibrary: ObservableObject {
         return changed
     }
 
+    // MARK: - Editing a roster in the app
+
+    /// What a roster edit is allowed to change, and what it costs.
+    ///
+    /// The team's `id` is deliberately not in here. It's the slug of whatever the team was
+    /// first called, and every tag points at it — change it and a season of tagging detaches
+    /// from its players. So renaming a team changes `name` only, and the id stays put.
+    ///
+    /// A player's identity *is* their number, so renumbering genuinely moves them. Tags
+    /// recorded against the old number are carried over before the roster is replaced,
+    /// which is the whole reason this is one call rather than a setter per field.
+    struct RosterEdit {
+        var name: String
+        var code: String
+        var league: String
+        var players: [Player]
+        /// Old number to new, for players whose number this edit changes.
+        var renumbered: [(from: String, to: String)] = []
+    }
+
+    enum RosterEditError: LocalizedError {
+        case emptyName
+        case duplicateTeamName(String)
+        case duplicateNumbers([String])
+        case unnamedPlayers(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyName:
+                return "The team needs a name."
+            case .duplicateTeamName(let name):
+                return "There's already a team called \"\(name)\". Team names have to differ, "
+                     + "or an import of one replaces the other."
+            case .duplicateNumbers(let numbers):
+                let list = numbers.sorted().joined(separator: ", ")
+                return "Two players share \(numbers.count == 1 ? "number" : "numbers") \(list). "
+                     + "Keeper tells players apart by their number, so each has to be unique "
+                     + "within the team."
+            case .unnamedPlayers(let count):
+                return "\(count) \(count == 1 ? "player has" : "players have") no name."
+            }
+        }
+    }
+
+    /// Applies an edit, or throws without touching anything. Returns how many tags moved.
+    @discardableResult
+    func apply(_ edit: RosterEdit, to teamID: String) throws -> Int {
+        let name = edit.name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { throw RosterEditError.emptyName }
+        if teams.contains(where: { $0.id != teamID && $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            throw RosterEditError.duplicateTeamName(name)
+        }
+
+        let players = edit.players.map {
+            Player(teamID: teamID,
+                   number: $0.number.trimmingCharacters(in: .whitespaces),
+                   name: $0.name.trimmingCharacters(in: .whitespaces),
+                   position: $0.position.trimmingCharacters(in: .whitespaces))
+        }
+
+        let unnamed = players.filter { $0.name.isEmpty }.count
+        guard unnamed == 0 else { throw RosterEditError.unnamedPlayers(unnamed) }
+
+        var counts: [String: Int] = [:]
+        for player in players where !player.number.isEmpty {
+            counts[player.number, default: 0] += 1
+        }
+        let clashes = counts.filter { $0.value > 1 }.map(\.key)
+        guard clashes.isEmpty else { throw RosterEditError.duplicateNumbers(clashes) }
+
+        // Carry the tags over before the roster changes under them. Done in one pass so a
+        // swap — two players exchanging numbers — can't be applied twice.
+        var moved = 0
+        let moves = Dictionary(edit.renumbered.map { ($0.from, $0.to) }, uniquingKeysWith: { _, last in last })
+        if !moves.isEmpty {
+            for index in tags.indices where tags[index].teamID == teamID {
+                guard let current = tags[index].playerNumber, let newNumber = moves[current] else { continue }
+                tags[index].playerNumber = newNumber
+                moved += 1
+            }
+        }
+
+        let code = edit.code.trimmingCharacters(in: .whitespaces)
+        let league = edit.league.trimmingCharacters(in: .whitespaces)
+        let sorted = players.sorted {
+            (Int($0.number) ?? Int.max, $0.name) < (Int($1.number) ?? Int.max, $1.name)
+        }
+
+        if let i = teams.firstIndex(where: { $0.id == teamID }) {
+            teams[i] = Team(id: teamID,
+                            name: name,
+                            code: code.isEmpty ? nil : code,
+                            league: league.isEmpty ? nil : league,
+                            players: sorted)
+            teams.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }
+
+        rebuildIndex()
+        // Picks up the new team name, and any player name or position that changed.
+        _ = refreshTagsFromRoster()
+        save()
+        return moved
+    }
+
+    /// A new, empty team to type a roster into. Returns nil if the name is taken.
+    func addTeam(named name: String, league: String? = nil) -> Team? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let id = Team.slug(trimmed)
+        guard !teams.contains(where: { $0.id == id || $0.name.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else { return nil }
+        let team = Team(id: id, name: trimmed, code: nil, league: league, players: [])
+        upsert(team: team)
+        return team
+    }
+
+    /// Every league heading already in use, for the editor to offer rather than make you
+    /// retype one exactly.
+    var knownLeagues: [String] {
+        let used = teams.compactMap { $0.league?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return Array(Set(used)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// One heading's worth of teams in the team menus.
+    struct LeagueGroup: Identifiable {
+        let id: String          // the heading, which is also what makes it unique
+        var teams: [Team]
+        var name: String { id }
+    }
+
+    /// The heading for rosters that haven't been filed under anything.
+    static let ungroupedLeague = "Other"
+
+    /// Teams under their league headings, alphabetically, with the unfiled ones last so a
+    /// roster missing a league doesn't push the real groups down the menu.
+    var teamsByLeague: [LeagueGroup] {
+        var groups: [String: [Team]] = [:]
+        for team in teams {
+            let trimmed = (team.league ?? "").trimmingCharacters(in: .whitespaces)
+            groups[trimmed.isEmpty ? Self.ungroupedLeague : trimmed, default: []].append(team)
+        }
+        return groups
+            .map { heading, members in
+                LeagueGroup(id: heading,
+                            teams: members.sorted {
+                                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                            })
+            }
+            .sorted {
+                if $0.id == Self.ungroupedLeague { return false }
+                if $1.id == Self.ungroupedLeague { return true }
+                return $0.id.localizedStandardCompare($1.id) == .orderedAscending
+            }
+    }
+
+    /// Whether the menus are worth splitting up. One group is just a header over everything.
+    var leaguesAreWorthShowing: Bool { teamsByLeague.count > 1 }
+
     func upsert(team: Team) {
         if let i = teams.firstIndex(where: { $0.id == team.id }) {
             teams[i] = team
@@ -287,6 +452,28 @@ final class TagLibrary: ObservableObject {
 
     /// Saves on a short delay: the preset editor writes on every keystroke, and each save
     /// rewrites the whole library including every tag.
+    /// "Bisons copy", then "Bisons copy 2". Presets are chosen from a menu that shows only
+    /// their names, so two with the same name would be indistinguishable where it matters.
+    func uniquePresetName(_ desired: String) -> String {
+        let taken = Set(presets.map(\.name))
+        guard taken.contains(desired) else { return desired }
+        var n = 2
+        while taken.contains("\(desired) \(n)") { n += 1 }
+        return "\(desired) \(n)"
+    }
+
+    /// A copy of a preset under its own identity, for building a new client's convention
+    /// out of one that already works rather than from the default tokens.
+    @discardableResult
+    func duplicate(preset source: RenamePreset) -> RenamePreset {
+        var copy = source
+        copy.id = UUID()
+        copy.name = uniquePresetName("\(source.name) copy")
+        presets.append(copy)
+        saveSoon()
+        return copy
+    }
+
     func upsert(preset: RenamePreset) {
         if let i = presets.firstIndex(where: { $0.id == preset.id }) {
             presets[i] = preset
@@ -433,7 +620,8 @@ final class TagLibrary: ObservableObject {
         // Header row?
         let first = rows[0].map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         let knownHeaders = ["team", "code", "teamcode", "number", "no", "#",
-                            "name", "player", "position", "pos"]
+                            "name", "player", "position", "pos",
+                            "league", "org", "organisation", "organization", "group"]
         if first.contains(where: { knownHeaders.contains($0) }) {
             for (i, heading) in first.enumerated() {
                 switch heading {
@@ -442,6 +630,8 @@ final class TagLibrary: ObservableObject {
                 case "number", "no", "#":      columns["number"] = i
                 case "name", "player":         columns["name"] = i
                 case "position", "pos":        columns["position"] = i
+                case "league", "org", "organisation", "organization", "group":
+                    columns["league"] = i
                 default: break
                 }
             }
@@ -463,6 +653,7 @@ final class TagLibrary: ObservableObject {
         var grouped: [String: [Player]] = [:]
         var teamNames: [String: String] = [:]
         var teamCodes: [String: String] = [:]
+        var teamLeagues: [String: String] = [:]
 
         for row in rows {
             let name = field(row, "name")
@@ -473,6 +664,8 @@ final class TagLibrary: ObservableObject {
             teamNames[id] = teamName
             let code = field(row, "code")
             if !code.isEmpty { teamCodes[id] = code }
+            let league = field(row, "league")
+            if !league.isEmpty { teamLeagues[id] = league }
             grouped[id, default: []].append(
                 Player(teamID: id, number: number, name: name, position: field(row, "position"))
             )
@@ -485,9 +678,14 @@ final class TagLibrary: ObservableObject {
             let sorted = players.sorted {
                 (Int($0.number) ?? Int.max, $0.name) < (Int($1.number) ?? Int.max, $1.name)
             }
+            // An import replaces the whole team, so a CSV without a code or league column
+            // would otherwise silently wipe one you'd already set. Fall back to what's
+            // there: re-importing to fix a spelling shouldn't cost you a filename code.
+            let existing = team(id: id)
             upsert(team: Team(id: id,
                               name: teamNames[id] ?? id,
-                              code: teamCodes[id],
+                              code: teamCodes[id] ?? existing?.code,
+                              league: teamLeagues[id] ?? existing?.league,
                               players: sorted))
             imported += sorted.count
         }
@@ -506,18 +704,35 @@ final class TagLibrary: ObservableObject {
 
 enum CSV {
     static func readText(_ url: URL) -> String? {
-        if let s = try? String(contentsOf: url, encoding: .utf8) { return s }
-        if let s = try? String(contentsOf: url, encoding: .isoLatin1) { return s }
-        return nil
+        var text: String?
+        if let s = try? String(contentsOf: url, encoding: .utf8) { text = s }
+        else if let s = try? String(contentsOf: url, encoding: .isoLatin1) { text = s }
+        guard var text else { return nil }
+
+        // Excel writes UTF-8 with a byte-order mark, which survives decoding as an invisible
+        // first character. It would ride along on the first heading — "\u{FEFF}team" never
+        // matches "team" — so that column goes unrecognised with nothing on screen to say why.
+        if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
+        return text
     }
 
     /// Handles quoted fields, escaped quotes, commas inside quotes, and CRLF.
     static func parse(_ text: String) -> [[String]] {
+        // Line endings are normalised before the loop rather than handled inside it, because
+        // Swift's Character is a grapheme cluster and CR-LF is a *single* one: iterating
+        // Characters over a CRLF file never yields a bare "\n", so a switch looking for one
+        // silently appends every line ending into a field and parses the whole file as one
+        // row. Excel and Numbers both write CRLF, so that's the common case, not an exotic
+        // one. Do not move this logic into the switch below.
+        let normalised = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
         var rows: [[String]] = []
         var row: [String] = []
         var field = ""
         var inQuotes = false
-        var iterator = text.makeIterator()
+        var iterator = normalised.makeIterator()
         var pending: Character?
 
         func endField() { row.append(field); field = "" }
@@ -540,8 +755,7 @@ enum CSV {
             switch character {
             case "\"":            inQuotes = true
             case ",", ";", "\t":  endField()
-            case "\n":            endRow()
-            case "\r":            break          // CRLF: the \n does the work
+            case "\n":            endRow()       // normalised above, so this is every form
             default:              field.append(character)
             }
         }

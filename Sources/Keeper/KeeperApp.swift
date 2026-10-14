@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.3"
+    static let version = "0.4"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -58,6 +58,8 @@ struct KeeperApp: App {
                 Button("Export…") { state.requestExport() }
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
+                Button("Edit Rosters…") { state.showRosterEditor = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Edit Filename Presets…") { state.showPresetEditor = true }
             }
             CommandGroup(after: .sidebar) {

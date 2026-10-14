@@ -49,6 +49,9 @@ struct ContentView: View {
         .sheet(isPresented: $state.showPresetEditor) {
             PresetEditor()
         }
+        .sheet(isPresented: $state.showRosterEditor) {
+            RosterEditor()
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             Playback.shared.startListening()
@@ -141,8 +144,20 @@ struct ContentView: View {
                 Menu {
                     Button("Any team") { state.filterTeamID = nil }
                     Divider()
-                    ForEach(state.library.teams) { team in
-                        Button(team.name) { state.filterTeamID = team.id }
+                    // Headed by league once there's more than one, because a flat list of
+                    // every roster you've ever imported gets long fast.
+                    if state.library.leaguesAreWorthShowing {
+                        ForEach(state.library.teamsByLeague) { group in
+                            Section(group.name) {
+                                ForEach(group.teams) { team in
+                                    Button(team.name) { state.filterTeamID = team.id }
+                                }
+                            }
+                        }
+                    } else {
+                        ForEach(state.library.teams) { team in
+                            Button(team.name) { state.filterTeamID = team.id }
+                        }
                     }
                 } label: {
                     Text(state.library.team(id: state.filterTeamID)?.name ?? "Any team")

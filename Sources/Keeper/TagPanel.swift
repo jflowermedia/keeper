@@ -104,6 +104,8 @@ struct TagPanel: View {
             Spacer()
             Menu {
                 Button("Import Roster CSV…") { importRoster() }
+                Button("Edit Rosters…") { state.showRosterEditor = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Update Tags from Roster") {
                     let n = library.refreshTagsFromRoster()
                     state.status = n == 0
@@ -137,7 +139,10 @@ struct TagPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No roster yet.")
                 .foregroundStyle(.secondary)
-            Button("Import Roster CSV…") { importRoster() }
+            HStack(spacing: 8) {
+                Button("Import Roster CSV…") { importRoster() }
+                Button("Type One In…") { state.showRosterEditor = true }
+            }
             Text("Columns: team, number, name. A header row is optional, and without a team column the file's name is used.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -151,19 +156,36 @@ struct TagPanel: View {
 
     private var teamPicker: some View {
         HStack(spacing: 8) {
-            Picker("Team", selection: Binding(
-                get: { team?.id ?? "" },
-                set: { selectedTeamID = $0; selectedPlayerIDs = [] }
-            )) {
-                ForEach(library.teams) { Text($0.name).tag($0.id) }
+            // A Menu rather than a Picker, because only a menu takes section headings — and
+            // with a league or two imported, a flat list of rosters is unreadable.
+            Menu {
+                if library.leaguesAreWorthShowing {
+                    ForEach(library.teamsByLeague) { group in
+                        Section(group.name) {
+                            ForEach(group.teams) { teamChoice($0) }
+                        }
+                    }
+                } else {
+                    ForEach(library.teams) { teamChoice($0) }
+                }
+            } label: {
+                Text(team?.name ?? "No roster")
             }
-            .labelsHidden()
+            .frame(maxWidth: 200)
 
             if !selectedPlayerIDs.isEmpty {
                 Button("Clear \(selectedPlayerIDs.count)") { selectedPlayerIDs = [] }
                     .buttonStyle(.link)
                     .help("Deselect every player")
             }
+        }
+    }
+
+    /// Switching roster clears any armed selection — those players belong to the old one.
+    private func teamChoice(_ item: Team) -> some View {
+        Button(item.name) {
+            selectedTeamID = item.id
+            selectedPlayerIDs = []
         }
     }
 

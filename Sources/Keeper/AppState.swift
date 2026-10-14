@@ -109,6 +109,7 @@ final class AppState: ObservableObject {
     /// Drive the sheets. They live here rather than in the view so the menus can open them.
     @Published var showExportSheet = false
     @Published var showPresetEditor = false
+    @Published var showRosterEditor = false
 
     /// What the export sheet will act on. Unlike the drag bar's implicit rule, this is
     /// whatever the sheet says it is — chosen deliberately rather than inferred.

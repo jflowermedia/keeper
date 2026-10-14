@@ -80,6 +80,7 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/TagPanel.swift` | the tagging panel and the chips on each row |
 | `Sources/Keeper/Renaming.swift` | filename tokens, presets, and building a name |
 | `Sources/Keeper/ExportSheet.swift` | the one sheet that decides what leaves and how |
+| `Sources/Keeper/RosterEditor.swift` | editing teams and players after import |
 | `Sources/Keeper/PresetEditor.swift` | the preset builder sheet |
 | `Sources/Keeper/MultiDragHandle.swift` | the drag-to-Finder handles |
 | `build_app.sh` | turns the build into Keeper.app, makes the icon, signs it |
@@ -90,12 +91,36 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 **Every new field on a stored type must be optional.** Swift's generated decoder throws on a
 missing key for a non-optional property even when it has a default value, so adding
 `var thing: String = ""` to `Team`, `Player` or `Tag` stops every existing `library.json`
-from loading. Use `String?`. This has bitten once already.
+from loading. Use `String?`. This has bitten once already. `Team.code` and `Team.league`
+are both optional for this reason and must stay that way.
+
+**`Character` is a grapheme cluster, and `"\r\n"` is one of them.** `"\r\n".count == 1` in
+Swift, so iterating a CRLF file's Characters never yields a bare `"\n"`. A parser switching
+on `"\n"` matches nothing, appends every line ending into a field, and returns the whole
+file as a single row — which then reads as an empty file once the header is removed. This
+shipped, and it broke every roster exported from Excel or Numbers, both of which write CRLF.
+`CSV.parse` now normalises line endings before the loop, and `CSV.readText` strips a UTF-8
+BOM for the same reason: Excel writes one, and it rides along on the first heading so that
+column goes unrecognised. Anything parsed character by character needs the same care.
+
+**An import replaces the whole team, so anything the CSV doesn't carry must be read back
+off the existing team first.** `importRoster` falls back to the current `code` and `league`
+when those columns are absent. Without that, re-importing a bare `team, number, name` file
+to fix a spelling silently wipes the team's filename code — which only shows up later, in a
+filename that's missing a word.
 
 **A clip's video and its XML must always end up with the same base name**, or they stop
 pairing on the next scan. That's why `CopyJob` carries a whole clip rather than one file.
 
 **Tags key off the UMID**, never the filename or path.
+
+**A player's identity is `teamID/number`, and a team's is the slug of its first name.** Both
+are computed, not stored, so anything that changes a number or a team id detaches the tags
+hanging off it. That's why `TagLibrary.apply(_:to:)` is a single call rather than a setter
+per field: it migrates tags for renumbered players *before* replacing the roster, in one
+pass so two players swapping numbers can't be applied twice. Renaming a team deliberately
+leaves `Team.id` alone — only `name` changes — and `refreshTagsFromRoster` then carries the
+new name onto the tags. Don't add a path that writes a team id.
 
 **Nothing is ever written to a card.** A changed KEEP flag is held in the library and
 applied to the *copied* sidecar by `KeepWriter`, after the copy has been size-checked.

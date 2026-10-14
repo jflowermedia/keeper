@@ -6,7 +6,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built for a Sony ILCE-7SM3 (A7S III), where a marked clip's XML carries `status="KEEP"` on `<TargetMaterial>`. The flag word is configurable, so other cameras are likely to work too.
 
-> **Alpha — version 0.3.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
+> **Alpha — version 0.4.** Tested against one camera on one Mac. It never modifies or deletes anything on your cards, but don't let it be the only copy of footage you care about: verify your clips landed before you wipe anything. Bug reports welcome in [Issues](../../issues).
 
 <!-- Add a screenshot here: press Cmd-Shift-4 then Space to grab the window, then drag the
      file into the README editor on github.com and it uploads and inserts the link for you. -->
@@ -58,15 +58,19 @@ Two things follow from that. A change only reaches a copy if the sidecar goes wi
 
 Press ⌘E for the tagging panel.
 
-**Import a roster** — a CSV of `team, number, name`, plus optional `code` and `position` columns. A header row is optional; without a team column the file's own name becomes the team. Several teams can live in one file. `roster-yateley-wood-pigeons.csv` is in this repo to test with.
+**Import a roster** — a CSV of `team, number, name`, plus optional `code`, `position` and `league` columns. A header row is optional; without a team column the file's own name becomes the team. Several teams can live in one file. `roster-yateley-wood-pigeons.csv` is in this repo to test with.
 
 ```csv
-team,code,number,name,position
-Yateley Wood Pigeons,YWP,17,Finn Marchetti,Forward
-Yateley Wood Pigeons,YWP,1,Callum Prentice,Goalie
+league,team,code,number,name,position
+MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
+MJHL,Virden Oil Capitals,VIR,31,Micky Gross,Goalie
 ```
 
 The `code` column is the short form used in filenames. Give each roster its own and a single preset serves every team you shoot. Team names must be distinct. A club's men's and women's sides are two teams, so give them names that differ — calling both by the club name alone makes the second import replace the first.
+
+The `league` column files rosters under a heading in the team menus — `MJHL`, a club name, a client, whatever you sort by. Once there's more than one heading, both team menus group by it; with one, they stay flat. Anything without a league sits under *Other*, at the bottom. `org`, `organisation`, `organization` and `group` all work as the column name too.
+
+Re-importing a roster with columns missing keeps what's already set, so fixing a spelling with a bare `team, number, name` file won't cost you the team's code or league.
 
 **Tag a clip** — click a player, click a category. The selection clears straight afterwards, so the usual case (one player scores, another assists) is: #15, Goal, #17, Assist. Select several players before clicking a category when they genuinely share it; each gets their own tag.
 
@@ -77,6 +81,17 @@ Picking a player applies to the clip you're looking at, so it clears when you mo
 **Categories** start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview, B-Roll. Add your own with the **+**, remove one by right-clicking it. Their order is also the tag priority — see below.
 
 **Re-importing updates what's already tagged.** Fix a spelling or add a column, import again, and existing tags pick it up, matched on team and jersey number. There's also *Update Tags from Roster* in the panel's menu.
+
+**Edit rosters in the app** — ⌘⇧R, or *Edit Rosters…* in the panel's menu. Change a team's name, filename code or league, fix a name or position, add and remove players, or add a team and type a roster in from scratch when there's no CSV to be had.
+
+Edits are applied in one go rather than as you type, so a half-typed number can't collide with a real player. *Apply* saves without closing; switching team saves too, and if something's wrong it keeps you where you are with the reason rather than losing what you typed.
+
+Two things it won't let you do, both for the same reason — Keeper tells players apart by team and jersey number:
+
+- **Two players can't share a number.** This is the one to know about if a roster lists an affiliate on a call-up sharing a number with a regular. Give one of them their real number, or leave them off.
+- **Two teams can't share a name**, since an import of one would replace the other.
+
+Renumbering a player moves every tag already recorded against them — the row turns orange while that's pending and the footer says how many tags will move. Renaming a team keeps its underlying identity, so tags stay attached; only the name you see changes.
 
 **Filter by tag** — the bar under the toolbar narrows by team, player, position and category, in any combination, on top of the KEEP filter. "Every clip of #17 scoring that I marked KEEP" is three clicks, and so is "every save by a goalie". Choosing a team also narrows the player and position menus to that roster.
 
@@ -117,7 +132,9 @@ C7531_261003_YWP_Marchetti_Goal.MP4
 
 Original name, shoot date, team code, player surname, tag. The team code comes from the roster's `code` column. The date comes from the XML's `CreationDate`, so it's when the camera rolled rather than when the file was last touched.
 
-Build your own per client in **Edit Presets…**: name it, set a fallback team code, choose the separator, and stack up the parts — original name, date in two formats, team code, roster team, player surname, first name or number, the top tag, or every tag. A live preview shows the result as you go. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
+Build your own per client in **Edit Presets…**. The buttons under the list add a preset, **duplicate** the selected one, or delete it — a new client is usually a small change to a convention that already works, so copying beats rebuilding the token list. A copy comes in as "Bisons copy", then "Bisons copy 2", because presets are picked from a menu that shows nothing but their names.
+
+To build one from scratch: name it, set a fallback team code, choose the separator, and stack up the parts — original name, date in two formats, team code, roster team, player surname, first name or number, the top tag, or every tag. A live preview shows the result as you go. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
 
 **Tag priority** decides which tag lands in the filename, and which folder the clip goes to, when it carries several. It's the order of the category list, set in the preset editor.
 
@@ -172,8 +189,7 @@ See [DEVELOPING.md](DEVELOPING.md) for the rest.
 
 ## Known gaps
 
-- No in-app roster editing — change the CSV and import it again.
-- No undo on tag deletion.
+- No undo on tag deletion, or on a roster edit.
 - Proxy files in a `SUB` folder aren't handled, only the main clip and its XML.
 - Clips with no XML sidecar can't be listed or tagged. Debug mode names them.
 

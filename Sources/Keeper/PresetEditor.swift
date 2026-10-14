@@ -62,12 +62,26 @@ struct PresetEditor: View {
 
             HStack(spacing: 4) {
                 Button {
-                    let new = RenamePreset(name: "New preset")
+                    let new = RenamePreset(name: library.uniquePresetName("New preset"))
                     library.upsert(preset: new)
                     selectedID = new.id
                 } label: {
                     Image(systemName: "plus")
                 }
+                .help("Add a preset, starting from the default tokens")
+
+                // Most new clients want a small change to an existing convention rather than
+                // a fresh one, so copying beats rebuilding the token list each time.
+                Button {
+                    guard let source = preset else { return }
+                    selectedID = library.duplicate(preset: source).id
+                } label: {
+                    Image(systemName: "plus.square.on.square")
+                }
+                .disabled(preset == nil)
+                .help(preset.map { "Duplicate \"\($0.name)\" and edit the copy" }
+                      ?? "Duplicate the selected preset")
+
                 Button {
                     guard let id = preset?.id else { return }
                     library.deletePreset(id: id)
@@ -76,6 +90,7 @@ struct PresetEditor: View {
                     Image(systemName: "minus")
                 }
                 .disabled(preset == nil)
+                .help("Delete the selected preset")
                 Spacer()
             }
             .buttonStyle(.borderless)
