@@ -182,35 +182,52 @@ enum ClipScanner {
             log.append("⚠︎ The flag word is empty, so no clip can be marked KEEP.")
         }
 
+        // Every sidecar states its claim first, then claims are settled strongest first.
+        // Settling as we go would let whichever file the enumerator reached first win, and a
+        // card index that merely lists a clip would beat that clip's own sidecar.
+        struct Claim {
+            let xml: URL
+            let parsed: XMLFlags.Parsed
+            let video: URL
+            let strength: MatchStrength
+        }
+
+        var reasons: [URL: String] = [:]
+        var claims: [Claim] = []
         for xml in xmls.sorted(by: { $0.path < $1.path }) {
             guard let parsed = XMLFlags.parse(url: xml, keepWord: keepWord) else {
                 unmatched.append(xml)
                 log.append("✗ \(xml.lastPathComponent): could not be read")
                 continue
             }
-            guard let video = match(xml: xml, referenced: parsed.referencedNames, videos: videos) else {
+            guard let found = match(xml: xml, referenced: parsed.referencedNames, videos: videos) else {
                 unmatched.append(xml)
                 log.append("✗ \(xml.lastPathComponent): no matching video (probably not a clip XML)")
                 continue
             }
-            guard used.insert(video).inserted else {
-                log.append("– \(xml.lastPathComponent): \(video.lastPathComponent) is already paired, skipped")
+            if let reason = parsed.reason { reasons[xml] = reason }
+            claims.append(Claim(xml: xml, parsed: parsed, video: found.video, strength: found.strength))
+        }
+
+        claims.sort { ($0.strength, $0.xml.path) < ($1.strength, $1.xml.path) }
+
+        for claim in claims {
+            guard used.insert(claim.video).inserted else {
+                log.append("– \(claim.xml.lastPathComponent): \(claim.video.lastPathComponent) "
+                           + "is already paired with its own sidecar, skipped")
                 continue
             }
-            clips.append(Clip(id: video,
-                              videoURL: video,
-                              xmlURL: xml,
-                              isKeep: parsed.isKeep,
-                              videoSize: sizes[video] ?? 0,
-                              xmlSize: sizes[xml] ?? 0,
-                              umid: parsed.umid,
-                              shotDate: parsed.creationDate))
-            if parsed.umid == nil {
-                log.append("⚠︎ \(xml.lastPathComponent): no UMID in the XML, so this clip can't be tagged")
+            clips.append(Clip(id: claim.video,
+                              videoURL: claim.video,
+                              xmlURL: claim.xml,
+                              isKeep: claim.parsed.isKeep,
+                              videoSize: sizes[claim.video] ?? 0,
+                              xmlSize: sizes[claim.xml] ?? 0,
+                              umid: claim.parsed.umid,
+                              shotDate: claim.parsed.creationDate))
+            if claim.parsed.umid == nil {
+                log.append("⚠︎ \(claim.xml.lastPathComponent): no UMID in the XML, so this clip can't be tagged")
             }
-            let verdict = parsed.isKeep ? "KEEP    " : "NOT KEEP"
-            let why = parsed.reason.map { "  [\($0)]" } ?? ""
-            log.append("\(verdict) \(video.lastPathComponent) ← \(xml.lastPathComponent)\(why)")
         }
 
         // Videos with no sidecar can't be classified, so they never appear in the list. Say so.
@@ -220,6 +237,15 @@ enum ClipScanner {
         }
 
         clips.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        // Logged after sorting, so the list reads in clip order rather than the order claims
+        // happened to be settled in.
+        for clip in clips {
+            let verdict = clip.isKeep ? "KEEP    " : "NOT KEEP"
+            let why = reasons[clip.xmlURL].map { "  [\($0)]" } ?? ""
+            log.append("\(verdict) \(clip.name) ← \(clip.xmlURL.lastPathComponent)\(why)")
+        }
+
         let keepCount = clips.filter { $0.isKeep }.count
         let total = clips.reduce(Int64(0)) { $0 + $1.totalSize }
         log.append("Done in \(String(format: "%.2f", Date().timeIntervalSince(started)))s: "
@@ -228,23 +254,41 @@ enum ClipScanner {
         return Result(clips: clips, unmatchedXML: unmatched, videosWithoutXML: orphans, log: log)
     }
 
+    /// How a sidecar found its video. The order matters: a card index like Sony's
+    /// MEDIAPRO.XML lists every clip on the card, so it can "reference" C7787.MP4 just as
+    /// readily as C7787M01.XML can be named after it. Claims are settled strongest first, so
+    /// the real sidecar always wins and the index is left over.
+    enum MatchStrength: Int, Comparable {
+        case name = 0        // named after the video, allowing for Sony's M01 suffix
+        case referenced = 1  // the video's name appears inside the XML
+        case prefix = 2      // the video was renamed, the sidecar kept its camera name
+        static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+    }
+
     /// Pairs an XML with its video: same base name first, then Sony-style "C0001M01.XML" -> "C0001",
     /// then any video file name mentioned inside the XML itself.
-    private static func match(xml: URL, referenced: [String], videos: [String: [URL]]) -> URL? {
+    private static func match(xml: URL,
+                              referenced: [String],
+                              videos: [String: [URL]]) -> (video: URL, strength: MatchStrength)? {
         let base = xml.deletingPathExtension().lastPathComponent.lowercased()
-        var keys = [base]
+        var named = [base]
         if let r = base.range(of: #"m\d{2}$"#, options: .regularExpression) {
-            keys.append(String(base[..<r.lowerBound]))
+            named.append(String(base[..<r.lowerBound]))
         }
-        for ref in referenced {
-            keys.append(URL(fileURLWithPath: ref).deletingPathExtension().lastPathComponent.lowercased())
+        let mentioned = referenced.map {
+            URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent.lowercased()
         }
+        let keys = named + mentioned
         let xmlDir = xml.deletingLastPathComponent()
+
         for key in keys {
             if let list = videos[key] {
                 // Prefer a video sitting next to the XML, so two cards' C0001.MP4 don't get crossed.
-                return list.first { $0.deletingLastPathComponent() == xmlDir }
+                let video = list.first { $0.deletingLastPathComponent() == xmlDir }
                     ?? list.sorted { $0.path < $1.path }.first
+                if let video {
+                    return (video, named.contains(key) ? .name : .referenced)
+                }
             }
         }
 
@@ -259,8 +303,9 @@ enum ClipScanner {
                 matches.append(contentsOf: list)
             }
             guard !matches.isEmpty else { continue }
-            return matches.first { $0.deletingLastPathComponent() == xmlDir }
+            let video = matches.first { $0.deletingLastPathComponent() == xmlDir }
                 ?? matches.sorted { $0.path < $1.path }.first
+            if let video { return (video, .prefix) }
         }
         return nil
     }

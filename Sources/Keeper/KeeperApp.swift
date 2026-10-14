@@ -3,12 +3,17 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.4"
+    static let version = "0.5"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
     static let website = URL(string: "https://jflowermedia.com/")!
     static let instagram = URL(string: "https://www.instagram.com/jflowermedia/")!
+
+    static let repo = URL(string: "https://github.com/jflowermedia/keeper")!
+    /// The guide lives in the README, under its own heading.
+    static let guide = URL(string: "https://github.com/jflowermedia/keeper#guide")!
+    static let issues = URL(string: "https://github.com/jflowermedia/keeper/issues")!
 }
 
 @main
@@ -58,6 +63,12 @@ struct KeeperApp: App {
                 Button("Export…") { state.requestExport() }
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
+                Button("Check the Card Copied…") { state.showVerifySheet = true }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .disabled(state.clips.isEmpty || state.isScanning)
+                Divider()
+                Button("Import Roster CSV…") { state.importRoster() }
+                    .keyboardShortcut("i", modifiers: .command)
                 Button("Edit Rosters…") { state.showRosterEditor = true }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Edit Filename Presets…") { state.showPresetEditor = true }
@@ -69,6 +80,10 @@ struct KeeperApp: App {
                     .keyboardShortcut("d", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
+                Button("Keeper Guide") { NSWorkspace.shared.open(AppInfo.guide) }
+                Button("Keeper on GitHub") { NSWorkspace.shared.open(AppInfo.repo) }
+                Button("Report a Problem") { NSWorkspace.shared.open(AppInfo.issues) }
+                Divider()
                 Button("JFlowerMedia Website") { NSWorkspace.shared.open(AppInfo.website) }
                 Button("JFlowerMedia on Instagram") { NSWorkspace.shared.open(AppInfo.instagram) }
             }

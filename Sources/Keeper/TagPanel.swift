@@ -10,7 +10,6 @@ struct TagPanel: View {
     @State private var selectedPlayerIDs: Set<String> = []
     @State private var newCategory = ""
     @State private var showingCategoryField = false
-    @State private var importMessage: String?
 
     private var clip: Clip? { state.previewClip }
 
@@ -94,6 +93,12 @@ struct TagPanel: View {
         .onChange(of: clip?.id) { _ in
             selectedPlayerIDs = []
         }
+        // Jump to the roster that just came in, wherever the import was started from.
+        .onChange(of: state.lastImportedTeamID) { id in
+            guard let id else { return }
+            selectedTeamID = id
+            selectedPlayerIDs = []
+        }
     }
 
     // MARK: Header
@@ -104,8 +109,9 @@ struct TagPanel: View {
             Spacer()
             Menu {
                 Button("Import Roster CSV…") { importRoster() }
+                // No shortcut here: the File menu owns ⌘⇧R, and declaring it twice leaves
+                // two views competing for the same key.
                 Button("Edit Rosters…") { state.showRosterEditor = true }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Update Tags from Roster") {
                     let n = library.refreshTagsFromRoster()
                     state.status = n == 0
@@ -146,8 +152,8 @@ struct TagPanel: View {
             Text("Columns: team, number, name. A header row is optional, and without a team column the file's name is used.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-            if let importMessage {
-                Text(importMessage).font(.caption).foregroundStyle(.secondary)
+            if let message = state.importMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -423,26 +429,10 @@ struct TagPanel: View {
         selectedPlayerIDs = []
     }
 
+    /// The import itself lives on `AppState`, because it's a File menu command too and the
+    /// panel isn't always on screen. The panel's job is just to follow it to the new roster.
     private func importRoster() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.commaSeparatedText, .plainText, .text]
-        panel.message = "Choose a roster CSV: team, number, name"
-        panel.prompt = "Import"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let result = try library.importRoster(from: url)
-            importMessage = "Imported \(result.players) players."
-            state.status = "Imported \(result.players) players from \(result.team)."
-                + (result.tagsUpdated > 0 ? " Updated \(result.tagsUpdated) existing tag(s)." : "")
-            // Jump to the team just imported, not whichever sorts first.
-            let imported = Team.slug(result.team)
-            selectedTeamID = library.team(id: imported) != nil ? imported : library.teams.first?.id
-        } catch {
-            importMessage = error.localizedDescription
-            state.status = "Roster import failed: \(error.localizedDescription)"
-        }
+        state.importRoster()
     }
 }
 

@@ -50,7 +50,10 @@ struct ContentView: View {
             PresetEditor()
         }
         .sheet(isPresented: $state.showRosterEditor) {
-            RosterEditor()
+            RosterEditor(state: state)
+        }
+        .sheet(isPresented: $state.showVerifySheet) {
+            VerifySheet(state: state)
         }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
@@ -400,37 +403,40 @@ struct ContentView: View {
 
             Spacer()
 
+            // This is only for the grip dots on each row now. Everything else leaves
+            // through Export, which asks about the sidecar itself.
             Toggle("Include XML", isOn: $state.includeXML)
                 .toggleStyle(.checkbox)
-                .help("Take each clip's XML sidecar along with its video. Applies to dragging and to export.")
+                .help("Take each clip's XML sidecar when you drag a row to Finder. Export asks separately.")
 
-            // Everything about getting footage out now lives behind this one button, so the
-            // choice between copying and renaming is made with the numbers in front of you.
-            Button("Export…") { state.requestExport() }
+            // Both live here now: the two things you do with a scanned card, in the corner
+            // you end up in.
+            Button {
+                state.showVerifySheet = true
+            } label: {
+                Label("Check Copied", systemImage: "checkmark.shield")
+            }
+            .controlSize(.large)
+            .disabled(state.clips.isEmpty || state.isScanning || state.isCopying)
+            .help("Account for every clip on this card before you format it")
+
+            Button(exportLabel) { state.requestExport() }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
                 .help("Copy the clips somewhere else, or rename them where they already are")
-
-            MultiDragHandle(urls: state.isCopying ? [] : state.dragURLs, label: dragLabel, style: .bar)
-                .frame(width: 250, height: 36)
-                .help(dragHelp)
         }
     }
 
-    private var dragLabel: String {
-        let n = state.dragClips.count
-        guard n > 0 else { return "Nothing to drag" }
-        return "Drag \(n) clip\(n == 1 ? "" : "s") · \(FileUtil.sizeText(state.dragSize))"
+    /// The button carries the count, so the footer still says what's in scope.
+    private var exportLabel: String {
+        // The same rule the sheet opens on, so the button doesn't promise a different
+        // number from the one you then see.
+        let n = state.selectedCount > 0 ? state.selectedCount : state.visible.count
+        guard n > 0 else { return "Export…" }
+        return "Export \(n) Clip\(n == 1 ? "" : "s")…"
     }
 
-    private var dragHelp: String {
-        let selected = state.visible.filter { state.selection.contains($0.id) }.count
-        let scope = selected == 0
-            ? "Nothing is selected, so this drags every clip shown by the current filter."
-            : "This drags the \(selected) selected clip\(selected == 1 ? "" : "s")."
-        let xml = state.includeXML ? " Each clip's XML comes too." : " Videos only (Include XML is off)."
-        return "Drag onto a Finder window or the Desktop. " + scope + xml
-    }
 }
 
 // MARK: - Row
@@ -655,6 +661,11 @@ final class Playback: ObservableObject {
 
             if let responder = event.window?.firstResponder, responder is NSText {
                 return event                        // a text field is being edited
+            }
+            // Sheets — export, rosters, presets — are their own windows. Space scrubbing the
+            // clip behind one you're typing in is never what was meant.
+            if event.window?.isSheet == true {
+                return event
             }
 
             let playback = Playback.shared

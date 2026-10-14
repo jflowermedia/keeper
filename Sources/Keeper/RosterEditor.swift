@@ -10,6 +10,10 @@ import AppKit
 /// a time would trip the duplicate-name check on the way past. Applying once also means the
 /// renumbering can be worked out by comparing the draft to what's stored.
 struct RosterEditor: View {
+    /// Needed only to keep the tag filters honest: an edit here can remove the very team or
+    /// player a filter points at, and a filter aimed at nothing shows an empty clip list
+    /// with no visible cause.
+    @ObservedObject var state: AppState
     @ObservedObject private var library = TagLibrary.shared
     @Environment(\.dismiss) private var dismiss
 
@@ -280,18 +284,38 @@ struct RosterEditor: View {
         .padding(16)
     }
 
-    /// What applying would do, so a renumber isn't a surprise.
+    /// What applying would do, so neither a renumber nor a removal is a surprise.
     private var pendingSummary: String? {
         guard let draft else { return nil }
-        let moves = draft.rows.filter { renumbered($0) }.count
-        guard moves > 0 else { return nil }
-        let affected = draft.rows
-            .filter { renumbered($0) }
-            .compactMap { $0.wasNumber }
-            .reduce(0) { total, number in
-                total + library.tags.filter { $0.teamID == draft.teamID && $0.playerNumber == number }.count
-            }
-        return "\(moves) renumbered — \(affected) tag\(affected == 1 ? "" : "s") will move too"
+
+        func tagCount(_ number: String) -> Int {
+            library.tags.filter { $0.teamID == draft.teamID && $0.playerNumber == number }.count
+        }
+
+        var parts: [String] = []
+
+        let moved = draft.rows.filter { renumbered($0) }.compactMap(\.wasNumber)
+        if !moved.isEmpty {
+            let tags = moved.reduce(0) { $0 + tagCount($1) }
+            parts.append("\(moved.count) renumbered"
+                         + (tags > 0 ? ", \(tags) tag\(tags == 1 ? "" : "s") moving with them" : ""))
+        }
+
+        // Removing a player leaves their tags behind on a number that may now belong to
+        // somebody else — and the next roster refresh would rewrite those tags to that
+        // person's name. Renumbering carries the tags; removing abandons them.
+        let kept = Set(draft.rows.compactMap(\.wasNumber))
+        let dropped = (library.team(id: draft.teamID)?.players ?? [])
+            .filter { !kept.contains($0.number) }
+        let strandedTags = dropped.reduce(0) { $0 + tagCount($1.number) }
+        if strandedTags > 0 {
+            parts.append("\(strandedTags) tag\(strandedTags == 1 ? "" : "s") left on removed "
+                         + "player\(dropped.count == 1 ? "" : "s")")
+        } else if !dropped.isEmpty {
+            parts.append("\(dropped.count) removed")
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     // MARK: Bindings
@@ -375,6 +399,7 @@ struct RosterEditor: View {
         guard alert.runModal() != .alertFirstButtonReturn else { return }
         draft = nil
         library.deleteTeam(id: team.id)
+        state.dropDanglingFilters()
         select(library.teams.first?.id)
     }
 
@@ -404,6 +429,7 @@ struct RosterEditor: View {
             let moved = try library.apply(edit, to: draft.teamID)
             problem = nil
             note = moved > 0 ? "Saved — \(moved) tag\(moved == 1 ? "" : "s") moved." : "Saved."
+            state.dropDanglingFilters()
             // Re-read, so wasNumber catches up and the orange rows settle.
             loadDraft(for: draft.teamID)
             if thenDismiss { dismiss() }

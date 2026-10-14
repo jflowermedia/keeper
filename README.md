@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.4.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.5.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -27,6 +27,8 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 ```
 
 ![The filename preset editor: a preview of the resulting filename at the top, then the preset name, team code and separator, then the name parts listed in order with a live example beside each, and the tag priority list below](docs/presets.png)
+
+**Checks the card copied before you format it.** Point it at the folders you copied to — however many — and it accounts for every clip on the card. It matches on the camera's clip ID rather than the filename, so it still works after you've renamed everything, which no general file-compare tool can do.
 
 **Exports in one sheet.** It shows which clips are included, the names it will produce, where they're going and how much data that is, before anything moves. Copy them out into one folder, a folder per player, or a folder per event — or rename footage you already offloaded where it sits, so you don't end up holding the same game twice. Clips can also be dragged straight into Finder.
 
@@ -93,6 +95,7 @@ chmod +x build_app.sh
 | ⌘I | Import roster CSV |
 | ⌘⇧R | Edit rosters |
 | ⌘S | Export |
+| ⌘⇧V | Check the card copied |
 | ⌘D | Debug log |
 
 ## Scanning
@@ -164,6 +167,8 @@ The built-in **Standard** preset gives `C7531_261003_YWP_Marchetti_Goal.MP4` —
 Build your own in **Edit Presets…**: a name, a fallback team code, a separator, and the parts in order. Duplicate an existing preset for a new client rather than starting over. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
 
 ## If something's wrong
+
+**Before formatting a card** — **Check Copied** at the bottom right, or ⌘⇧V. Add every folder you copied that card into, and it reports which clips are accounted for, which are missing, and which arrived the wrong size, with the gigabytes on the card set against the gigabytes found in each folder. Matching is by the camera's clip ID, so renamed copies are still recognised; that needs the XML sidecars to have travelled with them.
 
 **No KEEP clips found** — right-click a clip, choose **Show XML…** to see what your camera writes, then type that word into **Flag word**.
 

@@ -1,15 +1,16 @@
 import SwiftUI
 import AppKit
 
-/// A drag handle that starts a real multi-file drag session, so many files can be dropped on Finder at once.
-/// SwiftUI's own `.onDrag` carries a single file, which is why the row handle lives here too: a row drag
-/// has to be able to take the clip's XML along with its video.
+/// The grip dots at the left of a clip row, which drag that clip to Finder.
+///
+/// It exists because SwiftUI's own `.onDrag` carries a single file, and a clip is two — the
+/// video and its sidecar — which have to arrive together.
 struct MultiDragHandle: NSViewRepresentable {
-    enum Style { case bar, grip }
+    enum Style { case grip }
 
     let urls: [URL]
     var label: String = ""
-    var style: Style = .bar
+    var style: Style = .grip
 
     func makeNSView(context: Context) -> DragSourceView { DragSourceView() }
 
@@ -25,32 +26,10 @@ struct MultiDragHandle: NSViewRepresentable {
 final class DragSourceView: NSView, NSDraggingSource {
     var urls: [URL] = []
     var label = ""
-    var style: MultiDragHandle.Style = .bar
+    var style: MultiDragHandle.Style = .grip
 
     override func draw(_ dirtyRect: NSRect) {
-        switch style {
-        case .bar: drawBar()
-        case .grip: drawGrip()
-        }
-    }
-
-    private func drawBar() {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
-        NSColor.controlAccentColor.withAlphaComponent(urls.isEmpty ? 0.08 : 0.2).setFill()
-        path.fill()
-        NSColor.controlAccentColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
-
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let text = label as NSString
-        let size = text.size(withAttributes: attrs)
-        text.draw(at: NSPoint(x: max(4, (bounds.width - size.width) / 2),
-                              y: (bounds.height - size.height) / 2),
-                  withAttributes: attrs)
+        drawGrip()
     }
 
     /// Two columns of dots, the usual "grab me" affordance.

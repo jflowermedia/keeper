@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppState: ObservableObject {
@@ -111,8 +112,129 @@ final class AppState: ObservableObject {
     @Published var showPresetEditor = false
     @Published var showRosterEditor = false
 
-    /// What the export sheet will act on. Unlike the drag bar's implicit rule, this is
-    /// whatever the sheet says it is — chosen deliberately rather than inferred.
+    /// Set by a successful import so the tagging panel can jump to the roster that just
+    /// arrived. It lives here because importing is now a File menu command as well as a
+    /// button in the panel, and the panel isn't always on screen to run it.
+    @Published var lastImportedTeamID: String?
+    @Published var importMessage: String?
+
+    // MARK: - Verifying a card reached its destinations
+
+    @Published var showVerifySheet = false
+    @Published var verifyDestinations: [URL] = []
+    @Published var verifyReport: Verifier.Report?
+    @Published var isVerifying = false
+
+    func addVerifyDestination() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        panel.message = "Where did you copy this card's footage?"
+        guard panel.runModal() == .OK else { return }
+
+        var refused: [String] = []
+        for url in panel.urls where !verifyDestinations.contains(url) {
+            // The card can't vouch for itself. Comparing a folder against itself, or against
+            // anything containing it, matches every clip and reports the card safe to format
+            // — the exact outcome this feature exists to prevent.
+            if let root, overlaps(url, root) {
+                refused.append(url.lastPathComponent)
+                continue
+            }
+            verifyDestinations.append(url)
+        }
+
+        if !refused.isEmpty {
+            status = "\(refused.joined(separator: ", ")): that's the footage you scanned, not a "
+                + "copy of it. Add the folder you copied it to."
+        }
+        verifyReport = nil
+    }
+
+    /// True when either folder is the other, or sits inside it.
+    private func overlaps(_ a: URL, _ b: URL) -> Bool {
+        let one = FileUtil.folderPath(a), two = FileUtil.folderPath(b)
+        return one.hasPrefix(two) || two.hasPrefix(one)
+    }
+
+    func runVerify() {
+        guard !isVerifying, !isScanning, !clips.isEmpty, !verifyDestinations.isEmpty else { return }
+        if let root, let clash = verifyDestinations.first(where: { overlaps($0, root) }) {
+            status = "\(clash.lastPathComponent) is the footage you scanned, not a copy of it. "
+                + "Remove it before checking."
+            return
+        }
+        isVerifying = true
+        verifyReport = nil
+        status = "Checking \(clips.count) clips against \(verifyDestinations.count) folder(s)…"
+        let source = clips
+        let destinations = verifyDestinations
+        let word = keepWord
+        Task.detached(priority: .userInitiated) {
+            let report = Verifier.verify(source: source, destinations: destinations, keepWord: word)
+            await MainActor.run {
+                self.verifyReport = report
+                self.isVerifying = false
+                self.status = report.summary
+                self.addLog("Verify: " + report.summary)
+                self.appendLog(report.log)
+                for result in report.missing {
+                    self.addLog("✗ \(result.name) is not in any of those folders")
+                }
+                for result in report.wrongSize {
+                    if case .wrongSize(let found) = result.outcome {
+                        self.addLog("✗ \(result.name): \(FileUtil.sizeText(found)) there, "
+                                    + "\(FileUtil.sizeText(result.sourceSize)) on the card")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The tag filters point at a team, a player or a position by value, and a roster edit
+    /// can move or remove any of them — renumbering #15 changes that player's id, deleting a
+    /// team takes its players with it. A filter aimed at something that no longer exists
+    /// shows an empty clip list with nothing in the menus to explain why, so it's dropped.
+    func dropDanglingFilters() {
+        if let id = filterTeamID, library.team(id: id) == nil {
+            filterTeamID = nil
+        }
+        if let id = filterPlayerID, !library.allPlayers.contains(where: { $0.id == id }) {
+            filterPlayerID = nil
+        }
+        if let position = filterPosition,
+           !library.allPlayers.contains(where: { $0.position == position }) {
+            filterPosition = nil
+        }
+    }
+
+    func importRoster() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText, .text]
+        panel.message = "Choose a roster CSV: team, number, name"
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let result = try library.importRoster(from: url)
+            importMessage = "Imported \(result.players) players."
+            status = "Imported \(result.players) players from \(result.team)."
+                + (result.tagsUpdated > 0 ? " Updated \(result.tagsUpdated) existing tag(s)." : "")
+            // A multi-team file reports "13 teams" rather than a name, which won't resolve —
+            // the panel falls back to whatever's first in that case.
+            let imported = Team.slug(result.team)
+            lastImportedTeamID = library.team(id: imported) != nil ? imported : library.teams.first?.id
+        } catch {
+            importMessage = error.localizedDescription
+            status = "Roster import failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// What the export sheet will act on. Unlike `dragClips`, which infers a scope from
+    /// the selection, this is whatever the sheet says it is — chosen deliberately.
     var exportClips: [Clip] {
         switch exportScope {
         case .selection: return visible.filter { selection.contains($0.id) }
@@ -399,23 +521,16 @@ final class AppState: ObservableObject {
         return visible.first { selection.contains($0.id) }
     }
 
-    /// What gets dragged out: the selected clips, or everything in the current view if none are selected.
+    /// The implicit scope: the selected clips, or everything in the current view when
+    /// nothing is selected. Used by the Mark menu and the tag buttons. Export doesn't use
+    /// it — the export sheet makes you say which you mean.
     var dragClips: [Clip] {
         let selected = visible.filter { selection.contains($0.id) }
         return selected.isEmpty ? visible : selected
     }
 
-    /// The actual files to drag or copy: each video, plus its XML when "Include XML" is on.
-    var dragURLs: [URL] {
-        dragClips.flatMap { includeXML ? [$0.videoURL, $0.xmlURL] : [$0.videoURL] }
-    }
-
-    var dragSize: Int64 {
-        dragClips.reduce(0) { $0 + (includeXML ? $1.totalSize : $1.videoSize) }
-    }
-
     /// The clips the tag buttons act on: whatever is selected, or everything the filter
-    /// is showing when nothing is — the same rule the drag bar uses.
+    /// is showing when nothing is.
     var taggedInScope: [Clip] {
         dragClips.filter { library.isTagged($0.umid) }
     }
@@ -510,6 +625,7 @@ final class AppState: ObservableObject {
         selection = []
         lastSelected = nil
         log = []
+        verifyReport = nil        // it belonged to whatever was scanned before
         status = "Scanning \(root.lastPathComponent)…"
         addLog("Scan started")
         let word = keepWord

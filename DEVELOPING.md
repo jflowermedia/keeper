@@ -114,6 +114,15 @@ pairing on the next scan. That's why `CopyJob` carries a whole clip rather than 
 
 **Tags key off the UMID**, never the filename or path.
 
+**Sidecar claims are settled strongest first, not in file order.** A card index — Sony writes
+`MEDIAPRO.XML` — lists every clip on the card, so it can reference `C7787.MP4` exactly as
+readily as `C7787M01.XML` is named after it. `ClipScanner` therefore collects every claim with
+a `MatchStrength` (named, referenced, prefix) and settles them in that order, so a clip's own
+sidecar always wins. Before this it settled as it went, and the only thing keeping the index
+from claiming a clip was that `CLIP/` sorts before `MEDIAPRO.XML`. Had the index won, that
+clip would have taken the index's KEEP flag and UMID, and its real sidecar would have been
+reported unmatched. Don't reintroduce assign-as-you-go.
+
 **A player's identity is `teamID/number`, and a team's is the slug of its first name.** Both
 are computed, not stored, so anything that changes a number or a team id detaches the tags
 hanging off it. That's why `TagLibrary.apply(_:to:)` is a single call rather than a setter

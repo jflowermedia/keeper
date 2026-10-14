@@ -284,10 +284,16 @@ final class TagLibrary: ObservableObject {
                 return "There's already a team called \"\(name)\". Team names have to differ, "
                      + "or an import of one replaces the other."
             case .duplicateNumbers(let numbers):
-                let list = numbers.sorted().joined(separator: ", ")
-                return "Two players share \(numbers.count == 1 ? "number" : "numbers") \(list). "
+                let blanks = numbers.contains("")
+                let real = numbers.filter { !$0.isEmpty }.sorted()
+                var parts: [String] = []
+                if !real.isEmpty {
+                    parts.append("\(real.count == 1 ? "number" : "numbers") \(real.joined(separator: ", "))")
+                }
+                if blanks { parts.append("a blank number") }
+                return "Two players share \(parts.joined(separator: ", and more share ")). "
                      + "Keeper tells players apart by their number, so each has to be unique "
-                     + "within the team."
+                     + "within the team — a blank one included."
             case .unnamedPlayers(let count):
                 return "\(count) \(count == 1 ? "player has" : "players have") no name."
             }
@@ -313,8 +319,11 @@ final class TagLibrary: ObservableObject {
         let unnamed = players.filter { $0.name.isEmpty }.count
         guard unnamed == 0 else { throw RosterEditError.unnamedPlayers(unnamed) }
 
+        // Blanks count too. A player's id is "team/number", so two players with no number
+        // share an id just as surely as two wearing 15 — and a duplicate id in a SwiftUI
+        // list is the one thing that misbehaves rather than merely looking wrong.
         var counts: [String: Int] = [:]
-        for player in players where !player.number.isEmpty {
+        for player in players {
             counts[player.number, default: 0] += 1
         }
         let clashes = counts.filter { $0.value > 1 }.map(\.key)
