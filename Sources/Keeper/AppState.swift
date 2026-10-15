@@ -48,6 +48,9 @@ final class AppState: ObservableObject {
         didSet {
             guard filter != oldValue else { return }
             selection = []
+            // Also the preview: keeping it would show a clip from the filter you just left.
+            // A KEEP toggle deliberately doesn't do this — see `previewClip`.
+            lastSelected = nil
         }
     }
 
@@ -515,9 +518,18 @@ final class AppState: ObservableObject {
         status = "Reverted \(reverted) clip(s) to the camera's own flag."
     }
 
-    /// The clip shown in the preview pane: the one clicked most recently, if it's still on screen.
+    /// The clip shown in the preview pane: the one clicked most recently.
+    ///
+    /// Falls back to the full scan when that clip is no longer in view. The case that matters
+    /// is toggling KEEP while filtering by it: the clip stops matching and leaves the list,
+    /// and looking it up only in `visible` would empty the viewer — losing your place and
+    /// collapsing the split pane you'd sized. `visible` itself stays strictly filtered, so
+    /// the list and anything that exports are unaffected.
     var previewClip: Clip? {
-        if let last = lastSelected, let clip = visible.first(where: { $0.id == last }) { return clip }
+        if let last = lastSelected {
+            if let clip = visible.first(where: { $0.id == last }) { return clip }
+            if let clip = clips.first(where: { $0.id == last }) { return clip }
+        }
         return visible.first { selection.contains($0.id) }
     }
 

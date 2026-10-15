@@ -90,6 +90,7 @@ chmod +x build_app.sh
 | ⌘R | Rescan |
 | Space or 2 | Play, pause |
 | 1 and 3 | Shuttle back and forward — press again for 2x, 4x, 8x |
+| ⌘F | Full screen preview (Escape to come back) |
 | ⌘K | Toggle KEEP on the previewed clip |
 | ⌘E | Tagging panel |
 | ⌘I | Import roster CSV |

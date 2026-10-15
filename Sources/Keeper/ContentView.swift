@@ -592,6 +592,19 @@ struct PreviewPane: View {
     @ObservedObject private var playback = Playback.shared
 
     var body: some View {
+        ZStack {
+            // Always present, so the pane keeps the width you gave it when the branch below
+            // flips. Without it, losing the player leaves only the small placeholder and the
+            // split collapses around it — and dragging the divider back is the only way out.
+            Color.clear
+
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let clip {
             PlayerView(url: clip.videoURL)
                 .overlay(alignment: .topTrailing) {
@@ -627,16 +640,106 @@ final class Playback: ObservableObject {
     static let maxSpeed: Double = 8
 
     private(set) weak var player: AVPlayer?
+    /// The view itself, for full screen. Weak: AppKit owns it, and it outlives nothing.
+    private(set) weak var playerView: AVPlayerView?
     private var monitor: Any?
     private var scrubTimer: Timer?
     private var scrubbing = false
     private var rateObservation: NSKeyValueObservation?
 
+    // MARK: Full screen
+
+    /// A window of our own for the full-screen preview.
+    ///
+    /// The obvious approach — `enterFullScreenMode` on the player view SwiftUI already owns —
+    /// doesn't work here, and failed in three different ways before this replaced it. SwiftUI
+    /// sizes a representable's view itself, AppKit's full-screen mode sizes it through the
+    /// autoresizing mask, and handing one view to both leaves it the width of the split pane
+    /// going in and the wrong size coming back. A second window has no such seam: the inline
+    /// view is never moved, resized or re-parented.
+    ///
+    /// Borderless windows refuse key status by default, which would stop the transport keys
+    /// and Escape reaching it.
+    private final class FullScreenWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+    }
+
+    private var fullScreenWindow: NSWindow?
+    private var fullScreenView: AVPlayerView?
+
+    var isFullScreen: Bool { fullScreenWindow != nil }
+
+    /// Puts the clip on a screen of its own. The same `AVPlayer` moves to the full-screen
+    /// view, so the clip carries on from exactly where it was rather than reloading — only
+    /// one view may render a player at a time, which is why the inline one gives it up.
+    func toggleFullScreen() {
+        if isFullScreen {
+            leaveFullScreen()
+        } else {
+            enterFullScreen()
+        }
+    }
+
+    private func enterFullScreen() {
+        guard let player, let inline = playerView else { return }
+        // A sheet would be left floating over a screen-filling player with no way back to it.
+        guard inline.window?.attachedSheet == nil else { return }
+        guard let screen = inline.window?.screen ?? NSScreen.main else { return }
+
+        let view = AVPlayerView()
+        view.controlsStyle = .floating   // overlays and auto-hides, unlike the inline bar
+        view.videoGravity = .resizeAspect
+
+        inline.player = nil             // one renderer at a time
+        view.player = player
+
+        let window = FullScreenWindow(contentRect: screen.frame,
+                                      styleMask: [.borderless],
+                                      backing: .buffered,
+                                      defer: false)
+        window.contentView = view
+        window.backgroundColor = .black
+        window.isOpaque = true
+        // Default is true, which has AppKit release the window on close while ARC still
+        // holds it. We only order it out, but this costs nothing and removes the trap.
+        window.isReleasedWhenClosed = false
+        // Above the menu bar, so it really does cover the screen.
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+        window.collectionBehavior = [.fullScreenAuxiliary, .stationary]
+        window.setFrame(screen.frame, display: true)
+        window.makeKeyAndOrderFront(nil)
+
+        fullScreenWindow = window
+        fullScreenView = view
+    }
+
+    private func leaveFullScreen() {
+        guard let window = fullScreenWindow else { return }
+        fullScreenView?.player = nil
+        window.orderOut(nil)
+        fullScreenWindow = nil
+        fullScreenView = nil
+
+        // Read the player back rather than trusting a captured one: if the preview was
+        // rebuilt while full screen, `attach` will have replaced it.
+        if let player, let inline = playerView {
+            inline.player = player
+            inline.window?.makeKeyAndOrderFront(nil)
+            inline.window?.makeFirstResponder(inline)
+        } else {
+            // The preview was torn down while we were full screen, so there's nothing to
+            // hand the clip back to. Don't leave it playing to an empty room.
+            player?.pause()
+        }
+    }
+
     // MARK: Wiring
 
-    func attach(_ player: AVPlayer) {
+    func attach(_ player: AVPlayer, view: AVPlayerView) {
         stopScrub()
         self.player = player
+        playerView = view
         speed = 0
 
         // Catches the clip ending, and the player's own on-screen controls, so the readout
@@ -673,6 +776,12 @@ final class Playback: ObservableObject {
             case " ", "2": return playback.toggle() ? nil : event
             case "3":      return playback.shuttle(forward: true) ? nil : event
             case "1":      return playback.shuttle(forward: false) ? nil : event
+            case "\u{1B}":                                   // Escape
+                // Only when it has something to do, so Escape keeps working as Escape
+                // everywhere else.
+                guard playback.isFullScreen else { return event }
+                playback.toggleFullScreen()
+                return nil
             default:       return event
             }
         }
@@ -835,15 +944,19 @@ struct PlayerView: NSViewRepresentable {
 
         let player = AVPlayer()
         view.player = player
-        Playback.shared.attach(player)      // so the transport keys can reach it
+        Playback.shared.attach(player, view: view)   // so the transport keys and ⌘F can reach it
         return view
     }
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
-        view.player?.pause()
-        view.player?.replaceCurrentItem(with: AVPlayerItem(url: url))
+        // Not `view.player`: while the full-screen window is up this view has handed the
+        // player over, and loading into nothing would leave the bookkeeping saying the new
+        // clip is showing while the old one is still on screen.
+        let player = view.player ?? Playback.shared.player
+        player?.pause()
+        player?.replaceCurrentItem(with: AVPlayerItem(url: url))
         Playback.shared.didChangeClip()
     }
 

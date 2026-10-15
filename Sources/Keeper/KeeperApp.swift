@@ -74,6 +74,10 @@ struct KeeperApp: App {
                 Button("Edit Filename Presets…") { state.showPresetEditor = true }
             }
             CommandGroup(after: .sidebar) {
+                Button("Full Screen Preview") { Playback.shared.toggleFullScreen() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(state.previewClip == nil)
+                Divider()
                 Toggle("Tagging Panel", isOn: $showTagging)
                     .keyboardShortcut("e", modifiers: .command)
                 Toggle("Debug Log", isOn: $state.debugMode)
