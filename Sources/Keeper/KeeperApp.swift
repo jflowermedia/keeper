@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.5"
+    static let version = "0.6"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -22,6 +22,13 @@ struct KeeperApp: App {
     // Same UserDefaults key as ContentView's, so the menu item and the toolbar button
     // stay in step with each other.
     @AppStorage("showTagging") private var showTagging = true
+    @AppStorage("advanceAfterTag") private var advanceAfterTag = false
+    /// Observed, not just read: changing a binding has to rebuild this scene, or the menu
+    /// items keep the key equivalents they were built with until the next launch.
+    @ObservedObject private var shortcuts = Shortcuts.shared
+    /// Also observed, because the Undo item's own name comes from the library's history and
+    /// `AppState` doesn't republish when that changes.
+    @ObservedObject private var library = TagLibrary.shared
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -35,19 +42,38 @@ struct KeeperApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About Keeper") { Self.showAbout() }
             }
+            CommandGroup(replacing: .appSettings) {
+                Button("Keyboard Shortcuts…") { state.showShortcutsSheet = true }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            // Named for what they'll actually undo — "Undo Mark 24 Clips KEEP" — so a menu
+            // you open in a panic says whether it's the thing you meant.
+            CommandGroup(replacing: .undoRedo) {
+                Button(state.undoMenuTitle) { state.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!state.canUndo)
+                Button(state.redoMenuTitle) { state.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!state.canRedo)
+            }
+
             CommandMenu("Mark") {
-                Button("Toggle KEEP on Previewed Clip") {
-                    if let clip = state.previewClip { state.toggleKeep(clip) }
-                }
-                .keyboardShortcut("k", modifiers: .command)
-                .disabled(state.previewClip == nil)
+                Button("Toggle KEEP on Previewed Clip") { state.toggleKeepOnPreview() }
+                    .keyboardShortcut(shortcuts.equivalent(.toggleKeep),
+                                      modifiers: shortcuts.modifiers(.toggleKeep))
+                    .disabled(state.previewClip == nil)
+                Toggle("Move On After Marking", isOn: $state.advanceAfterMark)
+                    .help("Go to the next clip after ⌘K. The badge on a row never moves the "
+                          + "preview, whichever way this is set.")
 
                 Divider()
                 Button("Mark Selection KEEP") { state.setKeepInScope(true) }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .keyboardShortcut(shortcuts.equivalent(.markKeep),
+                                      modifiers: shortcuts.modifiers(.markKeep))
                     .disabled(state.dragClips.isEmpty)
                 Button("Mark Selection NOT KEEP") { state.setKeepInScope(false) }
-                    .keyboardShortcut("k", modifiers: [.command, .option])
+                    .keyboardShortcut(shortcuts.equivalent(.markNotKeep),
+                                      modifiers: shortcuts.modifiers(.markNotKeep))
                     .disabled(state.dragClips.isEmpty)
                 Button("Revert Selection to Camera Flags") { state.revertKeepInScope() }
                     .disabled(state.dragClips.isEmpty)
@@ -55,33 +81,57 @@ struct KeeperApp: App {
 
             CommandGroup(after: .newItem) {
                 Button("Choose Folder…") { state.chooseCard() }
-                    .keyboardShortcut("o", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.chooseFolder),
+                                      modifiers: shortcuts.modifiers(.chooseFolder))
                 Button("Rescan") { state.scan() }
-                    .keyboardShortcut("r", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.rescan),
+                                      modifiers: shortcuts.modifiers(.rescan))
                     .disabled(state.root == nil)
                 Divider()
                 Button("Export…") { state.requestExport() }
-                    .keyboardShortcut("s", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.export),
+                                      modifiers: shortcuts.modifiers(.export))
                     .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
                 Button("Check the Card Copied…") { state.showVerifySheet = true }
-                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .keyboardShortcut(shortcuts.equivalent(.verify),
+                                      modifiers: shortcuts.modifiers(.verify))
                     .disabled(state.clips.isEmpty || state.isScanning)
                 Divider()
                 Button("Import Roster CSV…") { state.importRoster() }
-                    .keyboardShortcut("i", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.importRoster),
+                                      modifiers: shortcuts.modifiers(.importRoster))
                 Button("Edit Rosters…") { state.showRosterEditor = true }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .keyboardShortcut(shortcuts.equivalent(.editRosters),
+                                      modifiers: shortcuts.modifiers(.editRosters))
                 Button("Edit Filename Presets…") { state.showPresetEditor = true }
+
+                Divider()
+                restoreMenu
             }
             CommandGroup(after: .sidebar) {
                 Button("Full Screen Preview") { Playback.shared.toggleFullScreen() }
-                    .keyboardShortcut("f", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.fullScreen),
+                                      modifiers: shortcuts.modifiers(.fullScreen))
                     .disabled(state.previewClip == nil)
                 Divider()
                 Toggle("Tagging Panel", isOn: $showTagging)
-                    .keyboardShortcut("e", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.taggingPanel),
+                                      modifiers: shortcuts.modifiers(.taggingPanel))
+                Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
+                    .keyboardShortcut(shortcuts.equivalent(.keyboardFlow),
+                                      modifiers: shortcuts.modifiers(.keyboardFlow))
+                Toggle("Move On After Tagging", isOn: $advanceAfterTag)
+                Divider()
+                // The same setting the export sheet shows, which is where it matters and
+                // where it's explained. Here for the one place the sheet isn't involved:
+                // dragging a row to Finder.
+                Toggle("Include XML Sidecars", isOn: $state.includeXML)
+                    .help("Whether a clip's XML sidecar travels with it. The export sheet "
+                          + "shows this too; this is the one that applies when you drag a "
+                          + "row straight to Finder.")
                 Toggle("Debug Log", isOn: $state.debugMode)
-                    .keyboardShortcut("d", modifiers: .command)
+                    .keyboardShortcut(shortcuts.equivalent(.debugLog),
+                                      modifiers: shortcuts.modifiers(.debugLog))
             }
             CommandGroup(replacing: .help) {
                 Button("Keeper Guide") { NSWorkspace.shared.open(AppInfo.guide) }
@@ -91,6 +141,27 @@ struct KeeperApp: App {
                 Button("JFlowerMedia Website") { NSWorkspace.shared.open(AppInfo.website) }
                 Button("JFlowerMedia on Instagram") { NSWorkspace.shared.open(AppInfo.instagram) }
             }
+        }
+    }
+
+    // MARK: - Restore
+
+    /// The rolling backups of `library.json`, newest first, written automatically as you tag.
+    /// Restoring replaces every tag at once, so `restoreLibrary` asks before it does.
+    private var restoreMenu: some View {
+        Menu("Restore Tags") {
+            if state.libraryBackups.isEmpty {
+                Button("No backups yet") {}
+                    .disabled(true)
+            } else {
+                ForEach(state.libraryBackups) { backup in
+                    Button(AppState.backupLabel(backup)) {
+                        state.restoreLibrary(from: backup)
+                    }
+                }
+            }
+            Divider()
+            Button("Reveal Backups in Finder") { state.revealBackups() }
         }
     }
 

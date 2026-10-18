@@ -1,10 +1,12 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import Combine
 
 struct ContentView: View {
     @ObservedObject var state: AppState
     @ObservedObject private var library = TagLibrary.shared
+    @ObservedObject private var shortcuts = Shortcuts.shared
     @State private var inspecting: Clip?
     @AppStorage("showTagging") private var showTagging = true
 
@@ -18,6 +20,7 @@ struct ContentView: View {
             Divider()
             HSplitView {
                 clipList
+                    .flowSection(.clips, current: state.tagStage, active: state.keyboardFlow)
                     .frame(minWidth: 400, idealWidth: 460, maxHeight: .infinity)
                 PreviewPane(clip: state.previewClip)
                     .frame(minWidth: 300, maxHeight: .infinity)
@@ -55,9 +58,37 @@ struct ContentView: View {
         .sheet(isPresented: $state.showVerifySheet) {
             VerifySheet(state: state)
         }
+        .sheet(isPresented: $state.showShortcutsSheet) {
+            ShortcutsSheet()
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             Playback.shared.startListening()
+            state.refreshBackups()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .keeperLibraryBackedUp)) { _ in
+            state.refreshBackups()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .keeperFlowKey)) { note in
+            guard let key = note.userInfo?["key"] as? String,
+                  let shift = note.userInfo?["shift"] as? Bool,
+                  let token = note.userInfo?["token"] as? Int
+            else { return }
+            state.handleFlowKey(key, shift: shift, token: token)
+        }
+        // A roster can be edited or deleted while the cursor is sitting in it.
+        .onChange(of: state.library.teams) { _ in
+            state.clampFlowCursors()
+        }
+        // The key monitor can't touch `AppState` — it runs outside the main actor and this
+        // does not — so it posts instead and the move happens here.
+        .onReceive(NotificationCenter.default.publisher(for: .keeperMoveSelection)) { note in
+            guard let delta = note.userInfo?["delta"] as? Int,
+                  let token = note.userInfo?["token"] as? Int
+            else { return }
+            // Every window's view hears this, and they share one `AppState`, so without the
+            // token a second window would move the selection twice for one key press.
+            state.moveSelection(delta, token: token)
         }
     }
 
@@ -111,7 +142,7 @@ struct ContentView: View {
                 Label("Tagging", systemImage: "number")
             }
             .toggleStyle(.button)
-            .help("Show or hide the tagging panel (⌘E)")
+            .help("Show or hide the tagging panel (\(shortcuts.display(.taggingPanel)))")
 
             Toggle(isOn: $state.debugMode) {
                 Label("Debug", systemImage: "ladybug")
@@ -255,37 +286,56 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                List(state.visible, selection: $state.selection) { clip in
-                    ClipRow(clip: clip,
-                            urls: state.urls(for: clip),
-                            includeXML: state.includeXML,
-                            tags: state.library.tags(forUMID: clip.umid),
-                            isKeep: state.isKeep(clip),
-                            isChanged: state.isKeepChanged(clip),
-                            onToggleKeep: { state.toggleKeep(clip) })
-                        .contextMenu {
-                            Button("Show XML…") { inspecting = clip }
-                            Button("Reveal in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([clip.videoURL])
-                            }
-                            Divider()
-                            Button(state.isKeep(clip) ? "Mark NOT KEEP" : "Mark KEEP") {
-                                state.toggleKeep(clip)
-                            }
-                            if state.isKeepChanged(clip), let umid = clip.umid {
-                                Button("Revert to the camera's flag") {
-                                    state.library.clearKeepOverride(umid: umid)
-                                }
-                            }
-                            if let umid = clip.umid, state.library.isTagged(umid) {
-                                Divider()
-                                Button("Remove all tags from this clip", role: .destructive) {
-                                    state.library.removeAllTags(forUMID: umid)
-                                }
+                // Wrapped so the arrow keys can bring their row into view. Rows are
+                // identified by their video URL, which is `Clip.id`, so `scrollTo` takes
+                // the same value the selection holds.
+                ScrollViewReader { proxy in
+                    clipRows
+                        .onChange(of: state.lastSelected) { id in
+                            guard let id else { return }
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                proxy.scrollTo(id)
                             }
                         }
                 }
             }
+        }
+    }
+
+    private var clipRows: some View {
+        List(state.visible, selection: $state.selection) { clip in
+            ClipRow(clip: clip,
+                    urls: state.urls(for: clip),
+                    includeXML: state.includeXML,
+                    tags: state.library.tags(forUMID: clip.umid),
+                    isKeep: state.isKeep(clip),
+                    isChanged: state.isKeepChanged(clip),
+                    onToggleKeep: { state.toggleKeep(clip) })
+                .contextMenu {
+                    Button("Show XML…") { inspecting = clip }
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([clip.videoURL])
+                    }
+                    Divider()
+                    Button(state.isKeep(clip) ? "Mark NOT KEEP" : "Mark KEEP") {
+                        state.toggleKeep(clip)
+                    }
+                    if state.isKeepChanged(clip), let umid = clip.umid {
+                        Button("Revert to the camera's flag") {
+                            state.library.clearKeepOverride(
+                                umid: umid,
+                                undoLabel: "Revert \(clip.name) to the Camera's Flag")
+                        }
+                    }
+                    if let umid = clip.umid, state.library.isTagged(umid) {
+                        Divider()
+                        Button("Remove all tags from this clip", role: .destructive) {
+                            state.library.removeAllTags(
+                                forUMID: umid,
+                                undoLabel: "Remove the Tags from \(clip.name)")
+                        }
+                    }
+                }
         }
     }
 
@@ -384,6 +434,17 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
                         .font(.callout)
+                    if !state.clips.isEmpty {
+                        // Follows the filter, so IS KEEP / IS NOT KEEP / ALL answers "how
+                        // much is that" without a second control. The tooltip has all three.
+                        Text(FileUtil.sizeText(state.visibleBytes))
+                            .font(.callout.weight(.medium).monospacedDigit())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.14))
+                            .clipShape(Capsule())
+                            .help(state.sizeBreakdown)
+                    }
                     if state.changedKeepCount > 0 {
                         Text("\(state.changedKeepCount) changed")
                             .font(.caption2.weight(.semibold))
@@ -403,11 +464,21 @@ struct ContentView: View {
 
             Spacer()
 
-            // This is only for the grip dots on each row now. Everything else leaves
-            // through Export, which asks about the sidecar itself.
-            Toggle("Include XML", isOn: $state.includeXML)
-                .toggleStyle(.checkbox)
-                .help("Take each clip's XML sidecar when you drag a row to Finder. Export asks separately.")
+            // Include XML used to sit here, next to the two buttons that matter. It's the
+            // same setting the export sheet carries — one flag, two places — so the copy
+            // here only mattered for dragging a row to Finder, which isn't worth the space.
+            // It's in the View menu now.
+
+            // Always present rather than appearing when there's something to undo: a button
+            // that comes and goes would shift Export and Check Copied out from under the
+            // pointer. Icon only, like Rescan in the toolbar, with the tooltip naming the
+            // change — the menu item carries the full wording.
+            Button { state.undo() } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .controlSize(.large)
+            .disabled(!state.canUndo)
+            .help(state.canUndo ? "\(state.undoMenuTitle) (⌘Z)" : "Nothing to undo")
 
             // Both live here now: the two things you do with a scanned card, in the corner
             // you end up in.
@@ -590,6 +661,7 @@ actor ThumbnailCache {
 struct PreviewPane: View {
     let clip: Clip?
     @ObservedObject private var playback = Playback.shared
+    @ObservedObject private var shortcuts = Shortcuts.shared
 
     var body: some View {
         ZStack {
@@ -615,7 +687,14 @@ struct PreviewPane: View {
         } else {
             VStack(spacing: 6) {
                 Text("Select a clip to preview")
-                Text("Space or 2 — play / pause\n1 and 3 — shuttle back and forward\npress again for 4x and 8x")
+                // Read off the bindings rather than written out, so it still tells the
+                // truth after someone has changed them.
+                Text("\(shortcuts.display(.playPause)) — play / pause\n"
+                     + "\(shortcuts.combo(.shuttleBack).display) and "
+                     + "\(shortcuts.combo(.shuttleForward).display) — shuttle back and forward, "
+                     + "press again for 4x and 8x\n"
+                     + "\(shortcuts.combo(.previousClip).display) and "
+                     + "\(shortcuts.combo(.nextClip).display) — previous and next clip")
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.tertiary)
@@ -754,13 +833,20 @@ final class Playback: ObservableObject {
         }
     }
 
+    /// Which keys do what is now `Shortcuts`, so this looks the press up rather than
+    /// switching on a hard-coded character. Review keys carry no modifiers by rule, which is
+    /// what lets this bail out early on anything held down.
     func startListening() {
         guard monitor == nil else { return }
-        let blocking: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.modifierFlags.intersection(blocking).isEmpty,
-                  let key = event.charactersIgnoringModifiers
-            else { return event }
+            // ⌘, ⌥ and ⌃ belong to the menus. Shift is let through, because the keyboard
+            // flow uses ⇧Return and ⇧Tab; the review keys below still insist on no
+            // modifier at all.
+            let held = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard held.isSubset(of: .shift), let key = KeyCombo.name(for: event) else {
+                return event
+            }
+            let shift = held.contains(.shift)
 
             if let responder = event.window?.firstResponder, responder is NSText {
                 return event                        // a text field is being edited
@@ -771,20 +857,66 @@ final class Playback: ObservableObject {
                 return event
             }
 
+            // The keyboard flow gets first refusal on the keys it uses at the stage it's
+            // at. Everything else falls through, which is what keeps Space playing the clip
+            // while you tag.
+            let flow = FlowKeyState.shared
+            if flow.active, FlowKeyState.claims(key, stage: flow.stage) {
+                Playback.shared.sendFlowKey(key, shift: shift)
+                return nil
+            }
+
+            guard !shift else { return event }
+
             let playback = Playback.shared
-            switch key {
-            case " ", "2": return playback.toggle() ? nil : event
-            case "3":      return playback.shuttle(forward: true) ? nil : event
-            case "1":      return playback.shuttle(forward: false) ? nil : event
-            case "\u{1B}":                                   // Escape
-                // Only when it has something to do, so Escape keeps working as Escape
-                // everywhere else.
+
+            // Escape isn't bindable: it's the way out of full screen and nothing else, so
+            // it keeps working as Escape everywhere it has nothing to do.
+            if key == "escape" {
                 guard playback.isFullScreen else { return event }
                 playback.toggleFullScreen()
                 return nil
-            default:       return event
+            }
+
+            guard let action = Shortcuts.shared.reviewAction(forKey: key) else { return event }
+            switch action {
+            case .playPause:      return playback.toggle() ? nil : event
+            case .shuttleForward: return playback.shuttle(forward: true) ? nil : event
+            case .shuttleBack:    return playback.shuttle(forward: false) ? nil : event
+            case .previousClip:   return playback.moveSelection(-1) ? nil : event
+            case .nextClip:       return playback.moveSelection(1) ? nil : event
+            default:              return event
             }
         }
+    }
+
+    /// Counts the presses, so a second window's copy of the view can't act on the same one.
+    private var moveToken = 0
+
+    /// Hands a keystroke to the tagging flow, which lives on `AppState` where the clips and
+    /// the rosters are. Same reason as `moveSelection`: this closure runs outside the main
+    /// actor, so it posts rather than calls.
+    func sendFlowKey(_ key: String, shift: Bool) {
+        moveToken += 1
+        NotificationCenter.default.post(name: .keeperFlowKey,
+                                        object: nil,
+                                        userInfo: ["key": key,
+                                                   "shift": shift,
+                                                   "token": moveToken])
+    }
+
+    /// Asks the window to move the preview one clip along.
+    ///
+    /// Only once a clip is loaded, so before the first selection the arrow keys fall through
+    /// to the list's own handling and pick a row the ordinary way. Returns false when there's
+    /// nothing loaded, which is what leaves the key press untouched.
+    func moveSelection(_ delta: Int) -> Bool {
+        guard player?.currentItem != nil else { return false }
+        moveToken += 1
+        NotificationCenter.default.post(name: .keeperMoveSelection,
+                                        object: nil,
+                                        userInfo: ["delta": delta, "token": moveToken])
+        return true
     }
 
     // MARK: Transport

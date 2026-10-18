@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.5.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.6.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -12,9 +12,11 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 **Reads the flag you set in camera.** Point it at a card, an SSD, or any folder of footage. It finds the XML sidecars, pairs each to its video, and filters to the clips you marked KEEP — or the ones you didn't, for warmups and B-roll. You can mark and unmark clips in the app too; those changes go into the exported sidecar, never onto the card.
 
-**Previews without leaving the app.** Space plays and pauses, 1 and 3 shuttle back and forward through 2x, 4x and 8x.
+**Previews without leaving the app.** Space plays and pauses, 1 and 3 shuttle back and forward through 2x, 4x and 8x, and the arrow keys walk the list — so a review pass never needs the mouse. ⌘F fills the screen. Every one of those keys can be changed.
 
-**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
+**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Tick both benches for a game and the grid shows both rosters. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
+
+**Or tag without the mouse.** Turn on keyboard tagging and a clip is arrow, Tab, jersey number, Return, Return — through the clips, into the roster, onto the category and on to the next clip.
 
 ![The roster editor: teams listed down the left under their league headings, and on the right the selected team's name, filename code and league, above a list of players with editable number, name and position](docs/rosters.png)
 
@@ -42,6 +44,9 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 - A file already there with the same name and size is skipped as a duplicate.
 - A clip's video and sidecar are named together, so a filename clash can't separate them.
 - Tags are keyed to the camera's UMID rather than the filename, so they survive renaming, copying to another drive, and a card restarting its numbering.
+- A copy that fails five times in a row stops, rather than filling the log with the same error for every remaining file.
+- Your tags are backed up automatically, ten versions deep, and any of them can be restored.
+- ⌘Z takes back a flag change or a tag, forty steps deep — including a bulk mark or a bulk tag removal, in one press.
 
 ## Which cameras
 
@@ -86,26 +91,41 @@ chmod +x build_app.sh
 
 | | |
 |---|---|
-| ⌘O | Choose folder |
-| ⌘R | Rescan |
+| ↑ and ↓ | Previous and next clip |
 | Space or 2 | Play, pause |
 | 1 and 3 | Shuttle back and forward — press again for 2x, 4x, 8x |
 | ⌘F | Full screen preview (Escape to come back) |
 | ⌘K | Toggle KEEP on the previewed clip |
+| ⌘Z | Undo the last flag or tag change |
+| ⌘⇧Z | Redo |
+| ⌘O | Choose folder |
+| ⌘R | Rescan |
 | ⌘E | Tagging panel |
+| ⌘⇧T | Keyboard tagging |
 | ⌘I | Import roster CSV |
 | ⌘⇧R | Edit rosters |
 | ⌘S | Export |
 | ⌘⇧V | Check the card copied |
 | ⌘D | Debug log |
+| ⌘, | Change any of these |
+
+**⌘,** opens the shortcut list. Click a key, press the one you want. The review keys — play, shuttle, previous and next — are single presses with no modifier so they work one-handed; the menu commands need ⌘. Take a key that's already in use and the two swap, so nothing is ever left without one. **Reset All** puts them back.
 
 ## Scanning
 
 **Choose Folder…** takes a card, an SSD, or any folder, and scans everything underneath for `.xml` sidecars. Filter by **IS KEEP**, **IS NOT KEEP** or **ALL**. Click a clip to preview it, shift or ⌘-click for several, ⌘A for all.
 
+The footer counts the clips and totals the data the filter is showing, so **IS KEEP** answers "how much am I actually keeping" and **ALL** answers "how big is this card". Hover the figure for all three at once.
+
+Once a clip is playing, ↑ and ↓ move through the list and the preview follows, so a pass is arrow, space, ⌘K, arrow — no mouse. The arrows work full screen too.
+
 ## Changing a flag
 
-Click a clip's **KEEP** badge, or ⌘K for the one in the viewer. The **Mark** menu does a whole selection at once. Changed clips get an orange badge; right-click to put it back.
+Click a clip's **KEEP** badge, or ⌘K for the one in the viewer. ⌘K then moves to the next clip, so a pass down a card is watch, mark, watch, mark — turn that off with **Mark → Move On After Marking**. A badge click never moves the preview, whichever way that's set.
+
+The **Mark** menu does a whole selection at once. Changed clips get an orange badge; right-click to put it back.
+
+Wrong clip? **⌘Z**, or the undo button at the bottom right. It names what it's about to undo, so you can check before you press it.
 
 Nothing is written to your card. The change is applied to the sidecar on export, and only if the sidecar goes with it — the export sheet says so when it won't.
 
@@ -136,6 +156,37 @@ Two players can't share a number and two teams can't share a name, because that'
 
 An accent ring means **picked**. A green tick means **already on this clip**.
 
+**Move On After Tagging**, in the panel's ⋯ menu, goes to the next clip as soon as a tag lands. It's off by default, because a clip usually takes two tags — a goal for one player and an assist for another — and moving on after the first would put the second on the wrong clip. Turn it on for a pass where each clip gets one tag.
+
+### Both teams at once
+
+The roster button takes ticks, not one choice: tick both benches and the grid shows both, headed by team name. A tag takes the team from the player, so it doesn't matter which block they're in. One roster for a practice, two for a game.
+
+Only one bench shows at a time — forty chips is too many to read at once. A row of pills appears with each team's code; click one, or press **← →**, to switch. A typed jersey number only reaches the bench on screen, so 9 always means *this* team's #9.
+
+### Keyboard tagging
+
+**⌘⇧T**, or **Keyboard Tagging** in the View menu. A strip shows where the keyboard is — Clips, Player, Category — and what the next press does, and the section itself is outlined, so it's obvious at a glance where Tab has just put you.
+
+**Tab** moves between the three sections and does nothing else. **Return** is what acts.
+
+```
+↓ ↓        move through the clips
+Return     this is the clip — on to the roster
+17         type the jersey number
+Return     picks #17, straight to the categories
+G          jumps to Goal
+Return     tags it, and moves to the next clip
+```
+
+- **Type the number to narrow the roster.** 1 leaves #1 and #10–#19 on screen, 7 then leaves #17 on its own — so you're picking from what you can see rather than hunting a highlight. **⌫** goes back a digit, and a digit that would leave nobody is refused rather than blanking the grid. The filter clears itself the moment you leave the step.
+- **First letter** jumps to a category. Press it again for the next match — S goes Save, then Shot.
+- **⇧Return** tags it and stays on the clip, back at the players — that's the goal then the assist.
+- **Tab** cycles clips → roster → categories → clips, **⇧Tab** the other way. Tabbing past the roster without picking anyone is fine — some tags have no player — and the strip then says it will tag the clip itself.
+- **Escape** steps back a section. **Off** in the strip hands the keyboard back.
+
+Space still plays and pauses throughout, and ⌘K still marks KEEP, because the flow only takes the keys it's using at the step it's on.
+
 Categories start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview and B-Roll. Add with **+**, remove by right-clicking. Their order decides which tag wins when a clip has several.
 
 The bar under the toolbar filters by team, player, position and category, on top of the KEEP filter.
@@ -159,7 +210,7 @@ The button names what it's about to do, and the line beside it totals the files 
 
 **Rename them where they already are** is for footage you've offloaded already: it renames in place so you don't end up holding the same game twice. It's refused on a card, and it breaks the media links in any edit already built on those files.
 
-Dragging to Finder keeps the camera names — macOS gives the app no say in what a dropped file is called.
+Dragging to Finder keeps the camera names — macOS gives the app no say in what a dropped file is called. Whether the sidecar goes too is **View → Include XML Sidecars**, the same setting the sheet shows.
 
 ## Filenames
 
@@ -173,15 +224,21 @@ Build your own in **Edit Presets…**: a name, a fallback team code, a separator
 
 **No KEEP clips found** — right-click a clip, choose **Show XML…** to see what your camera writes, then type that word into **Flag word**.
 
+**A copy that keeps failing** stops itself after five failures in a row and says so, rather than reporting one identical error per remaining file. Check the destination has room and is still connected, then run it again — what already copied is kept and skipped as duplicates.
+
 **⌘D** opens the debug log: which sidecar paired with which video, what marked each clip, and the result of every copy. **Copy Log** puts it on the clipboard for a bug report.
 
-**Your tags live in** `~/Library/Application Support/Keeper/library.json`, with teams, categories and presets. Worth backing up — there's no undo.
+**Your tags live in** `~/Library/Application Support/Keeper/library.json`, with teams, categories and presets.
+
+**To take back a flag or a tag**, **⌘Z** — the undo button at the bottom right does the same, and both name the change. It covers marking and unmarking, in bulk as well as one at a time, tagging, and removing tags. Forty steps deep, and ⌘⇧Z redoes. It doesn't survive quitting, and it deliberately doesn't cover roster edits or a restore — those are bigger than one keystroke and have the backups below.
+
+**To undo a roster edit or a restore**, use **File → Restore Tags**. Keeper copies the library before writing to it, keeps the last ten versions in a `Backups` folder beside it, and lists them there by date. Restoring backs up what you have first, so it can be undone the same way. Nothing on your cards or drives is touched either way.
 
 ---
 
 ## Known gaps
 
-- No undo on tag deletion, or on a roster edit.
+- Undo covers flags and tags, not roster edits or a restore. Those go back through the backups.
 - Proxy files in a `SUB` folder aren't handled, only the main clip and its sidecar.
 - Clips with no XML sidecar can't be listed or tagged. Debug mode names them.
 

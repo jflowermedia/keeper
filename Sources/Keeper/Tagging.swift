@@ -75,6 +75,60 @@ struct Tag: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Lenient decoding
+
+// Swift's generated decoder throws on a missing key even for a property with a default
+// value, so the moment a field is added, every library written before it existed stops
+// loading — and a library that won't load is how a season of tagging disappears. Making
+// each new field optional avoids that, but only for the fields someone remembers to make
+// optional. These decoders close the hole for good: anything absent takes its default.
+//
+// Written in an extension rather than in the type, which keeps the memberwise initialiser.
+// Encoding stays as generated.
+
+extension Player {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        teamID = try c.decodeIfPresent(String.self, forKey: .teamID) ?? ""
+        number = try c.decodeIfPresent(String.self, forKey: .number) ?? ""
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        position = try c.decodeIfPresent(String.self, forKey: .position) ?? ""
+    }
+}
+
+extension Team {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let storedName = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        name = storedName
+        // A team with no id would detach every tag hanging off it, so it's rebuilt the same
+        // way `importRoster` builds it rather than left empty.
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? Team.slug(storedName)
+        code = try c.decodeIfPresent(String.self, forKey: .code)
+        league = try c.decodeIfPresent(String.self, forKey: .league)
+        players = try c.decodeIfPresent([Player].self, forKey: .players) ?? []
+    }
+}
+
+extension Tag {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        umid = try c.decodeIfPresent(String.self, forKey: .umid) ?? ""
+        clipName = try c.decodeIfPresent(String.self, forKey: .clipName) ?? ""
+        volumeName = try c.decodeIfPresent(String.self, forKey: .volumeName) ?? ""
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        teamID = try c.decodeIfPresent(String.self, forKey: .teamID)
+        teamName = try c.decodeIfPresent(String.self, forKey: .teamName)
+        playerNumber = try c.decodeIfPresent(String.self, forKey: .playerNumber)
+        playerName = try c.decodeIfPresent(String.self, forKey: .playerName)
+        playerPosition = try c.decodeIfPresent(String.self, forKey: .playerPosition)
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        created = try c.decodeIfPresent(Date.self, forKey: .created) ?? Date()
+    }
+}
+
 // MARK: - Library
 
 /// Deliberately not actor-isolated: every call comes from the UI on the main thread,
@@ -94,6 +148,101 @@ final class TagLibrary: ObservableObject {
 
     private init() { load() }
 
+    // MARK: - Undo
+
+    /// What one clip's KEEP flag was before a change. `override` is nil for "no override at
+    /// all", which is a state in its own right — the clip takes the camera's flag — and not
+    /// the same as an override that happens to agree with it.
+    struct KeepState {
+        let umid: String
+        let override: Bool?
+    }
+
+    /// One reversible change, stored as what it takes to put things back rather than as the
+    /// action that caused it. Applying one returns the edit that undoes it again, so undo
+    /// and redo are the same code running in opposite directions.
+    struct Edit {
+        var label: String
+        var keeps: [KeepState] = []
+        /// Tags that have to come back.
+        var tagsToRestore: [Tag] = []
+        /// Tags that have to go.
+        var tagIDsToRemove: [UUID] = []
+
+        var isEmpty: Bool {
+            keeps.isEmpty && tagsToRestore.isEmpty && tagIDsToRemove.isEmpty
+        }
+    }
+
+    @Published private(set) var undoStack: [Edit] = []
+    @Published private(set) var redoStack: [Edit] = []
+
+    /// Deep enough to cover a reviewing session's worth of mistakes, shallow enough that a
+    /// bulk tag removal's worth of restored tags can't sit in memory forever.
+    private static let undoDepth = 40
+
+    var undoLabel: String? { undoStack.last?.label }
+    var redoLabel: String? { redoStack.last?.label }
+
+    private func push(_ edit: Edit) {
+        guard !edit.isEmpty else { return }
+        undoStack.append(edit)
+        if undoStack.count > Self.undoDepth { undoStack.removeFirst() }
+        redoStack = []       // a new change forks the history, so there's nothing to redo
+    }
+
+    /// Puts an edit into effect and returns the one that reverses it.
+    private func apply(_ edit: Edit) -> Edit {
+        var inverse = Edit(label: edit.label)
+
+        for state in edit.keeps {
+            inverse.keeps.append(KeepState(umid: state.umid, override: keepOverrides[state.umid]))
+            // Assigning nil to a dictionary subscript removes the key, which is exactly
+            // what "no override" has to mean here.
+            keepOverrides[state.umid] = state.override
+        }
+
+        if !edit.tagIDsToRemove.isEmpty {
+            let doomed = Set(edit.tagIDsToRemove)
+            inverse.tagsToRestore = tags.filter { doomed.contains($0.id) }
+            tags.removeAll { doomed.contains($0.id) }
+        }
+
+        if !edit.tagsToRestore.isEmpty {
+            inverse.tagIDsToRemove = edit.tagsToRestore.map(\.id)
+            tags.append(contentsOf: edit.tagsToRestore)
+        }
+
+        rebuildIndex()
+        save()
+        return inverse
+    }
+
+    /// Returns what it undid, for the status line.
+    @discardableResult
+    func undo() -> String? {
+        guard let edit = undoStack.popLast() else { return nil }
+        redoStack.append(apply(edit))
+        if redoStack.count > Self.undoDepth { redoStack.removeFirst() }
+        return edit.label
+    }
+
+    @discardableResult
+    func redo() -> String? {
+        guard let edit = redoStack.popLast() else { return nil }
+        // Deliberately not `push`: that clears the redo stack, which is the one in use.
+        undoStack.append(apply(edit))
+        if undoStack.count > Self.undoDepth { undoStack.removeFirst() }
+        return edit.label
+    }
+
+    /// Called when the whole library is replaced — a load, or a restore from a backup. The
+    /// recorded edits describe a library that no longer exists.
+    private func clearHistory() {
+        undoStack = []
+        redoStack = []
+    }
+
     // MARK: Keep overrides
 
     func keepOverride(for umid: String?) -> Bool? {
@@ -103,48 +252,69 @@ final class TagLibrary: ObservableObject {
 
     /// Setting it back to the camera's own flag clears the override rather than storing it,
     /// so "changed" only ever means genuinely different from the card.
-    func setKeep(_ keep: Bool, umid: String, cameraFlag: Bool) {
-        if keep == cameraFlag {
-            keepOverrides[umid] = nil
-        } else {
-            keepOverrides[umid] = keep
+    ///
+    /// `undoLabel` names the change for the Undo menu. Pass nil only where the change is
+    /// bookkeeping that follows something already written to disk — undoing that would put
+    /// the library back into disagreement with the file.
+    func setKeep(_ keep: Bool, umid: String, cameraFlag: Bool, undoLabel: String?) {
+        let wanted: Bool? = keep == cameraFlag ? nil : keep
+        guard keepOverrides[umid] != wanted else { return }
+        if let undoLabel {
+            push(Edit(label: undoLabel,
+                      keeps: [KeepState(umid: umid, override: keepOverrides[umid])]))
         }
+        keepOverrides[umid] = wanted
         save()
     }
 
     /// Bulk version: one write of the library rather than one per clip. Marking a hundred
     /// clips individually rewrote every tag a hundred times.
-    func setKeep(_ keep: Bool, for clips: [(umid: String, cameraFlag: Bool)]) {
-        guard !clips.isEmpty else { return }
+    @discardableResult
+    func setKeep(_ keep: Bool,
+                 for clips: [(umid: String, cameraFlag: Bool)],
+                 undoLabel: String?) -> Int {
+        guard !clips.isEmpty else { return 0 }
+
+        // Only the clips this actually moves, so marking a selection that's already KEEP
+        // doesn't write the library or leave a dead step in the undo stack.
+        var changing: [KeepState] = []
         for clip in clips {
-            if keep == clip.cameraFlag {
-                keepOverrides[clip.umid] = nil
-            } else {
-                keepOverrides[clip.umid] = keep
+            let wanted: Bool? = keep == clip.cameraFlag ? nil : keep
+            if keepOverrides[clip.umid] != wanted {
+                changing.append(KeepState(umid: clip.umid, override: keepOverrides[clip.umid]))
             }
         }
+        guard !changing.isEmpty else { return 0 }
+
+        if let undoLabel { push(Edit(label: undoLabel, keeps: changing)) }
+        for clip in clips {
+            keepOverrides[clip.umid] = keep == clip.cameraFlag ? nil : keep
+        }
         save()
+        return changing.count
     }
 
-    func clearKeepOverride(umid: String) {
+    func clearKeepOverride(umid: String, undoLabel: String?) {
         guard keepOverrides[umid] != nil else { return }
+        if let undoLabel {
+            push(Edit(label: undoLabel,
+                      keeps: [KeepState(umid: umid, override: keepOverrides[umid])]))
+        }
         keepOverrides[umid] = nil
         save()
     }
 
     @discardableResult
-    func clearKeepOverrides(umids: [String]) -> Int {
+    func clearKeepOverrides(umids: [String], undoLabel: String?) -> Int {
         let hits = umids.filter { keepOverrides[$0] != nil }
         guard !hits.isEmpty else { return 0 }
+        if let undoLabel {
+            push(Edit(label: undoLabel,
+                      keeps: hits.map { KeepState(umid: $0, override: keepOverrides[$0]) }))
+        }
         for umid in hits { keepOverrides[umid] = nil }
         save()
         return hits.count
-    }
-
-    func clearAllKeepOverrides() {
-        guard !keepOverrides.isEmpty else { return }
-        keepOverrides = [:]
-        save()
     }
 
     static let defaultCategories = [
@@ -182,26 +352,54 @@ final class TagLibrary: ObservableObject {
     /// twice in quick succession is easy, and two identical tags would double-count the
     /// clip on export and clutter the list.
     @discardableResult
-    func add(_ tag: Tag) -> Bool {
-        let alreadyThere = (index[tag.umid] ?? []).contains {
-            $0.category == tag.category && $0.playerID == tag.playerID
-        }
-        guard !alreadyThere else { return false }
-
-        tags.append(tag)
-        index[tag.umid, default: []].append(tag)
-        save()
-        return true
+    func add(_ tag: Tag, undoLabel: String?) -> Bool {
+        !add([tag], undoLabel: undoLabel).isEmpty
     }
 
-    func remove(_ tag: Tag) {
+    /// Several at once, as one undo step: tagging three players with one click has to come
+    /// back off with one press of ⌘Z, not three. Returns the tags that landed, so the caller
+    /// can tell which were duplicates.
+    @discardableResult
+    func add(_ newTags: [Tag], undoLabel: String?) -> [Tag] {
+        var landed: [Tag] = []
+        for tag in newTags {
+            let alreadyThere = (index[tag.umid] ?? []).contains {
+                $0.category == tag.category && $0.playerID == tag.playerID
+            }
+            // Also against this batch, or tagging the same player twice in one call would
+            // slip two identical tags through the check above.
+            let inThisBatch = landed.contains {
+                $0.umid == tag.umid && $0.category == tag.category && $0.playerID == tag.playerID
+            }
+            guard !alreadyThere, !inThisBatch else { continue }
+            landed.append(tag)
+        }
+        guard !landed.isEmpty else { return [] }
+
+        if let undoLabel {
+            push(Edit(label: undoLabel, tagIDsToRemove: landed.map(\.id)))
+        }
+        for tag in landed {
+            tags.append(tag)
+            index[tag.umid, default: []].append(tag)
+        }
+        save()
+        return landed
+    }
+
+    func remove(_ tag: Tag, undoLabel: String?) {
+        guard tags.contains(where: { $0.id == tag.id }) else { return }
+        if let undoLabel { push(Edit(label: undoLabel, tagsToRestore: [tag])) }
         tags.removeAll { $0.id == tag.id }
         index[tag.umid]?.removeAll { $0.id == tag.id }
         if index[tag.umid]?.isEmpty == true { index[tag.umid] = nil }
         save()
     }
 
-    func removeAllTags(forUMID umid: String) {
+    func removeAllTags(forUMID umid: String, undoLabel: String?) {
+        let going = index[umid] ?? []
+        guard !going.isEmpty else { return }
+        if let undoLabel { push(Edit(label: undoLabel, tagsToRestore: going)) }
         tags.removeAll { $0.umid == umid }
         index[umid] = nil
         save()
@@ -209,15 +407,16 @@ final class TagLibrary: ObservableObject {
 
     /// Clears several clips in one pass, so a bulk delete writes the library once.
     @discardableResult
-    func removeAllTags(forUMIDs umids: [String]) -> Int {
+    func removeAllTags(forUMIDs umids: [String], undoLabel: String?) -> Int {
         let targets = Set(umids)
         guard !targets.isEmpty else { return 0 }
-        let before = tags.count
+        let going = tags.filter { targets.contains($0.umid) }
+        guard !going.isEmpty else { return 0 }
+        if let undoLabel { push(Edit(label: undoLabel, tagsToRestore: going)) }
         tags.removeAll { targets.contains($0.umid) }
         for umid in targets { index[umid] = nil }
-        let removed = before - tags.count
-        if removed > 0 { save() }
-        return removed
+        save()
+        return going.count
     }
 
     /// Re-import a roster with corrected spellings or a new column such as position, and
@@ -516,12 +715,24 @@ final class TagLibrary: ObservableObject {
 
     // Every field added after the first release is optional, because Swift's generated
     // decoder throws on a missing key even when the property has a default value.
-    private struct Archive: Codable {
+    //
+    // Internal rather than private so the tests can decode a fixture written by an older
+    // version without going anywhere near the real library on disk.
+    struct Archive: Codable {
         var teams: [Team]
         var categories: [String]
         var tags: [Tag]
         var presets: [RenamePreset]?
         var keepOverrides: [String: Bool]?
+    }
+
+    /// The whole of reading a library, with the file-handling taken out. `load()` is this
+    /// plus a `Data(contentsOf:)`, which is what makes the format testable: the test can
+    /// hand it the bytes an old version would have written.
+    static func decodeArchive(_ data: Data) throws -> Archive {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Archive.self, from: data)
     }
 
     static var storeURL: URL {
@@ -549,12 +760,10 @@ final class TagLibrary: ObservableObject {
 
     func load() {
         guard let data = try? Data(contentsOf: Self.storeURL) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
 
         let archive: Archive
         do {
-            archive = try decoder.decode(Archive.self, from: data)
+            archive = try Self.decodeArchive(data)
         } catch {
             // Keep a copy of whatever was there, and stop writing until it's dealt with.
             let stamp = ISO8601DateFormatter().string(from: Date())
@@ -574,10 +783,12 @@ final class TagLibrary: ObservableObject {
         presets = archive.presets ?? [.standard()]
         keepOverrides = archive.keepOverrides ?? [:]
         rebuildIndex()
+        clearHistory()
     }
 
     func save() {
         guard loadFailure == nil else { return }   // never overwrite a library we couldn't read
+        backUpIfDue()
         let archive = Archive(teams: teams,
                               categories: categories,
                               tags: tags,
@@ -595,6 +806,145 @@ final class TagLibrary: ObservableObject {
         } catch {
             try? data.write(to: Self.storeURL, options: .atomic)
         }
+    }
+
+    // MARK: Backups
+
+    /// A past version of the library, as the Restore menu lists it.
+    struct Backup: Identifiable, Hashable {
+        let url: URL
+        let date: Date
+        let size: Int64
+        var id: URL { url }
+    }
+
+    static var backupFolder: URL {
+        let folder = storeURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("Backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    private static let backupsKept = 10
+    /// Long enough that a tagging session doesn't push the morning's work out of the ten
+    /// slots, short enough that the newest copy is never far behind.
+    private static let backupInterval: TimeInterval = 10 * 60
+
+    private var lastBackup: Date?
+
+    private static let stampFormat: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    /// Copies the file as it currently stands into `Backups/` before it's written over.
+    ///
+    /// Called from `save()`, which runs on every tag, so it's throttled — otherwise ten
+    /// backups would all be from the same minute and the day's earlier work would be gone.
+    /// The first save of a session always takes one, which is the version most worth having.
+    private func backUpIfDue() {
+        let fm = FileManager.default
+        let source = Self.storeURL
+        guard fm.fileExists(atPath: source.path) else { return }   // nothing to copy yet
+
+        if let lastBackup, Date().timeIntervalSince(lastBackup) < Self.backupInterval { return }
+
+        let target = Self.backupFolder
+            .appendingPathComponent("library-\(Self.stampFormat.string(from: Date())).json")
+        guard !fm.fileExists(atPath: target.path) else { return }
+
+        do {
+            try fm.copyItem(at: source, to: target)
+            lastBackup = Date()
+            pruneBackups()
+            // Posted on the next turn of the loop rather than inline: `save()` can be
+            // reached from a button's action, and the handler publishes a change to
+            // `AppState`. Keeping the two apart means that can never land inside a
+            // SwiftUI update.
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .keeperLibraryBackedUp, object: nil)
+            }
+        } catch {
+            // A backup that can't be written must never stop the save it was protecting.
+            print("Keeper: couldn't write a library backup — \(error)")
+        }
+    }
+
+    private func pruneBackups() {
+        let all = backups()
+        guard all.count > Self.backupsKept else { return }
+        for old in all.dropFirst(Self.backupsKept) {
+            try? FileManager.default.removeItem(at: old.url)
+        }
+    }
+
+    /// Newest first, which is the order the menu wants them in.
+    func backups() -> [Backup] {
+        let fm = FileManager.default
+        guard let found = try? fm.contentsOfDirectory(at: Self.backupFolder,
+                                                      includingPropertiesForKeys: [.fileSizeKey],
+                                                      options: [.skipsHiddenFiles])
+        else { return [] }
+
+        return found.compactMap { url -> Backup? in
+            guard url.pathExtension.lowercased() == "json",
+                  let date = Self.date(fromBackupName: url.lastPathComponent)
+            else { return nil }
+            let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+            return Backup(url: url, date: date, size: size)
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    /// The name carries the time, rather than reading the file's own dates: `copyItem` keeps
+    /// the source's modification date, so the file would claim to be older than it is.
+    private static func date(fromBackupName name: String) -> Date? {
+        guard name.hasPrefix("library-"), name.hasSuffix(".json") else { return nil }
+        let stamp = name.dropFirst("library-".count).dropLast(".json".count)
+        return stampFormat.date(from: String(stamp))
+    }
+
+    enum RestoreError: LocalizedError {
+        case unreadable
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable: return "That backup couldn't be read, so nothing was changed."
+            }
+        }
+    }
+
+    /// Puts a past version back, after backing up the current one — so restoring the wrong
+    /// copy is itself undoable. Nothing is touched unless the file decodes cleanly.
+    @discardableResult
+    func restore(from url: URL) throws -> String {
+        guard let data = try? Data(contentsOf: url),
+              let archive = try? Self.decodeArchive(data)
+        else { throw RestoreError.unreadable }
+
+        lastBackup = nil            // this one matters more than the schedule
+        backUpIfDue()
+
+        teams = archive.teams
+        categories = archive.categories.isEmpty ? Self.defaultCategories : archive.categories
+        tags = archive.tags
+        presets = archive.presets ?? [.standard()]
+        keepOverrides = archive.keepOverrides ?? [:]
+        rebuildIndex()
+        // Those edits describe the library this one just replaced, so they'd put back
+        // fragments of a version nobody asked for. The restore itself is reversible by
+        // restoring the backup it took on the way in.
+        clearHistory()
+        // A readable library is now in memory, so saving is safe again even if the file on
+        // disk was the unreadable one that set this.
+        loadFailure = nil
+        save()
+
+        return "Restored \(teams.count) team(s), \(tags.count) tag(s) "
+             + "and \(presets.count) preset(s) from \(url.lastPathComponent)."
     }
 
     private func rebuildIndex() {
@@ -745,7 +1095,14 @@ enum CSV {
         var pending: Character?
 
         func endField() { row.append(field); field = "" }
-        func endRow() { endField(); rows.append(row); row = [] }
+
+        func endRow() {
+            endField()
+            // A blank line in the middle of a file isn't a record. Without this it comes out
+            // as a row holding one empty field, which every caller then has to weed out.
+            if !(row.count == 1 && row[0].isEmpty) { rows.append(row) }
+            row = []
+        }
 
         while let character = pending ?? iterator.next() {
             pending = nil

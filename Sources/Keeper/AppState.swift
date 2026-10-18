@@ -2,6 +2,18 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+extension Notification.Name {
+    /// Posted by the key monitor when an arrow key should move the preview. A notification
+    /// rather than a call, because the monitor runs outside the main actor and `AppState`
+    /// lives on it — `ContentView` picks this up and does the move where it's safe to.
+    /// `userInfo["delta"]` is -1 or 1.
+    static let keeperMoveSelection = Notification.Name("keeperMoveSelection")
+
+    /// Posted by `TagLibrary` when it has just written a rolling backup, so the Restore
+    /// menu's cached list picks it up without the menus listing the folder on every rebuild.
+    static let keeperLibraryBackedUp = Notification.Name("keeperLibraryBackedUp")
+}
+
 @MainActor
 final class AppState: ObservableObject {
     enum Filter: String, CaseIterable, Identifiable {
@@ -55,7 +67,15 @@ final class AppState: ObservableObject {
     }
 
     /// Tracks the most recently added row so the preview follows the clip you just clicked.
-    @Published private(set) var lastSelected: URL?
+    @Published private(set) var lastSelected: URL? {
+        didSet {
+            // No preview means no place to carry on from. Six things clear this — a filter
+            // change, each tag filter, a rescan — and every one of them is a fresh start,
+            // so the positional anchor has to go with it or the arrows resume at a stale
+            // index. Doing it here rather than at each site means a seventh can't forget.
+            if lastSelected == nil { lastVisibleIndex = nil }
+        }
+    }
     @Published var selection = Set<URL>() {
         didSet {
             if let added = selection.subtracting(oldValue).first {
@@ -95,6 +115,64 @@ final class AppState: ObservableObject {
     @Published var grouping: Grouping = .flat
     @Published var renamePresetID: UUID?
 
+    // MARK: Tagging flow
+
+    /// The rosters in play, in the order they were chosen. See `activeTeams` in TagFlow.swift.
+    @Published var activeTeamIDs: [String] = [] {
+        didSet { UserDefaults.standard.set(activeTeamIDs, forKey: "activeTeamIDs") }
+    }
+
+    /// Which of the rosters in play is showing on its own, or nil for all of them. Both
+    /// benches at once is a long grid to read; this narrows it without taking the other
+    /// team out of play.
+    @Published var focusedTeamID: String? {
+        didSet {
+            guard focusedTeamID != oldValue else { return }
+            UserDefaults.standard.set(focusedTeamID, forKey: "focusedTeamID")
+            // The cursor indexes the grid, and the grid just changed length.
+            playerCursor = 0
+            numberEntry = ""
+        }
+    }
+
+    /// Whether ⌘K on the previewed clip moves to the next one afterwards. On by default:
+    /// marking is a pass down the card, and stopping on each clip you just dealt with means
+    /// a second keystroke every time. ⌘Z takes a mark back either way.
+    @Published var advanceAfterMark: Bool = true {
+        didSet { UserDefaults.standard.set(advanceAfterMark, forKey: "advanceAfterMark") }
+    }
+
+    /// Hands the keyboard to the tagging flow: clip, player, category, next clip.
+    @Published var keyboardFlow: Bool = false {
+        didSet {
+            UserDefaults.standard.set(keyboardFlow, forKey: "keyboardFlow")
+            FlowKeyState.shared.active = keyboardFlow
+            if keyboardFlow {
+                // A mode that takes over Tab, Return and the arrows must not be invisible,
+                // and the strip saying where the keyboard is lives in the tagging panel —
+                // which ⌘E can hide. Same key `@AppStorage` reads, so the panel opens.
+                UserDefaults.standard.set(true, forKey: "showTagging")
+            } else {
+                resetFlow()
+            }
+        }
+    }
+
+    /// Mirrored for the key monitor, which can't read this class — see `FlowKeyState`.
+    @Published var tagStage: TagStage = .clips {
+        didSet { FlowKeyState.shared.stage = tagStage }
+    }
+
+    @Published var playerCursor = 0
+    @Published var categoryCursor = 0
+    /// Digits typed at the player stage, shown on screen so a half-typed number is never
+    /// a mystery.
+    @Published var numberEntry = ""
+    @Published var flowPlayerID: String?
+
+    /// One key press acts once, however many windows heard about it.
+    var lastFlowToken = 0
+
     // MARK: Export
 
     enum ExportScope: String, CaseIterable, Identifiable {
@@ -114,6 +192,7 @@ final class AppState: ObservableObject {
     @Published var showExportSheet = false
     @Published var showPresetEditor = false
     @Published var showRosterEditor = false
+    @Published var showShortcutsSheet = false
 
     /// Set by a successful import so the tagging panel can jump to the roster that just
     /// arrived. It lives here because importing is now a File menu command as well as a
@@ -214,6 +293,9 @@ final class AppState: ObservableObject {
     }
 
     func importRoster() {
+        // As with `requestExport`: don't put a file picker in front of someone who was
+        // trying to record ⌘I.
+        guard !showShortcutsSheet else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -234,6 +316,64 @@ final class AppState: ObservableObject {
             importMessage = error.localizedDescription
             status = "Roster import failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Library backups
+
+    /// The past versions the Restore menu offers.
+    ///
+    /// Cached rather than read from the folder on demand: the menus are rebuilt every time
+    /// anything here changes, including each file of a copy, and a directory listing per
+    /// progress tick is the kind of cost that doesn't show up until a card is full.
+    /// `ContentView` refreshes it on launch and whenever a new backup is written.
+    @Published private(set) var libraryBackups: [TagLibrary.Backup] = []
+
+    func refreshBackups() {
+        libraryBackups = library.backups()
+    }
+
+    private static let backupLabelFormat: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static func backupLabel(_ backup: TagLibrary.Backup) -> String {
+        "\(backupLabelFormat.string(from: backup.date))  ·  \(FileUtil.sizeText(backup.size))"
+    }
+
+    /// Asks first, because it replaces every tag in one go, and then says what it did.
+    func restoreLibrary(from backup: TagLibrary.Backup) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Restore the tag library from "
+            + "\(Self.backupLabelFormat.string(from: backup.date))?"
+        alert.informativeText = "Every team, player, tag, category and preset goes back to how "
+            + "it was then, and anything added since is gone from the library.\n\nThe version "
+            + "you have now is backed up first, so this can be undone the same way. Nothing on "
+            + "your cards or drives is touched either way."
+        alert.addButton(withTitle: "Restore")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            let summary = try library.restore(from: backup.url)
+            addLog("Restored the tag library from \(backup.url.lastPathComponent)")
+            status = summary
+            // The filters point at teams and players by value, and the restored roster
+            // may not have them.
+            dropDanglingFilters()
+            selection = []
+            refreshBackups()      // restoring takes a backup of its own first
+        } catch {
+            addLog("Restore failed: \(error.localizedDescription)")
+            status = error.localizedDescription
+        }
+    }
+
+    func revealBackups() {
+        NSWorkspace.shared.activateFileViewerSelecting([TagLibrary.backupFolder])
     }
 
     /// What the export sheet will act on. Unlike `dragClips`, which infers a scope from
@@ -395,6 +535,10 @@ final class AppState: ObservableObject {
     /// Opens the sheet. The scope starts as whatever you'd expect from what you were just
     /// doing: a selection if you made one, otherwise everything in view.
     func requestExport() {
+        // While the shortcuts sheet is recording a key, a ⌘ combo is meant for the recorder.
+        // The event monitor should get it first, but this is cheap and means the worst case
+        // is a key that didn't record rather than an export sheet appearing underneath.
+        guard !showShortcutsSheet else { return }
         guard !isCopying, !isScanning, !visible.isEmpty else { return }
         exportScope = selectedCount > 0 ? .selection : .shown
         // Scope first, because this reads it. Footage on a card can only be copied off, so
@@ -419,6 +563,17 @@ final class AppState: ObservableObject {
             includeXML = UserDefaults.standard.bool(forKey: "includeXML")
         }
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
+
+        // Which teams you're shooting outlasts a relaunch — a game doesn't end because
+        // the app was quit between periods.
+        if UserDefaults.standard.object(forKey: "advanceAfterMark") != nil {
+            advanceAfterMark = UserDefaults.standard.bool(forKey: "advanceAfterMark")
+        }
+        activeTeamIDs = UserDefaults.standard.stringArray(forKey: "activeTeamIDs") ?? []
+        focusedTeamID = UserDefaults.standard.string(forKey: "focusedTeamID")
+        keyboardFlow = UserDefaults.standard.bool(forKey: "keyboardFlow")
+        // Whatever stage it was left at means nothing now: the flow always starts on clips.
+        tagStage = .clips
     }
 
     // MARK: - Derived state
@@ -463,6 +618,70 @@ final class AppState: ObservableObject {
         return list
     }
 
+    /// Moves the preview one clip up or down the list you're looking at, replacing whatever
+    /// was selected. This is what the arrow keys do, and what auto-advance does after a tag.
+    ///
+    /// Clamped rather than wrapped: running off the end of a card and landing back at the top
+    /// loses your place in a way that isn't obvious until you've tagged the wrong clip.
+    /// Returns false when there was nowhere to go, so the key press can fall through.
+    /// `selectRelative`, but acting on each key press only once however many windows heard
+    /// about it. The token comes from the key monitor, which counts the presses.
+    private var lastMoveToken = 0
+
+    func moveSelection(_ delta: Int, token: Int) {
+        guard token != lastMoveToken else { return }
+        lastMoveToken = token
+        selectRelative(delta)
+    }
+
+    @discardableResult
+    func selectRelative(_ delta: Int) -> Bool {
+        let list = visible
+        guard !list.isEmpty, delta != 0 else { return false }
+
+        let target: Int
+        if let current = lastSelected, let index = list.firstIndex(where: { $0.id == current }) {
+            target = index + delta
+            guard target >= 0, target < list.count else { return false }   // already at the end
+            lastVisibleIndex = index
+        } else if let anchor = lastVisibleIndex {
+            // The previewed clip has left the filter, which is exactly what marking it KEEP
+            // while filtering by KEEP does. Carry on from where it was sitting: the clip
+            // that was after it has slid into its place, so the anchor *is* the next one.
+            // Without this the lookup fails, the "nothing selected yet" case below takes
+            // over, and marking a clip sends you back to the top of the card.
+            let clamped = max(0, min(anchor, list.count - 1))
+            target = delta > 0 ? clamped : max(0, clamped - 1)
+        } else {
+            // Nothing selected yet, so start at whichever end you were heading for.
+            target = delta > 0 ? 0 : list.count - 1
+        }
+
+        let clip = list[target]
+        selection = [clip.id]
+        // The didSet above infers this from what was added, but only when the id wasn't
+        // already in the set. Setting it outright means the preview follows even then.
+        lastSelected = clip.id
+        lastVisibleIndex = target
+        return true
+    }
+
+    /// Where the previewed clip sits in the filtered list, remembered so the arrows can
+    /// carry on from there after it has dropped out of the filter. See `selectRelative`.
+    private var lastVisibleIndex: Int?
+
+    /// ⌘K on the previewed clip: flip the flag and move on. That's the review pass — watch,
+    /// mark, next — and it's why this exists rather than the menu calling `toggleKeep`
+    /// directly. Clicking a row's badge deliberately doesn't advance: that click is aimed at
+    /// one clip, and moving the preview off it would be a surprise.
+    func toggleKeepOnPreview() {
+        guard let clip = previewClip else { return }
+        // Only moves on if the flag actually changed. A clip with no UMID can't be marked,
+        // and advancing anyway would walk silently past it.
+        guard toggleKeep(clip) else { return }
+        if advanceAfterMark { selectRelative(1) }
+    }
+
     var isTagFiltered: Bool {
         filterTeamID != nil || filterPlayerID != nil || filterCategory != nil || filterPosition != nil
     }
@@ -485,19 +704,62 @@ final class AppState: ObservableObject {
     var taggedCount: Int { clips.filter { library.isTagged($0.umid) }.count }
     var changedKeepCount: Int { clips.filter { isKeepChanged($0) }.count }
 
+    // MARK: Sizes
+    //
+    // Video plus sidecar, from the figures taken during the scan — the same basis as the
+    // export sheet's total, so the two agree. Nothing here stats a file.
+
+    private func bytes(of list: [Clip]) -> Int64 {
+        list.reduce(Int64(0)) { $0 + $1.totalSize }
+    }
+
+    var keepBytes: Int64 { bytes(of: clips.filter { isKeep($0) }) }
+    var notKeepBytes: Int64 { bytes(of: clips.filter { !isKeep($0) }) }
+    var allBytes: Int64 { bytes(of: clips) }
+    /// What the filter is showing, tag filters included.
+    var visibleBytes: Int64 { bytes(of: visible) }
+
+    /// All three at once, for the tooltip — the question is usually "will this fit", and
+    /// that's easier to answer with the other two in front of you.
+    var sizeBreakdown: String {
+        """
+        KEEP: \(FileUtil.sizeText(keepBytes)) over \(keepCount) clip(s)
+        NOT KEEP: \(FileUtil.sizeText(notKeepBytes)) over \(notKeepCount) clip(s)
+        Everything: \(FileUtil.sizeText(allBytes)) over \(clips.count) clip(s)
+
+        The figure beside this is what the filter is showing.
+        """
+    }
+
     // MARK: - Marking KEEP
 
     /// Flips one clip. Nothing is written to the card — the change lives in the library
     /// until the clip is copied out, and then only the copied sidecar is edited.
-    func toggleKeep(_ clip: Clip) {
+    ///
+    /// Returns false when there was nothing to flip, so a caller that moves on afterwards
+    /// doesn't walk past a clip it never marked.
+    @discardableResult
+    func toggleKeep(_ clip: Clip) -> Bool {
         guard let umid = clip.umid else {
             status = "\(clip.name) has no UMID in its XML, so its flag can't be changed."
-            return
+            return false
         }
+        // Noted before the flag changes, and only for the clip in the viewer: flipping it
+        // can take it out of the filtered list, and the arrows then have nowhere to carry
+        // on from — which is how marking a clip used to send you back to the top. A badge
+        // click on some other row deliberately leaves the anchor where the preview is.
+        if lastSelected == clip.id,
+           let index = visible.firstIndex(where: { $0.id == clip.id }) {
+            lastVisibleIndex = index
+        }
+
         let next = !isKeep(clip)
-        library.setKeep(next, umid: umid, cameraFlag: clip.isKeep)
+        library.setKeep(next, umid: umid, cameraFlag: clip.isKeep,
+                        undoLabel: "Mark \(clip.name) \(next ? "KEEP" : "NOT KEEP")")
         status = "\(clip.name) marked \(next ? "KEEP" : "NOT KEEP")"
             + (next == clip.isKeep ? " (back to the camera's flag)." : ", applied when you copy it.")
+            + undoHint
+        return true
     }
 
     /// Sets every clip in scope the same way, rather than flipping each individually.
@@ -507,15 +769,65 @@ final class AppState: ObservableObject {
             return (umid, clip.isKeep)
         }
         guard !targets.isEmpty else { return }
-        library.setKeep(keep, for: targets)
+        let word = keep ? "KEEP" : "NOT KEEP"
+        let changed = library.setKeep(keep, for: targets,
+                                      undoLabel: "Mark \(targets.count) Clip(s) \(word)")
+        guard changed > 0 else {
+            status = "Those \(targets.count) clip(s) are already \(word)."
+            return
+        }
         let scope = hasExplicitSelection ? "selected" : "shown"
-        status = "Marked \(targets.count) \(scope) clip(s) \(keep ? "KEEP" : "NOT KEEP")."
+        status = "Marked \(targets.count) \(scope) clip(s) \(word)." + undoHint
     }
 
     func revertKeepInScope() {
-        let reverted = library.clearKeepOverrides(umids: dragClips.compactMap(\.umid))
+        let umids = dragClips.compactMap(\.umid)
+        let reverted = library.clearKeepOverrides(
+            umids: umids,
+            undoLabel: "Revert \(umids.count) Clip(s) to the Camera's Flags")
         guard reverted > 0 else { return }
-        status = "Reverted \(reverted) clip(s) to the camera's own flag."
+        status = "Reverted \(reverted) clip(s) to the camera's own flag." + undoHint
+    }
+
+    // MARK: - Undo
+
+    /// Appended to the status after anything undoable, so the way back is on screen at the
+    /// moment it's wanted rather than only in a menu. Hardcoded because ⌘Z isn't one of the
+    /// bindable shortcuts — "z" is reserved, so nothing else can take it and undo can't move.
+    private var undoHint: String { " ⌘Z to undo." }
+
+    var undoMenuTitle: String {
+        library.undoLabel.map { "Undo \($0)" } ?? "Undo"
+    }
+
+    var redoMenuTitle: String {
+        library.redoLabel.map { "Redo \($0)" } ?? "Redo"
+    }
+
+    var canUndo: Bool { library.undoLabel != nil }
+    var canRedo: Bool { library.redoLabel != nil }
+
+    /// Undo covers the flags and tags — the things a stray keystroke changes. A roster edit
+    /// or a restore is a bigger change than this stack is for; those go back through
+    /// File ▸ Restore Tags.
+    func undo() {
+        guard let label = library.undo() else { return }
+        addLog("Undid: \(label)")
+        status = "Undid: \(label)."
+        afterHistoryChange()
+    }
+
+    func redo() {
+        guard let label = library.redo() else { return }
+        addLog("Redid: \(label)")
+        status = "Redid: \(label)."
+        afterHistoryChange()
+    }
+
+    /// Restoring a tag can bring back a team or position the filters had stopped offering,
+    /// and removing one can take the last of them away.
+    private func afterHistoryChange() {
+        dropDanglingFilters()
     }
 
     /// The clip shown in the preview pane: the one clicked most recently.
@@ -569,16 +881,84 @@ final class AppState: ObservableObject {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Remove \(tagCount) tag\(tagCount == 1 ? "" : "s")?"
-        alert.informativeText = hasExplicitSelection
-            ? "This clears every tag from the \(targets.count) selected clip\(targets.count == 1 ? "" : "s"). It can't be undone."
-            : "Nothing is selected, so this clears every tag from all \(targets.count) tagged clip\(targets.count == 1 ? "" : "s") the filter is showing. It can't be undone."
+        let plural = targets.count == 1 ? "" : "s"
+        alert.informativeText = (hasExplicitSelection
+            ? "This clears every tag from the \(targets.count) selected clip\(plural)."
+            : "Nothing is selected, so this clears every tag from all \(targets.count) "
+              + "tagged clip\(plural) the filter is showing.")
+            + "\n\n⌘Z puts them back."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Remove Tags")
         guard alert.runModal() != .alertFirstButtonReturn else { return }
 
-        let removed = library.removeAllTags(forUMIDs: targets.compactMap(\.umid))
+        let removed = library.removeAllTags(
+            forUMIDs: targets.compactMap(\.umid),
+            undoLabel: "Remove the Tags from \(targets.count) Clip\(plural)")
         addLog("Removed \(removed) tag(s) from \(targets.count) clip(s)")
-        status = "Removed \(removed) tag\(removed == 1 ? "" : "s") from \(targets.count) clip\(targets.count == 1 ? "" : "s")."
+        status = "Removed \(removed) tag\(removed == 1 ? "" : "s") from "
+            + "\(targets.count) clip\(plural)." + undoHint
+    }
+
+    // MARK: - Filing a tag
+
+    /// Builds one tag. The only place a `Tag` is made, so the panel and the keyboard flow
+    /// can't drift apart on what goes into one.
+    ///
+    /// The team comes from the player rather than from whatever the panel is showing. With
+    /// two rosters in play those are different things, and a tag that named the wrong bench
+    /// would put the clip in the wrong folder on export.
+    private func makeTag(for clip: Clip,
+                         umid: String,
+                         player: Player?,
+                         fallbackTeam: Team?,
+                         category: String) -> Tag {
+        let team = player.flatMap { library.team(id: $0.teamID) } ?? fallbackTeam
+        return Tag(umid: umid,
+                   clipName: clip.name,
+                   volumeName: clip.volumeName,
+                   path: clip.videoURL.path,
+                   teamID: player?.teamID ?? team?.id,
+                   teamName: team?.name,
+                   playerNumber: player?.number,
+                   playerName: player?.name,
+                   playerPosition: player.flatMap { $0.position.isEmpty ? nil : $0.position },
+                   category: category)
+    }
+
+    /// What came of filing a tag. The no-player case can't be reported through a list of
+    /// players, and "nothing landed" has to be distinguishable from "nothing was asked for".
+    struct TagResult {
+        /// The players whose tags landed. The rest already carried that category.
+        var players: [Player] = []
+        /// A tag on the clip itself, with no player against it.
+        var clipTag = false
+
+        var landed: Bool { !players.isEmpty || clipTag }
+    }
+
+    /// Files one category against a set of players on one clip, as a single undo step —
+    /// three players tagged with one click have to come off again with one ⌘Z. An empty
+    /// `players` tags the clip itself.
+    @discardableResult
+    func applyTags(to clip: Clip,
+                   umid: String,
+                   players: [Player],
+                   fallbackTeam: Team?,
+                   category: String) -> TagResult {
+        let label = "Tag \(clip.name) as \(category)"
+
+        if players.isEmpty {
+            let tag = makeTag(for: clip, umid: umid, player: nil,
+                              fallbackTeam: fallbackTeam, category: category)
+            return TagResult(clipTag: library.add(tag, undoLabel: label))
+        }
+
+        let wanted = players.map { player -> (player: Player, tag: Tag) in
+            (player, makeTag(for: clip, umid: umid, player: player,
+                             fallbackTeam: fallbackTeam, category: category))
+        }
+        let landedIDs = Set(library.add(wanted.map(\.tag), undoLabel: label).map(\.id))
+        return TagResult(players: wanted.filter { landedIDs.contains($0.tag.id) }.map(\.player))
     }
 
     /// The files for one row's drag handle, honouring the Include XML setting.
@@ -832,7 +1212,10 @@ final class AppState: ObservableObject {
                         if try KeepWriter.apply(keep: isKeep(clip), word: flagWord, toXMLAt: xml) {
                             flagged += 1
                         }
-                        library.clearKeepOverride(umid: umid)   // the file now says it
+                        // No undo label on purpose: the flag is now written into the
+                        // file on disk, so putting the override back would only make the
+                        // library disagree with it.
+                        library.clearKeepOverride(umid: umid, undoLabel: nil)
                     } catch {
                         lines.append("✗ \(base): flag couldn't be written — \(error.localizedDescription)")
                     }
@@ -849,7 +1232,7 @@ final class AppState: ObservableObject {
                     lines.append("✎ \(clip.xmlURL.lastPathComponent): flag set to "
                                  + (isKeep(clip) ? flagWord : "not \(flagWord)"))
                 }
-                library.clearKeepOverride(umid: umid)
+                library.clearKeepOverride(umid: umid, undoLabel: nil)   // written to the file
             } catch {
                 lines.append("✗ \(clip.xmlURL.lastPathComponent): flag couldn't be written — "
                              + error.localizedDescription)
@@ -946,9 +1329,18 @@ final class AppState: ObservableObject {
 
             var fileIndex = 0
 
+            // A destination that has filled up, gone offline or turned out to be read-only
+            // fails every single file, and the old behaviour was to keep going and write one
+            // identical error per file — seventy lines of log for one problem, with the copy
+            // still claiming to be in progress. Five in a row is taken as the destination
+            // itself being the problem, and the whole copy stops there.
+            var consecutiveFailures = 0
+            var stoppedEarly = false
+            let failureLimit = 5
+
             // Deliberately no early `continue` anywhere in here: every path has to reach the
             // progress update at the bottom, or the bar stalls on the first skipped file.
-            for job in jobs {
+            copying: for job in jobs {
                 var folder = dest
                 var folderReady = true
                 if !job.subfolder.isEmpty {
@@ -959,6 +1351,14 @@ final class AppState: ObservableObject {
                         failed += 1
                         folderReady = false
                         lines.append("✗ \(job.subfolder): couldn't make that folder — \(error.localizedDescription)")
+                        // Counted here rather than per file: with no folder the loop below
+                        // neither succeeds nor fails, so it would reset the tally each time
+                        // and a destination refusing every folder would never trip the limit.
+                        consecutiveFailures += 1
+                        if consecutiveFailures >= failureLimit {
+                            stoppedEarly = true
+                            break copying
+                        }
                     }
                 }
 
@@ -990,6 +1390,7 @@ final class AppState: ObservableObject {
                     let srcSize = FileUtil.size(of: src)
                     fileIndex += 1
                     let position = fileIndex
+                    let failedBefore = failed
 
                     await MainActor.run {
                         self.status = "Copying \(position) of \(totalFiles): \(name)"
@@ -1082,17 +1483,45 @@ final class AppState: ObservableObject {
                         }
                     }
 
+                    // Only while there's a folder to write into: with a dead folder nothing
+                    // here succeeded or failed, and resetting would hide the folder's own
+                    // failures counted above.
+                    if folderReady {
+                        consecutiveFailures = failed > failedBefore ? consecutiveFailures + 1 : 0
+                    }
+
                     let moved = max(0, srcSize)
                     await MainActor.run {
                         self.copyFilesDone = position
                         self.copyBytesDone += moved
                     }
+
+                    // After the progress update, so the bar shows how far it actually got.
+                    if consecutiveFailures >= failureLimit {
+                        stoppedEarly = true
+                        break copying
+                    }
                 }
             }
 
+            // Everything the closure below reads has to be a `let`. Capturing a `var` from
+            // out here in concurrently-executing code is a warning now and an error under
+            // Swift 6, which is what the rest of these copies are for.
             let finalCopied = copied, finalSkipped = skipped, finalFailed = failed
-            let finalLines = lines + ["Copy finished: \(finalCopied) copied, "
-                                      + "\(finalSkipped) skipped, \(finalFailed) failed"]
+            let reachedFile = fileIndex
+            let halted = stoppedEarly
+
+            var assembled = lines
+            if halted {
+                assembled.append("■ STOPPED after \(failureLimit) failures in a row, at file "
+                                 + "\(reachedFile) of \(totalFiles). The destination is most "
+                                 + "likely full, disconnected or read-only. Nothing already "
+                                 + "copied was removed, and nothing was touched at the source.")
+            }
+            assembled.append("Copy finished: \(finalCopied) copied, "
+                             + "\(finalSkipped) skipped, \(finalFailed) failed")
+            let finalLines = assembled
+
             await MainActor.run {
                 self.appendLog(finalLines)
                 self.isCopying = false
@@ -1100,6 +1529,15 @@ final class AppState: ObservableObject {
                 self.copyFilesTotal = 0
                 self.copyBytesDone = 0
                 self.copyBytesTotal = 0
+                if halted {
+                    // Said plainly and first: this copy is incomplete, and the card it came
+                    // from must not be formatted on the strength of it.
+                    self.status = "Copy STOPPED after \(failureLimit) failures in a row — "
+                        + "\(finalCopied) of \(totalFiles) file(s) had copied. Check the "
+                        + "destination has room and is still connected, then run it again. "
+                        + "Turn on Debug for the errors."
+                    return
+                }
                 var message = "Copied \(finalCopied) file(s)"
                 if finalSkipped > 0 { message += ", skipped \(finalSkipped) already there" }
                 if finalFailed > 0 { message += ", \(finalFailed) FAILED — turn on Debug for details" }

@@ -6,22 +6,32 @@ import UniformTypeIdentifiers
 struct TagPanel: View {
     @ObservedObject var state: AppState
     @ObservedObject private var library = TagLibrary.shared
-    @State private var selectedTeamID: String?
+    // Which rosters are in play is `AppState.activeTeamIDs` now, not view state: the
+    // keyboard flow walks the same grid and has to agree with what's on screen.
     @State private var selectedPlayerIDs: Set<String> = []
     @State private var newCategory = ""
     @State private var showingCategoryField = false
+    /// Same key as the menu item's, so the two stay in step.
+    @AppStorage("advanceAfterTag") private var advanceAfterTag = false
 
     private var clip: Clip? { state.previewClip }
 
-    private var team: Team? {
-        library.team(id: selectedTeamID) ?? library.teams.first
+    /// The one roster in play, when there's exactly one. Nil for a game with two benches,
+    /// which is why anything that acts on "the team" is hidden in that case.
+    private var soleTeam: Team? {
+        let teams = state.activeTeams
+        return teams.count == 1 ? teams[0] : nil
     }
 
-    private var players: [Player] { team?.players ?? [] }
-
     /// In roster order, so "Goal" on three selected players reads sensibly in the log.
+    ///
+    /// Resolved against every roster in play, not the grid. The grid shows one bench and
+    /// hides whoever a typed number excludes, so reading the selection off it would quietly
+    /// drop hand-picked players from the tag — select three, type a number, click a
+    /// category, and only the ones still on screen would be tagged. A hit involves both
+    /// benches too, so a selection that spans them has to survive the switch.
     private var selectedPlayers: [Player] {
-        players.filter { selectedPlayerIDs.contains($0.id) }
+        state.allActivePlayers.filter { selectedPlayerIDs.contains($0.id) }
     }
 
     private var currentTags: [Tag] {
@@ -54,13 +64,20 @@ struct TagPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             header
 
+            if state.keyboardFlow {
+                flowStrip
+            }
+
             if library.teams.isEmpty {
                 emptyRoster
             } else {
                 teamPicker
+                focusPills
                 playerGrid
+                    .flowSection(.players, current: state.tagStage, active: state.keyboardFlow)
                 Divider()
                 categoryRow
+                    .flowSection(.categories, current: state.tagStage, active: state.keyboardFlow)
             }
 
             if !currentTags.isEmpty {
@@ -93,12 +110,59 @@ struct TagPanel: View {
         .onChange(of: clip?.id) { _ in
             selectedPlayerIDs = []
         }
-        // Jump to the roster that just came in, wherever the import was started from.
+        // Switch to the roster that just came in, wherever the import was started from.
+        // It replaces what was in play rather than joining it: an import is the start of
+        // a shoot, and the second team gets ticked on in the picker.
         .onChange(of: state.lastImportedTeamID) { id in
             guard let id else { return }
-            selectedTeamID = id
+            state.setActiveTeams([id])
             selectedPlayerIDs = []
         }
+    }
+
+    // MARK: Keyboard flow
+
+    /// A mode that takes over Tab, Return and the arrows can't be invisible. This says
+    /// where the keyboard is and what the next press does, and the stage names double as
+    /// buttons so it's still usable with the mouse.
+    private var flowStrip: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                ForEach([TagStage.clips, .players, .categories], id: \.rawValue) { stage in
+                    let here = state.tagStage == stage
+                    Text(stage.title)
+                        .font(.caption2.weight(here ? .bold : .regular))
+                        .foregroundStyle(here ? Color.accentColor : .secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(here ? Color.accentColor.opacity(0.14) : .clear)
+                        .clipShape(Capsule())
+                    if stage != .categories {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer(minLength: 0)
+                Button {
+                    state.keyboardFlow = false
+                } label: {
+                    Text("Off").font(.caption2)
+                }
+                .buttonStyle(.link)
+                .help("Give the keyboard back — Tab, Return and the arrows go back to normal")
+            }
+
+            Text(state.flowPrompt)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.07))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     // MARK: Header
@@ -119,7 +183,18 @@ struct TagPanel: View {
                         : "Updated \(n) tag(s) from the roster."
                 }
                 .disabled(library.teams.isEmpty)
-                if let team {
+
+                Divider()
+                Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
+                    .help("Tab from the clips to the players, type a number, Return, "
+                          + "Return. See the Keeper guide.")
+                Toggle("Move On After Tagging", isOn: $advanceAfterTag)
+                    .help("Go to the next clip as soon as a tag lands. Leave it off when a "
+                          + "clip gets more than one tag — a goal and an assist, say.")
+
+                // Only with one roster in play: with two it would be ambiguous which this
+                // means, and deleting the wrong roster takes its tags' names with it.
+                if let team = soleTeam {
                     Divider()
                     Button("Remove \(team.name)", role: .destructive) {
                         // Clear any filter pointing at it, or the list goes empty with no
@@ -129,7 +204,7 @@ struct TagPanel: View {
                             state.filterPlayerID = nil
                         }
                         library.deleteTeam(id: team.id)
-                        selectedTeamID = nil
+                        state.setActiveTeams([])
                         selectedPlayerIDs = []
                     }
                 }
@@ -162,8 +237,9 @@ struct TagPanel: View {
 
     private var teamPicker: some View {
         HStack(spacing: 8) {
-            // A Menu rather than a Picker, because only a menu takes section headings — and
-            // with a league or two imported, a flat list of rosters is unreadable.
+            // Ticks rather than a single choice: a game is two benches, and dropping a
+            // thirteen-team league menu between every tag is what makes tagging slow.
+            // A Menu rather than a Picker, because only a menu takes section headings.
             Menu {
                 if library.leaguesAreWorthShowing {
                     ForEach(library.teamsByLeague) { group in
@@ -174,10 +250,15 @@ struct TagPanel: View {
                 } else {
                     ForEach(library.teams) { teamChoice($0) }
                 }
+                // No "just this one" item here: the pills below narrow the grid to one
+                // bench without taking the other out of play, and two near-identical
+                // actions a few pixels apart is how you pick the wrong one. Untick to
+                // take a roster out.
             } label: {
-                Text(team?.name ?? "No roster")
+                Text(state.activeTeamsLabel)
             }
             .frame(maxWidth: 200)
+            .help("Tick the rosters you're shooting — both teams for a game")
 
             if !selectedPlayerIDs.isEmpty {
                 Button("Clear \(selectedPlayerIDs.count)") { selectedPlayerIDs = [] }
@@ -187,63 +268,197 @@ struct TagPanel: View {
         }
     }
 
-    /// Switching roster clears any armed selection — those players belong to the old one.
-    private func teamChoice(_ item: Team) -> some View {
-        Button(item.name) {
-            selectedTeamID = item.id
-            selectedPlayerIDs = []
-        }
-    }
+    /// With two benches in play, 40-odd chips is a lot to read. These narrow the grid to
+    /// one of them without taking the other out of play — a typed number still only reaches
+    /// what's on screen, which is the point. ← → do the same thing from the keyboard.
+    @ViewBuilder
+    private var focusPills: some View {
+        let teams = state.activeTeams
+        if teams.count > 1 {
+            HStack(spacing: 4) {
+                ForEach(teams) { focusPill(for: $0) }
 
-    private var playerGrid: some View {
-        // Resolved once for the whole grid rather than per chip.
-        let onClip = playersOnClip
-        return ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 6)], spacing: 6) {
-                ForEach(players) { player in
-                    Button {
-                        if selectedPlayerIDs.contains(player.id) {
-                            selectedPlayerIDs.remove(player.id)
-                        } else {
-                            selectedPlayerIDs.insert(player.id)
-                        }
-                    } label: {
-                        let picked = selectedPlayerIDs.contains(player.id)
-                        let tagged = onClip.contains(player.id)
-                        TagChip(tint: playerTint(picked: picked, onClip: tagged)) {
-                            HStack(spacing: 6) {
-                                Text(player.number.isEmpty ? "–" : player.number)
-                                    .font(.caption.weight(.bold).monospacedDigit())
-                                    .frame(minWidth: 22)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(player.name)
-                                        .font(.caption.weight(picked ? .semibold : .regular))
-                                        .lineLimit(1)
-                                        // Semibold is wider, so a long name shrinks slightly
-                                        // instead of truncating the moment it's picked.
-                                        .minimumScaleFactor(0.85)
-                                    if !player.position.isEmpty {
-                                        Text(player.position)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                                // Always green, so "green tick = already on this clip" holds
-                                // whether the chip is picked or not.
-                                if tagged {
-                                    Image(systemName: "checkmark")
-                                        .font(.caption2.weight(.bold))
-                                        .foregroundStyle(Color.green)
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
+                Spacer(minLength: 0)
+
+                // The typed number lives here, beside the bench it's filtering, because
+                // this is where you're looking while you type it.
+                if !state.numberEntry.isEmpty {
+                    Text("#\(state.numberEntry)")
+                        .font(.caption2.weight(.bold).monospacedDigit())
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.16))
+                        .clipShape(Capsule())
+                        .help("Showing numbers starting \(state.numberEntry) · ⌫ to go back")
+                } else if state.keyboardFlow {
+                    Text("← →")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .help("Switch bench from the keyboard")
                 }
             }
         }
-        .frame(maxHeight: 190)
+    }
+
+    private func focusPill(for team: Team) -> some View {
+        // Reads the bench actually on screen rather than `focusedTeamID`, which is nil
+        // until something is picked even though a roster is showing.
+        let on = state.shownTeamID == team.id
+        return Button {
+            state.focusedTeamID = team.id
+        } label: {
+            Text(state.focusLabel(for: team))
+                .font(.caption2.weight(on ? .bold : .regular))
+                .foregroundStyle(on ? Color.accentColor : .secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(on ? Color.accentColor.opacity(0.16)
+                               : Color.secondary.opacity(0.1))
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Show \(team.name)")
+    }
+
+    /// Ticking a roster off clears any armed selection — some of those players may have
+    /// just left the grid.
+    ///
+    /// The setter uses the value it's handed rather than toggling. A binding's setter is not
+    /// promised to be called exactly once per click, and a setter that flips the state would
+    /// come out where it started on the second call — the tick appears to take and doesn't,
+    /// so the second roster never joins, the pills never appear, and ← → have nothing to
+    /// switch between. Written this way it's idempotent and can't care how often it runs.
+    private func teamChoice(_ item: Team) -> some View {
+        Toggle(isOn: Binding(
+            get: { state.isActiveTeam(item.id) },
+            set: { wanted in
+                state.setActiveTeam(item.id, on: wanted)
+                selectedPlayerIDs = []
+            }
+        )) {
+            Text(item.name)
+        }
+    }
+
+    /// A player with its place in the flattened grid. The identity comes from `GridID`,
+    /// which is also what the cursor's `scrollTo` asks for — see the note there.
+    private struct GridPlayer: Identifiable {
+        let index: Int
+        let player: Player
+        var id: String { GridID.player(at: index, player) }
+    }
+
+    /// One roster, one grid.
+    ///
+    /// It used to draw every active roster with a `Section` header each, and that didn't
+    /// hold up — sections nested inside a `ForEach` inside a `LazyVGrid` never drew their
+    /// headers, and the grid went on showing rosters that had left the data. There's only
+    /// ever one bench on screen now, so none of that is needed: the pills say which, and
+    /// `flowPlayers` is the same list the cursor indexes.
+    private var playerGrid: some View {
+        // Resolved once for the whole grid rather than per chip.
+        let onClip = playersOnClip
+        let players = state.flowPlayers
+
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 6)], spacing: 6) {
+                    playerChips(players, onClip: onClip)
+                }
+                if players.isEmpty {
+                    // Two different empties: a number that matches nobody, and a roster
+                    // with nobody in it. The first can't normally happen — a digit that
+                    // would empty the grid is refused — but a roster edit underneath can
+                    // do it, and "wears #." would be nonsense for the second.
+                    Text(state.numberEntry.isEmpty
+                         ? "This roster has no players yet. ⌘⇧R to add some."
+                         : "Nobody on this bench wears #\(state.numberEntry).")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                }
+            }
+            .frame(maxHeight: 190)
+            .onChange(of: state.playerCursor) { _ in
+                guard state.keyboardFlow, state.tagStage == .players,
+                      let target = state.cursorScrollID
+                else { return }
+                withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(target, anchor: .center) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playerChips(_ list: [Player], onClip: Set<String>) -> some View {
+        let rows = list.enumerated().map { GridPlayer(index: $0.offset, player: $0.element) }
+        ForEach(rows) { row in
+            let player = row.player
+            let index = row.index
+            Button {
+                if selectedPlayerIDs.contains(player.id) {
+                    selectedPlayerIDs.remove(player.id)
+                } else {
+                    selectedPlayerIDs.insert(player.id)
+                }
+            } label: {
+                let picked = selectedPlayerIDs.contains(player.id)
+                let tagged = onClip.contains(player.id)
+                TagChip(tint: playerTint(picked: picked, onClip: tagged)) {
+                    HStack(spacing: 6) {
+                        Text(player.number.isEmpty ? "–" : player.number)
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .frame(minWidth: 22)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(player.name)
+                                .font(.caption.weight(picked ? .semibold : .regular))
+                                .lineLimit(1)
+                                // Semibold is wider, so a long name shrinks slightly
+                                // instead of truncating the moment it's picked.
+                                .minimumScaleFactor(0.85)
+                            if !player.position.isEmpty {
+                                Text(player.position)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        // Always green, so "green tick = already on this clip" holds
+                        // whether the chip is picked or not.
+                        if tagged {
+                            Image(systemName: "checkmark")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.green)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .id(row.id)
+            .overlay(cursorRing(on: isCursor(.players, index)))
+        }
+    }
+
+    /// Where the keyboard flow is pointing. A heavier ring than "picked", because this one
+    /// moves with every key press and has to be findable at a glance.
+    private func isCursor(_ stage: TagStage, _ index: Int) -> Bool {
+        guard state.keyboardFlow, state.tagStage == stage else { return false }
+        switch stage {
+        case .players:    return state.playerCursor == index
+        case .categories: return state.categoryCursor == index
+        case .clips:      return false
+        }
+    }
+
+    @ViewBuilder
+    private func cursorRing(on showing: Bool) -> some View {
+        if showing {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Color.accentColor, lineWidth: 2.5)
+        }
     }
 
     // MARK: Categories
@@ -281,7 +496,7 @@ struct TagPanel: View {
             // cells. At 84 a 300pt panel lands on 88pt cells, and the tick on an applied
             // chip then costs a letter off "Celebration". 96 keeps three columns at worst.
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                ForEach(library.categories, id: \.self) { category in
+                ForEach(Array(library.categories.enumerated()), id: \.element) { index, category in
                     let applied = onThisClip.contains(category)
                     Button { tag(with: category) } label: {
                         TagChip(tint: applied ? Color.green : nil, alignment: .center) {
@@ -302,6 +517,7 @@ struct TagPanel: View {
                     .buttonStyle(.plain)
                     .disabled(clip == nil)
                     .opacity(clip == nil ? 0.4 : 1)
+                    .overlay(cursorRing(on: isCursor(.categories, index)))
                     .help(applied
                           ? "\(category) is already on this clip. Clicking again adds it for "
                             + "whoever you've got selected."
@@ -320,7 +536,13 @@ struct TagPanel: View {
     private var hint: String {
         if clip == nil { return "Select a clip to tag" }
         switch selectedPlayers.count {
-        case 0:  return currentTags.isEmpty ? "Pick a player, then a category" : "Pick the next player"
+        case 0:
+            // Clicking a category uses the player the keyboard flow has armed when nothing
+            // is picked by hand, so the hint has to name them rather than ask for a player.
+            if let armed = state.flowPlayer {
+                return "Click a category to tag \(armed.label)"
+            }
+            return currentTags.isEmpty ? "Pick a player, then a category" : "Pick the next player"
         case 1:  return "Click a category to tag \(selectedPlayers[0].number.isEmpty ? selectedPlayers[0].name : "#" + selectedPlayers[0].number)"
         default: return "Click a category to tag \(selectedPlayers.count) players"
         }
@@ -346,7 +568,8 @@ struct TagPanel: View {
                     }
                     // The green chips above only cover the roster on show, so a tag belonging
                     // to another team would otherwise look like nothing was highlighted.
-                    if let other = tag.teamName, tag.teamID != team?.id {
+                    if let other = tag.teamName,
+                       let teamID = tag.teamID, !state.isActiveTeam(teamID) {
                         Text(other)
                             .font(.caption2.weight(.medium))
                             .padding(.horizontal, 5)
@@ -362,7 +585,8 @@ struct TagPanel: View {
                     }
                     Spacer(minLength: 0)
                     Button {
-                        library.remove(tag)
+                        library.remove(tag, undoLabel: "Remove \(tag.category) "
+                                       + "from \(tag.clipName)")
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
@@ -387,32 +611,32 @@ struct TagPanel: View {
             return
         }
 
-        func makeTag(_ player: Player?) -> Tag {
-            Tag(umid: umid,
-                clipName: clip.name,
-                volumeName: clip.volumeName,
-                path: clip.videoURL.path,
-                teamID: player?.teamID ?? team?.id,
-                teamName: team?.name,
-                playerNumber: player?.number,
-                playerName: player?.name,
-                playerPosition: player.flatMap { $0.position.isEmpty ? nil : $0.position },
-                category: category)
-        }
+        // Building the tag itself lives on `AppState` now, so the keyboard flow and this
+        // panel file identical tags.
+        //
+        // With nothing picked by hand, a player the keyboard flow has armed counts: picking
+        // #17 with the keyboard and then reaching for the mouse should still tag #17, not
+        // tag the clip with nobody against it.
+        let chosen = selectedPlayers.isEmpty
+            ? (state.flowPlayer.map { [$0] } ?? [])
+            : selectedPlayers
+        let result = state.applyTags(to: clip,
+                                     umid: umid,
+                                     players: chosen,
+                                     // The bench on screen — see the note in `applyFlowTag`.
+                                     fallbackTeam: state.shownTeams.first,
+                                     category: category)
 
-        let chosen = selectedPlayers
         if chosen.isEmpty {
-            state.status = library.add(makeTag(nil))
-                ? "Tagged \(clip.name) as \(category)."
+            state.status = result.clipTag
+                ? "Tagged \(clip.name) as \(category). ⌘Z to undo."
                 : "\(clip.name) is already tagged \(category)."
+            if state.keyboardFlow { state.resetFlow() }
+            if result.clipTag { moveOnIfAsked() }
             return
         }
 
-        var added: [Player] = []
-        for player in chosen where library.add(makeTag(player)) {
-            added.append(player)
-        }
-
+        let added = result.players
         if added.isEmpty {
             state.status = "Already tagged \(category) — nothing to add."
         } else {
@@ -422,11 +646,30 @@ struct TagPanel: View {
             let skipped = chosen.count - added.count
             state.status = "Tagged \(clip.name) as \(category) — \(who)."
                 + (skipped > 0 ? " \(skipped) already had it." : "")
+                + " ⌘Z to undo."
         }
 
         // Cleared on purpose: the next category is usually for a different player
         // (one scores, another assists), so carrying the selection over invites mistakes.
         selectedPlayerIDs = []
+
+        // Reaching for the mouse mid-flow puts the keyboard back at the clips rather than
+        // leaving it pointed at a category on a clip that may have just moved on.
+        if state.keyboardFlow { state.resetFlow() }
+
+        if !added.isEmpty { moveOnIfAsked() }
+    }
+
+    /// Off by default, and deliberately so: the usual case is one clip taking two tags — a
+    /// goal for one player and an assist for another — and moving on after the first would
+    /// put the second on the wrong clip. On, it's for a pass where each clip gets one tag,
+    /// which is most of a warmups or B-roll run.
+    ///
+    /// Only called when a tag actually landed, so clicking a category the clip already has
+    /// doesn't quietly skip past it.
+    private func moveOnIfAsked() {
+        guard advanceAfterTag else { return }
+        state.selectRelative(1)
     }
 
     /// The import itself lives on `AppState`, because it's a File menu command too and the

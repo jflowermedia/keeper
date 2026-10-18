@@ -7,9 +7,10 @@ Notes to self. Everything runs from the project folder:
 ## Everyday change
 
 1. Edit the files in `Sources/Keeper/`.
-2. `swift run` — builds and launches straight from source. Fastest way to try something.
-3. When happy: `./build_app.sh --install` puts the real app in /Applications.
-4. Commit and push:
+2. `swift test` — the three parsers that have broken before. Seconds, and worth it before anything else.
+3. `swift run` — builds and launches straight from source. Fastest way to try something.
+4. When happy: `./build_app.sh --install` puts the real app in /Applications.
+5. Commit and push:
 
 ```
 git add .
@@ -83,16 +84,42 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/RosterEditor.swift` | editing teams and players after import |
 | `Sources/Keeper/PresetEditor.swift` | the preset builder sheet |
 | `Sources/Keeper/MultiDragHandle.swift` | the drag-to-Finder handles |
+| `Sources/Keeper/Shortcuts.swift` | which key does what, and the rules about changing it |
+| `Sources/Keeper/TagFlow.swift` | the keyboard tagging flow: which rosters are in play, the cursors, the key machine |
+| `Sources/Keeper/ShortcutsSheet.swift` | the shortcut editor and its key recorder |
+| `Tests/KeeperTests/` | `swift test` — the CSV parser, the stored format, the scanner |
 | `build_app.sh` | turns the build into Keeper.app, makes the icon, signs it |
 | `icon.png` / `make_icon.py` | the app icon and the script that draws it |
 
+## Tests
+
+`swift test`. Three files, covering the three things that have actually shipped broken:
+`CSVTests` (CRLF, a BOM, quoting), `LibraryFormatTests` (an older `library.json` decoding),
+`ScannerTests` (a card index not stealing a clip's sidecar). All three work on bytes or a
+temporary folder — nothing in the suite goes near the real `library.json`, and nothing
+writes outside `FileManager.default.temporaryDirectory`. Keep it that way: a test that
+touched the real library could delete a season of tagging.
+
+`Keeper` is an executable target, so the test target is only built by `swift test` and
+never by `build_app.sh`. A test that stops compiling therefore can't stop a release — which
+also means a broken suite goes unnoticed unless it's run. Run it.
+
+Adding a test means finding a seam that takes data rather than a file path.
+`TagLibrary.decodeArchive(_:)` exists for exactly that: it's the whole of `load()` with the
+`Data(contentsOf:)` taken out.
+
 ## Rules worth keeping
 
-**Every new field on a stored type must be optional.** Swift's generated decoder throws on a
-missing key for a non-optional property even when it has a default value, so adding
-`var thing: String = ""` to `Team`, `Player` or `Tag` stops every existing `library.json`
-from loading. Use `String?`. This has bitten once already. `Team.code` and `Team.league`
-are both optional for this reason and must stay that way.
+**Every new field on a stored type must be optional, and the decoder is hand-written as
+well.** Swift's generated decoder throws on a missing key for a non-optional property even
+when it has a default value, so adding `var thing: String = ""` to `Team`, `Player` or `Tag`
+would stop every existing `library.json` from loading. Use `String?`. This has bitten once
+already, and `Team.code` and `Team.league` are both optional for that reason. Belt and
+braces: `Player`, `Team`, `Tag` and `KeyCombo` each have an `init(from:)` written by hand in
+an extension, where every field is read with `decodeIfPresent` and falls back to its default.
+That means a field someone forgets to make optional can't break loading either. Those
+initialisers live in extensions on purpose — declaring one in the type's own body would
+suppress the memberwise initialiser everything else uses.
 
 **`Character` is a grapheme cluster, and `"\r\n"` is one of them.** `"\r\n".count == 1` in
 Swift, so iterating a CRLF file's Characters never yields a bare `"\n"`. A parser switching
@@ -158,6 +185,105 @@ meant — copying clips into the folder they already live in, which is how you e
 the footage twice. Because the sheet remembers the last destination, that's a one-keystroke
 mistake, so `returnIsSafe` withholds `.defaultAction` from both that and in-place renaming.
 Don't promote a caution to a blocker without a reason: the user is allowed to do it.
+
+**Every method that changes a flag or a tag takes an `undoLabel`, and it isn't optional to
+pass.** `TagLibrary` keeps a stack of `Edit`s, each one *the state before a change* rather
+than the change itself — which is what lets `apply` return the edit that reverses it, so undo
+and redo are the same code run in opposite directions. The label is `String?` and required at
+the call site, so adding a new mutation forces a decision about whether it can be taken back.
+Pass nil only for bookkeeping that follows something already written to disk: `renameInPlace`
+clears an override *because the sidecar on disk now carries that flag*, and undoing that would
+leave the library disagreeing with the file. Those are the only two nil sites, both commented.
+
+Record **before** mutating, and only when something will actually change — the bulk setter
+works out which clips will move and records just those, so marking a selection that's already
+KEEP neither writes the library nor leaves a dead step in the stack. Several changes that
+happened on one click have to be one step: that's why `add` takes an array, and why tagging
+three players comes off with one ⌘Z.
+
+The stack is memory-only and cleared whenever the library is replaced wholesale — `load` and
+`restore` — because those edits describe a library that no longer exists. Roster edits are
+deliberately *not* undoable this way; the backups are the route back from those, and the
+undo stack survives one because a keep override is keyed by UMID and owes nothing to a roster.
+
+This one isn't covered by `swift test`: it lives on a singleton whose `save()` writes the real
+`library.json`, and a test that touched that could delete a season of tagging. If it grows,
+the thing to extract is `apply` as a pure function over `(keepOverrides, tags)`.
+
+**Shortcuts are data, not literals.** `Shortcuts` holds the bindings and `KeeperApp` reads
+them with `shortcuts.equivalent(_:)`. It observes the store rather than just reading it,
+because the key equivalents are baked into the menu items when the scene body runs — without
+the observation a changed key wouldn't take effect until the next launch. Two invariants hold
+the editor together: a review key never carries a modifier (which is what lets the event
+monitor bail out the moment anything is held down), and a menu command always carries ⌘
+(or it would fire while someone was typing). `assign` swaps two bindings rather than letting
+either end up with no key, and refuses to take an action's last one — a menu item with no
+equivalent is a command you can't reach and can't get back except with Reset.
+
+**The keyboard flow takes only the keys it's using, at the stage it's on.** That rule is
+`FlowKeyState.claims`, and it's what keeps Space playing the clip and 1/3 shuttling while
+you tag. Two traps are already paid for in there: Escape is *not* claimed at the clip stage,
+because swallowing it would take away the way out of the full-screen preview; and ← → aren't
+either, because nothing at that stage moves sideways. Digits are claimed only at the player
+stage and letters only at the category stage, so a jersey number and a shuttle key can share
+a key without either being lost. Before adding a claim, ask what that key already does.
+
+`FlowKeyState` is a plain class holding two mirrored values — on/off, and the stage — because
+the monitor needs both to decide and can't read `AppState`. It reads the stored toggle in its
+own `init`, which matters: property observers don't fire for assignments inside an
+initialiser, so `AppState.init` setting `keyboardFlow` would otherwise leave the mirror
+saying off until something toggled it.
+
+**The arrows keep a positional anchor, because marking a clip removes it from the list.**
+`selectRelative` looks the previewed clip up in `visible` — and marking it KEEP while
+filtering by KEEP means it isn't there any more. Without an anchor the lookup fails, the
+"nothing selected yet" branch takes over, and ⌘K sends you back to the top of the card.
+That shipped. `toggleKeep` records the clip's index *before* changing the flag, and only for
+the clip in the viewer, so a badge click on another row leaves the anchor where the preview
+is. The clip that was after it has slid into its place, which is why the anchor itself is the
+next one rather than the anchor plus one.
+
+**The grid and the cursor index the same list, and that list is `flowPlayers`.**
+`activeTeams` is what's in play, `shownTeams` is the one bench drawn, `rosterPlayers` is that
+bench, and `flowPlayers` is `rosterPlayers` narrowed by whatever number is being typed. The
+grid draws `flowPlayers` and the cursor indexes `flowPlayers`, so a filtered grid can't point
+at a player who isn't on it. `flowPlayer` — the one picked — deliberately looks itself up in
+`rosterPlayers` instead, because a pick must not evaporate when a filter changes.
+
+**A chip's identity is `GridID.player(at:_:)`, and it is defined once.** Two things need it
+to agree: the grid builds it, and the cursor's `scrollTo` looks it up. It carries the
+position *and* the player for two separate reasons, both of which have bitten. A bare index
+repeats across rosters, so switching bench handed the new roster the old one's identities and
+SwiftUI reused the views rather than updating them — the pill changed and the grid didn't.
+And `Player.id` is `teamID/number`, which two players wearing the same number share.
+
+**No `Section` inside a `ForEach` inside a `LazyVGrid`.** The headers never drew and the grid
+went on showing rosters that had left the data. There's one bench on screen now so the
+question doesn't arise, but if headings ever come back, they're a `Text` above their own grid. The cursor is one
+index into the rosters flattened end to end, so the grid and the ← → key have to agree about
+where each block begins. They each worked it out for themselves at first, which is two
+chances to be wrong by one.
+
+**The key monitor can't touch `AppState`.** It runs outside the main actor and `AppState` is
+`@MainActor`, so the arrow keys post `.keeperMoveSelection` and `ContentView` does the move.
+The notification carries a token because every open window's view hears it and they share one
+`AppState` — without it, a second window would move the selection twice per press.
+
+**Rolling backups are throttled, and the Restore menu's list is cached.** `save()` runs on
+every tag, so `backUpIfDue` takes a copy at most every ten minutes — otherwise all ten slots
+would hold the same minute and the morning's work would be gone. The menus are rebuilt
+whenever anything on `AppState` changes, including each file of a copy, so `libraryBackups`
+is a stored array refreshed on launch and on `.keeperLibraryBackedUp`, not a folder listing
+behind a computed property.
+
+**A copy stops after five consecutive failures.** A destination that has filled up, gone
+offline or turned out read-only fails every file, and the old behaviour was seventy identical
+log lines and a status that read like success with a footnote. Failures are counted per file
+by comparing `failed` before and after, and the reset is guarded on `folderReady` — with no
+folder the inner loop neither succeeds nor fails, so resetting there would stop a destination
+refusing every folder from ever tripping the limit. The status says STOPPED and how far it
+got, because the one thing that must not happen is formatting a card on the strength of a
+copy that didn't finish.
 
 **Everything on the sheet is computed, so it must stay cheap.** `exportFileCount` and
 `exportSize` use the sizes recorded during the scan rather than stat'ing every file, and
