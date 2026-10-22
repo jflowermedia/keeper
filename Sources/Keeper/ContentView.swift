@@ -851,9 +851,26 @@ final class Playback: ObservableObject {
             if let responder = event.window?.firstResponder, responder is NSText {
                 return event                        // a text field is being edited
             }
+
+            // These keys are only ours while the app's own window is the one in front with
+            // nothing on top of it.
+            //
+            // The file picker is why this is four tests rather than one. `NSOpenPanel` runs
+            // a modal loop in a window of its own: it isn't a sheet, and its first responder
+            // is the file list rather than a text field, so it slipped past both of the
+            // checks that were here. Arrowing to a folder in the panel was read as "next
+            // clip", and `selectRelative` replaces the whole selection with that one clip —
+            // so picking an export folder with the keyboard quietly threw away the clips you
+            // were about to export. Alerts run modally the same way.
+            if NSApp.modalWindow != nil {
+                return event                        // an open panel, a save panel, an alert
+            }
+            if event.window is NSPanel {
+                return event                        // any panel, modal or not
+            }
             // Sheets — export, rosters, presets — are their own windows. Space scrubbing the
             // clip behind one you're typing in is never what was meant.
-            if event.window?.isSheet == true {
+            if event.window?.isSheet == true || event.window?.attachedSheet != nil {
                 return event
             }
 
@@ -861,7 +878,7 @@ final class Playback: ObservableObject {
             // at. Everything else falls through, which is what keeps Space playing the clip
             // while you tag.
             let flow = FlowKeyState.shared
-            if flow.active, FlowKeyState.claims(key, stage: flow.stage) {
+            if flow.active, FlowKeyState.claims(key, stage: flow.stage, shift: shift) {
                 Playback.shared.sendFlowKey(key, shift: shift)
                 return nil
             }

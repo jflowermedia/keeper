@@ -669,7 +669,7 @@ struct TagPanel: View {
     /// doesn't quietly skip past it.
     private func moveOnIfAsked() {
         guard advanceAfterTag else { return }
-        state.selectRelative(1)
+        state.advanceAfterAction()
     }
 
     /// The import itself lives on `AppState`, because it's a File menu command too and the

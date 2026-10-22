@@ -7,7 +7,7 @@ Notes to self. Everything runs from the project folder:
 ## Everyday change
 
 1. Edit the files in `Sources/Keeper/`.
-2. `swift test` — the three parsers that have broken before. Seconds, and worth it before anything else.
+2. `swift run Keeper --self-check` — the three parsers that have broken before. Seconds, and worth it before anything else.
 3. `swift run` — builds and launches straight from source. Fastest way to try something.
 4. When happy: `./build_app.sh --install` puts the real app in /Applications.
 5. Commit and push:
@@ -87,24 +87,33 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/Shortcuts.swift` | which key does what, and the rules about changing it |
 | `Sources/Keeper/TagFlow.swift` | the keyboard tagging flow: which rosters are in play, the cursors, the key machine |
 | `Sources/Keeper/ShortcutsSheet.swift` | the shortcut editor and its key recorder |
-| `Tests/KeeperTests/` | `swift test` — the CSV parser, the stored format, the scanner |
+| `Sources/Keeper/SelfCheck.swift` | `--self-check` — the CSV parser, the stored format, the scanner |
 | `build_app.sh` | turns the build into Keeper.app, makes the icon, signs it |
 | `icon.png` / `make_icon.py` | the app icon and the script that draws it |
 
-## Tests
+## Checks
 
-`swift test`. Three files, covering the three things that have actually shipped broken:
-`CSVTests` (CRLF, a BOM, quoting), `LibraryFormatTests` (an older `library.json` decoding),
-`ScannerTests` (a card index not stealing a clip's sidecar). All three work on bytes or a
-temporary folder — nothing in the suite goes near the real `library.json`, and nothing
-writes outside `FileManager.default.temporaryDirectory`. Keep it that way: a test that
-touched the real library could delete a season of tagging.
+```
+swift run Keeper --self-check
+```
 
-`Keeper` is an executable target, so the test target is only built by `swift test` and
-never by `build_app.sh`. A test that stops compiling therefore can't stop a release — which
-also means a broken suite goes unnoticed unless it's run. Run it.
+Three suites covering the three things that have actually shipped broken: the CSV reader
+(CRLF, a byte-order mark, quoting), the stored library format (an older `library.json`
+decoding), and sidecar pairing (a card index not stealing a clip's identity). They print a
+line each and a count, and exit non-zero on a failure.
 
-Adding a test means finding a seam that takes data rather than a file path.
+**They are not an XCTest target, and must not become one.** XCTest ships with Xcode; the
+Command Line Tools are all this app needs to build, and that's what the README tells people
+to install. A test target can therefore only run on a machine set up differently from the one
+that builds the app — which is how a suite ends up never being run at all. That happened:
+the target was added, recommended three times, and errored with `no such module 'XCTest'` the
+first time anyone tried it. Hence a dozen lines of harness in `SelfCheck.swift` instead.
+
+Everything in there works on bytes or a folder under `FileManager.default.temporaryDirectory`.
+Nothing goes near the real `library.json` — a check that touched it could delete a season of
+tagging. Keep it that way.
+
+Adding one means finding a seam that takes data rather than a file path.
 `TagLibrary.decodeArchive(_:)` exists for exactly that: it's the whole of `load()` with the
 `Data(contentsOf:)` taken out.
 
@@ -206,9 +215,9 @@ The stack is memory-only and cleared whenever the library is replaced wholesale 
 deliberately *not* undoable this way; the backups are the route back from those, and the
 undo stack survives one because a keep override is keyed by UMID and owes nothing to a roster.
 
-This one isn't covered by `swift test`: it lives on a singleton whose `save()` writes the real
-`library.json`, and a test that touched that could delete a season of tagging. If it grows,
-the thing to extract is `apply` as a pure function over `(keepOverrides, tags)`.
+This one isn't covered by `--self-check`: it lives on a singleton whose `save()` writes the
+real `library.json`, and a check that touched that could delete a season of tagging. If it
+grows, the thing to extract is `apply` as a pure function over `(keepOverrides, tags)`.
 
 **Shortcuts are data, not literals.** `Shortcuts` holds the bindings and `KeeperApp` reads
 them with `shortcuts.equivalent(_:)`. It observes the store rather than just reading it,
@@ -263,6 +272,35 @@ question doesn't arise, but if headings ever come back, they're a `Text` above t
 index into the rosters flattened end to end, so the grid and the ← → key have to agree about
 where each block begins. They each worked it out for themselves at first, which is two
 chances to be wrong by one.
+
+**The key monitor steps aside for anything in front of the main window.** Four tests, and
+each one is there for a reason. A text field being edited; `NSApp.modalWindow` non-nil; the
+event's window being an `NSPanel`; a sheet, either as the event's window or attached to it.
+
+The file picker is why. `NSOpenPanel.runModal()` opens a window of its own and runs a modal
+loop: it isn't a sheet, and its first responder is the file list rather than a text field, so
+it slipped past the only two tests that were here. Arrowing to a folder in the picker was
+read as "next clip", and `selectRelative` replaces the whole selection with that clip — so
+choosing an export folder with the keyboard threw away the clips being exported, and the
+sheet went on saying "the 1 clip you've selected". It only happened when the folder was
+reached by keyboard, which made it look intermittent. There are nine modal panels and alerts
+in the app and every one of them was exposed.
+
+`selectRelative` refuses outright while `aSheetIsUp`, as a second line of defence: a sheet
+showing a count of what it will act on must not have that count move underneath it.
+
+Adding a window of our own means checking it against those four tests. `FullScreenWindow` is
+an `NSWindow` rather than an `NSPanel` for exactly this reason — the transport keys and
+Escape have to keep working there.
+
+**A hand-made multi-selection is not the flow's to throw away.** Two things were taking it.
+`FlowKeyState.claims` must leave ⇧↑ and ⇧↓ alone at the clip step — that's the list's own
+extend-the-range gesture, and claiming it meant every press collapsed the selection to one
+clip instead of growing it, so picking a range for export was impossible with keyboard
+tagging on. And anything that advances on its own — marking with `advanceAfterMark`, tagging
+with `advanceAfterTag`, the keyboard flow filing a tag — goes through `advanceAfterAction`,
+which stands still while more than one clip is selected. A plain arrow still collapses it;
+that one is the user asking to move.
 
 **The key monitor can't touch `AppState`.** It runs outside the main actor and `AppState` is
 `@MainActor`, so the arrow keys post `.keeperMoveSelection` and `ContentView` does the move.

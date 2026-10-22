@@ -39,7 +39,15 @@ final class FlowKeyState {
     /// Whether the flow wants this key, given where it is. Everything the flow doesn't
     /// claim falls through to the ordinary review keys, which is what keeps Space playing
     /// the clip while you tag.
-    static func claims(_ key: String, stage: TagStage) -> Bool {
+    static func claims(_ key: String, stage: TagStage, shift: Bool) -> Bool {
+        // ⇧↑ and ⇧↓ extend the clip selection — that's the list's own gesture, and the one
+        // you use to pick a range before exporting. Taking it collapsed the selection to a
+        // single clip on every press, because the flow's answer to ↓ is "move to the next
+        // clip". The flow keeps plain arrows; Shift belongs to the list.
+        if shift, key == "up" || key == "down", stage == .clips {
+            return false
+        }
+
         switch key {
         case "tab", "return", "up", "down":
             return true
@@ -517,8 +525,9 @@ extension AppState {
             tagStage = .clips
             // Deliberately after the tag, and it stops at the end of the list rather than
             // wrapping — running off the end and landing back at the top is how you tag
-            // the wrong clip without noticing.
-            selectRelative(1)
+            // the wrong clip without noticing. It also stands still while several clips are
+            // selected by hand; see `advanceAfterAction`.
+            advanceAfterAction()
         }
     }
 

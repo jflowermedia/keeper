@@ -4,10 +4,11 @@ import PackageDescription
 let package = Package(
     name: "Keeper",
     platforms: [.macOS(.v13)],
+    // No test target on purpose. XCTest ships with Xcode, not with the Command Line Tools,
+    // and the Command Line Tools are all this app needs to build — so a test target can
+    // only run on a machine set up differently from the one that builds the app. The checks
+    // live in the app instead: `swift run Keeper --self-check`. See SelfCheck.swift.
     targets: [
-        .executableTarget(name: "Keeper", path: "Sources/Keeper"),
-        // `swift test` only. The app build never touches this, so a test that won't compile
-        // can't stop a release going out — but then nor does it catch anything, so run it.
-        .testTarget(name: "KeeperTests", dependencies: ["Keeper"], path: "Tests/KeeperTests")
+        .executableTarget(name: "Keeper", path: "Sources/Keeper")
     ]
 )

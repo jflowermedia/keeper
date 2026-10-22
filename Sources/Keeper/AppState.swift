@@ -634,8 +634,22 @@ final class AppState: ObservableObject {
         selectRelative(delta)
     }
 
+    /// Anything of ours that's taken over the window. The export and verify sheets both
+    /// show a count of what they're about to act on, and that count must not move under them.
+    var aSheetIsUp: Bool {
+        showExportSheet || showVerifySheet || showRosterEditor
+            || showPresetEditor || showShortcutsSheet
+    }
+
     @discardableResult
     func selectRelative(_ delta: Int) -> Bool {
+        // Second line of defence behind the key monitor's own guards. Picking an export
+        // folder with the arrow keys used to land here and replace the whole selection with
+        // one clip — the sheet went on saying "the 1 clip you've selected" over a set you'd
+        // just assembled. Whatever reaches this while a sheet is deciding what to act on,
+        // the answer is no.
+        guard !aSheetIsUp else { return false }
+
         let list = visible
         guard !list.isEmpty, delta != 0 else { return false }
 
@@ -679,7 +693,19 @@ final class AppState: ObservableObject {
         // Only moves on if the flag actually changed. A clip with no UMID can't be marked,
         // and advancing anyway would walk silently past it.
         guard toggleKeep(clip) else { return }
-        if advanceAfterMark { selectRelative(1) }
+        if advanceAfterMark { advanceAfterAction() }
+    }
+
+    /// Moves to the next clip after something that finished on its own — a mark, a tag.
+    ///
+    /// Refuses while several clips are picked out by hand. Advancing replaces the whole
+    /// selection with one clip, so a set you'd assembled for export would quietly become a
+    /// single clip the moment you marked or tagged one of them. An arrow key still
+    /// collapses it, because that one is you asking to move.
+    @discardableResult
+    func advanceAfterAction() -> Bool {
+        guard selectedCount <= 1 else { return false }
+        return selectRelative(1)
     }
 
     var isTagFiltered: Bool {

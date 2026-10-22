@@ -31,6 +31,12 @@ struct KeeperApp: App {
     @ObservedObject private var library = TagLibrary.shared
 
     init() {
+        // `swift run Keeper --self-check` runs the checks and exits without ever opening a
+        // window. They used to be an XCTest target, which couldn't run here: XCTest comes
+        // with Xcode, and the Command Line Tools are all this app needs to build.
+        if CommandLine.arguments.contains("--self-check") {
+            exit(SelfCheck.run() ? 0 : 1)
+        }
         NSApplication.shared.setActivationPolicy(.regular)
     }
 
