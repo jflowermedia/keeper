@@ -61,10 +61,19 @@ struct ContentView: View {
         .sheet(isPresented: $state.showShortcutsSheet) {
             ShortcutsSheet()
         }
+        // `onDismiss` rather than a button inside the sheet: both of the things the tutorial
+        // offers to do open a modal file picker, which needs the sheet to be gone first.
+        .sheet(isPresented: $state.showWelcome, onDismiss: { state.runPendingWelcomeAction() }) {
+            WelcomeSheet(state: state)
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             Playback.shared.startListening()
             state.refreshBackups()
+            // Throttled to once a day, and silent when it fails — being offline on launch
+            // is the normal case, not something worth a banner.
+            UpdateCheck.shared.check()
+            state.offerWelcomeIfFirstLaunch()
         }
         .onReceive(NotificationCenter.default.publisher(for: .keeperLibraryBackedUp)) { _ in
             state.refreshBackups()
@@ -153,6 +162,9 @@ struct ContentView: View {
             if state.isScanning || state.isCopying { ProgressView().controlSize(.small) }
         }
         .padding(10)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            UpdateBanner()
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let failure = state.library.loadFailure {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")

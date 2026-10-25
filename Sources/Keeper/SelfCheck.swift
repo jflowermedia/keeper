@@ -8,10 +8,18 @@ import Foundation
 /// builds the app is a check suite that never runs. So it lives in the app instead, behind
 /// a flag, with a dozen lines of harness standing in for XCTest.
 ///
-/// What's covered is the three things that have actually shipped broken: the CSV reader,
-/// the stored library format, and pairing sidecars to videos. Everything here works on
-/// bytes or a temporary folder — nothing touches the real `library.json`, and nothing
-/// writes outside `FileManager.default.temporaryDirectory`. Keep it that way.
+/// What's covered is the three things that have actually shipped broken — the CSV reader, the
+/// stored library format, and pairing sidecars to videos — plus the quieter logic added since:
+/// version comparison, the tutorial's content, and the sleep hold.
+///
+/// Almost everything here works on bytes or a temporary folder: nothing touches the real
+/// `library.json`, and nothing writes outside `FileManager.default.temporaryDirectory`. Keep it
+/// that way. Two deliberate exceptions, both named where they happen:
+///
+/// - `welcome()` reads the live `Shortcuts`, which only ever reads from defaults itself.
+/// - `sleepHold()` takes one real power assertion and releases it in the same breath, because
+///   "idempotent in both directions" is the property the rest of the design leans on and a
+///   stub wouldn't be testing it. It nets to zero, and the process exits straight after.
 enum SelfCheck {
 
     // MARK: Harness
@@ -48,6 +56,9 @@ enum SelfCheck {
         csv()
         libraryFormat()
         scanner()
+        updates()
+        welcome()
+        sleepHold()
 
         print("\n\(passes) passed, \(failures.count) failed")
         if !failures.isEmpty {
@@ -282,6 +293,221 @@ enum SelfCheck {
         var threwOnEmpty = false
         do { _ = try TagLibrary.decodeArchive(Data("{}".utf8)) } catch { threwOnEmpty = true }
         expectTrue("an empty object throws", threwOnEmpty)
+    }
+
+    // MARK: - The update check
+    //
+    // Comparing versions is the kind of thing that fails quietly: too eager and it nags
+    // about a release you already have, too shy and it never mentions one. The tag parsing
+    // matters too — `/releases/latest` leaves out pre-releases and every Keeper release so
+    // far is one, so the list endpoint is used and its tags have to be read correctly.
+
+    private static func updates() {
+        section("The update check")
+
+        expect("a plain tag", ReleaseFeed.numbersOnly("v0.7.0"), "0.7.0")
+        expect("a pre-release tag drops its label", ReleaseFeed.numbersOnly("v0.7.0-alpha"), "0.7.0")
+        expect("a numbered label doesn't become a component",
+               ReleaseFeed.numbersOnly("v0.6.1-alpha2"), "0.6.1")
+        expect("no leading v", ReleaseFeed.numbersOnly("1.2.3"), "1.2.3")
+        expect("two components stay two", ReleaseFeed.numbersOnly("v0.6"), "0.6")
+
+        expectTrue("0.7 is newer than 0.6", ReleaseFeed.isNewer("0.7", than: "0.6"))
+        expectTrue("0.6.1 is newer than 0.6", ReleaseFeed.isNewer("0.6.1", than: "0.6"))
+        expectTrue("1.0 is newer than 0.9.9", ReleaseFeed.isNewer("1.0", than: "0.9.9"))
+        expectTrue("0.10 is newer than 0.9 — not a string compare",
+                   ReleaseFeed.isNewer("0.10", than: "0.9"))
+        expectTrue("the same version is not newer", !ReleaseFeed.isNewer("0.6", than: "0.6"))
+        expectTrue("0.6 and 0.6.0 are the same thing",
+                   !ReleaseFeed.isNewer("0.6.0", than: "0.6"))
+        expectTrue("an older one is not newer", !ReleaseFeed.isNewer("0.5", than: "0.6"))
+        expectTrue("a pre-release tag still compares",
+                   ReleaseFeed.isNewer(ReleaseFeed.numbersOnly("v0.7.0-alpha"), than: "0.6"))
+
+        // What GitHub actually sends back, newest first, with a draft at the front.
+        let json = """
+        [
+          { "tag_name": "v0.8.0-alpha", "name": "Keeper 0.8",
+            "html_url": "https://github.com/jflowermedia/keeper/releases/tag/v0.8.0-alpha",
+            "draft": true, "prerelease": true },
+          { "tag_name": "v0.7.0-alpha", "name": "Keeper 0.7",
+            "html_url": "https://github.com/jflowermedia/keeper/releases/tag/v0.7.0-alpha",
+            "draft": false, "prerelease": true }
+        ]
+        """
+        if let release = ReleaseFeed.newest(in: Data(json.utf8)) {
+            expect("a draft is skipped", release.version, "0.7.0")
+            expect("and the published one is taken", release.title, "Keeper 0.7")
+            expectTrue("with its page",
+                       release.page.absoluteString.hasSuffix("v0.7.0-alpha"))
+        } else {
+            failures.append("the release list didn't parse")
+            print("  FAIL the release list didn't parse")
+        }
+
+        // A field GitHub might drop must not make the whole list unreadable.
+        let sparse = """
+        [ { "tag_name": "v0.9.0", "html_url": "https://example.com/r" } ]
+        """
+        if let release = ReleaseFeed.newest(in: Data(sparse.utf8)) {
+            expect("a release with no name falls back", release.title, "Keeper 0.9.0")
+        } else {
+            failures.append("a sparse release didn't parse")
+            print("  FAIL a sparse release didn't parse")
+        }
+
+        expectTrue("rubbish reads as nothing rather than crashing",
+                   ReleaseFeed.newest(in: Data("not json".utf8)) == nil)
+        expectTrue("an empty list reads as nothing",
+                   ReleaseFeed.newest(in: Data("[]".utf8)) == nil)
+        // The page URL ends up at `NSWorkspace.open`, so anything that isn't a web page is
+        // dropped rather than opened.
+        expectTrue("a file: URL is refused",
+                   ReleaseFeed.newest(in: Data(#"[{"tag_name":"v9.0.0","html_url":"file:///etc/passwd"}]"#.utf8)) == nil)
+        expectTrue("a scheme-less URL is refused",
+                   ReleaseFeed.newest(in: Data(#"[{"tag_name":"v9.0.0","html_url":"example.com/r"}]"#.utf8)) == nil)
+        expectTrue("plain http is refused",
+                   ReleaseFeed.newest(in: Data(#"[{"tag_name":"v9.0.0","html_url":"http://example.com/r"}]"#.utf8)) == nil)
+
+        expectTrue("a tag with no numbers is ignored",
+                   ReleaseFeed.newest(in: Data(#"[{"tag_name":"nightly","html_url":"https://example.com"}]"#.utf8)) == nil)
+
+        // Publish a fix to an old line after a new release and GitHub's list is no longer in
+        // version order. The highest version has to win, or the late 0.6.1 would hide 0.7 for
+        // good.
+        let outOfOrder = """
+        [
+          { "tag_name": "v0.6.1", "name": "Keeper 0.6.1", "html_url": "https://example.com/a" },
+          { "tag_name": "v0.7.0", "name": "Keeper 0.7",   "html_url": "https://example.com/b" }
+        ]
+        """
+        expect("the highest version wins, not the first listed",
+               ReleaseFeed.newest(in: Data(outOfOrder.utf8))?.version ?? "none", "0.7.0")
+
+        // The one that matters in practice, and the one that would nag you every launch: a
+        // release of the version you're already running. Built from `AppInfo.version` rather
+        // than a literal, so it keeps testing the real thing after every version bump instead
+        // of quietly becoming a test of some old number.
+        let same = """
+        [ { "tag_name": "v\(AppInfo.version).0-alpha", "name": "Keeper \(AppInfo.version)",
+            "html_url": "https://example.com/c" } ]
+        """
+        if let release = ReleaseFeed.newest(in: Data(same.utf8)) {
+            expectTrue("the version you're already on isn't offered",
+                       !ReleaseFeed.isNewer(release.version, than: AppInfo.version))
+        } else {
+            failures.append("the current version's own release didn't parse")
+            print("  FAIL the current version's own release didn't parse")
+        }
+    }
+
+    // MARK: - Keeping the Mac awake
+    //
+    // A power assertion that's taken and never released is invisible: no error, no UI, the
+    // machine just stops sleeping until Keeper quits. The two ways to get there are a job
+    // that returns early without releasing, and two overlapping jobs where the first to
+    // finish releases the hold the second still needs. Deriving the answer from both flags
+    // rules both out, which is what's checked here.
+
+    private static func sleepHold() {
+        section("Keeping the Mac awake")
+
+        func rule(_ copying: Bool, _ verifying: Bool, _ enabled: Bool = true) -> Bool {
+            SleepGuard.shouldHold(copying: copying, verifying: verifying, enabled: enabled)
+        }
+
+        expect("neither job, no hold", rule(false, false), false)
+        expect("a copy holds", rule(true, false), true)
+        expect("a verify holds", rule(false, true), true)
+        expect("both hold", rule(true, true), true)
+
+        // The setting wins over everything. Switched off, no job holds the Mac awake — and
+        // switched off with nothing running must not somehow hold it either.
+        expect("switched off, a copy doesn't hold", rule(true, false, false), false)
+        expect("switched off, a verify doesn't hold", rule(false, true, false), false)
+        expect("switched off, both don't hold", rule(true, true, false), false)
+        expect("switched off and idle, nothing holds", rule(false, false, false), false)
+
+        // Overlapping jobs, which is what a begin/end pair at each job site would get wrong.
+        var copying = false
+        var verifying = false
+        func held() -> Bool { rule(copying, verifying) }
+
+        copying = true
+        expectTrue("a copy takes the hold", held())
+        verifying = true
+        expectTrue("a verify starting keeps it", held())
+        copying = false
+        expectTrue("the copy finishing doesn't release it", held())
+        verifying = false
+        expectTrue("and the verify finishing does", !held())
+
+        // The switch, mid-transfer, which is the case it exists for: off lets go at once and
+        // back on takes the hold again, both while the same copy keeps running.
+        var enabled = true
+        copying = true
+        expectTrue("a copy with the setting on holds", rule(copying, verifying, enabled))
+        enabled = false
+        expectTrue("switching off mid-copy lets go", !rule(copying, verifying, enabled))
+        enabled = true
+        expectTrue("switching back on mid-copy takes it again",
+                   rule(copying, verifying, enabled))
+        copying = false
+        expectTrue("and the copy ending releases it", !rule(copying, verifying, enabled))
+
+        // The real assertion, which the `didSet` relies on being idempotent both ways. This
+        // balances itself — it ends holding nothing — and the process exits immediately after
+        // these checks, which would release it regardless.
+        expectTrue("taking the hold reports a change", SleepGuard.shared.keepAwake(true))
+        expectTrue("it is held", SleepGuard.shared.isHeld)
+        expectTrue("taking it twice is a no-op", !SleepGuard.shared.keepAwake(true))
+        expectTrue("releasing reports a change", SleepGuard.shared.keepAwake(false))
+        expectTrue("releasing twice is a no-op", !SleepGuard.shared.keepAwake(false))
+        expectTrue("nothing is left held", !SleepGuard.shared.isHeld)
+    }
+
+    // MARK: - The tutorial
+    //
+    // The tour itself can't be run from here — it's a sheet — but the content can be read
+    // back, and the two ways it can quietly go wrong are both content. A step edited down to
+    // an empty string still draws, as a blank page with a Next button. And every key it quotes
+    // comes from `Shortcuts`, so a binding dropped from the defaults would have the tutorial
+    // confidently teaching "—".
+
+    private static func welcome() {
+        section("The tutorial")
+
+        expectTrue("there are steps at all", !WelcomeTour.steps.isEmpty)
+
+        var blank = 0
+        for step in WelcomeTour.steps {
+            if step.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { blank += 1 }
+            if step.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { blank += 1 }
+        }
+        expect("no step is blank", blank, 0)
+
+        let titles = WelcomeTour.steps.map(\.title)
+        expect("no step is duplicated", Set(titles).count, titles.count)
+
+        // Every key the tour quotes has to resolve to something printable. `display` returns
+        // "—" for an action with no binding at all, which is what you'd see if a default were
+        // dropped — the tutorial would still render, just teaching nothing.
+        //
+        // This reads the real `Shortcuts`, which is the one place these checks touch live
+        // state. It only ever reads: `Shortcuts.init` loads from defaults and writes nothing,
+        // and the answer doesn't depend on your own remapping, because an emptied binding
+        // falls back to `Shortcuts.defaults`. Nothing to pass in, so nothing is stubbed.
+        var unbound: [String] = []
+        for step in WelcomeTour.steps {
+            guard let key = step.key else { continue }
+            if Shortcuts.shared.display(key) == "—" { unbound.append(step.title) }
+        }
+        expect("every key the tour quotes has a binding", unbound, [])
+
+        // The first step has to be the one that gets you off a blank window. A tour that opens
+        // on anything else is a tour for someone who's already started.
+        expect("it opens on choosing a folder",
+               WelcomeTour.steps.first?.key == .chooseFolder, true)
     }
 
     // MARK: - Pairing sidecars to videos

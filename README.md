@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.6.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.7.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -45,6 +45,7 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 - A clip's video and sidecar are named together, so a filename clash can't separate them.
 - Tags are keyed to the camera's UMID rather than the filename, so they survive renaming, copying to another drive, and a card restarting its numbering.
 - A copy that fails five times in a row stops, rather than filling the log with the same error for every remaining file.
+- The Mac is held awake while footage is copying or being checked, so it can't idle to sleep halfway through. This holds off *idle* sleep only — closing a laptop lid, choosing Sleep, or a flat battery will still sleep the machine mid-copy, so leave the lid open for a long offload. On by default; **View → Keep the Mac Awake While Transferring** turns it off, and that takes effect immediately even mid-copy. Nothing about it outlives the app — quitting Keeper releases the hold either way.
 - Your tags are backed up automatically, ten versions deep, and any of them can be restored.
 - ⌘Z takes back a flag change or a tag, forty steps deep — including a bulk mark or a bulk tag removal, in one press.
 
@@ -86,6 +87,8 @@ chmod +x build_app.sh
 ---
 
 # Guide
+
+On a first launch Keeper offers to walk you through this in eight short steps. **Help → Welcome & Tutorial** brings it back at any point, and the keys it quotes follow your own shortcuts rather than the defaults.
 
 ## Shortcuts
 
@@ -233,6 +236,14 @@ Build your own in **Edit Presets…**: a name, a fallback team code, a separator
 **To take back a flag or a tag**, **⌘Z** — the undo button at the bottom right does the same, and both name the change. It covers marking and unmarking, in bulk as well as one at a time, tagging, and removing tags. Forty steps deep, and ⌘⇧Z redoes. It doesn't survive quitting, and it deliberately doesn't cover roster edits or a restore — those are bigger than one keystroke and have the backups below.
 
 **To undo a roster edit or a restore**, use **File → Restore Tags**. Keeper copies the library before writing to it, keeps the last ten versions in a `Backups` folder beside it, and lists them there by date. Restoring backs up what you have first, so it can be undone the same way. Nothing on your cards or drives is touched either way.
+
+---
+
+## Updates
+
+Keeper asks GitHub once a day whether there's a newer release, and shows a strip along the bottom of the window if there is. **What's New** opens the release page; **Skip This One** stops it mentioning that version again. **Help → Check for Updates…** asks straight away and always answers, including when you're already on the latest.
+
+It only tells you — nothing is downloaded or installed, and you drag the new app to Applications the same as the first time. This is the only thing in Keeper that touches the network: an unauthenticated request to a public GitHub URL, sending no identifiers, no account, and nothing about your footage. **Help → Check for Updates Automatically** turns it off, and with it off Keeper never reaches the network at all.
 
 ---
 

@@ -38,7 +38,11 @@ final class AppState: ObservableObject {
     @Published var unmatchedXML: [URL] = []
     @Published var videosWithoutXML: [URL] = []
     @Published var isScanning = false
-    @Published var isCopying = false
+    /// Both of the long jobs recompute the sleep hold when they start and stop, rather than
+    /// taking and releasing it inside their own bodies. See `refreshSleepHold`.
+    @Published var isCopying = false {
+        didSet { refreshSleepHold() }
+    }
 
     // Copy progress, measured in bytes rather than file count so a 470 MB clip
     // doesn't count the same as its 3 KB sidecar.
@@ -50,6 +54,48 @@ final class AppState: ObservableObject {
     var copyFraction: Double {
         guard copyBytesTotal > 0 else { return 0 }
         return min(1, Double(copyBytesDone) / Double(copyBytesTotal))
+    }
+
+    /// Whether to hold the Mac awake during a transfer. On unless you turn it off, and the
+    /// switch takes effect straight away — turning it off mid-copy lets go immediately rather
+    /// than waiting for that copy to finish.
+    ///
+    /// Nothing about the hold outlives the app: the assertion belongs to the process, so
+    /// quitting Keeper releases it whatever this is set to.
+    @Published var keepAwakeDuringTransfer = true {
+        didSet {
+            UserDefaults.standard.set(keepAwakeDuringTransfer, forKey: "keepAwakeDuringTransfer")
+            refreshSleepHold()
+        }
+    }
+
+    /// Holds the Mac awake while either long job is running, and lets go when neither is — or
+    /// when you've switched it off.
+    ///
+    /// Driven from `didSet` on all three inputs rather than from inside the jobs, so no early
+    /// return, thrown error or aborted copy can leave the assertion held — a leaked one is
+    /// invisible and would quietly keep the machine awake until Keeper quits.
+    ///
+    /// It only holds off *idle* sleep. Closing a laptop lid still sleeps the Mac mid-copy,
+    /// which is worth knowing before trusting a long transfer to a closed MacBook.
+    private func refreshSleepHold() {
+        let wanted = SleepGuard.shouldHold(copying: isCopying,
+                                           verifying: isVerifying,
+                                           enabled: keepAwakeDuringTransfer)
+        guard SleepGuard.shared.keepAwake(wanted) else { return }
+
+        // Only the moments it actually changes, not every recomputation.
+        if wanted {
+            addLog("Keeping the Mac awake for the transfer (idle sleep only — closing the "
+                   + "lid will still sleep it)")
+        } else if isCopying || isVerifying {
+            // The hold went away while a job is still running, so the setting is what moved.
+            // Worth saying loudly: this is the one combination that can cost you a transfer.
+            addLog("⚠︎ Keep Awake switched off while a transfer is running — the Mac can now "
+                   + "idle to sleep before it finishes")
+        } else {
+            addLog("Letting the Mac sleep normally again")
+        }
     }
     @Published var log: [String] = []
     @Published var status = "Choose a card, drive or folder to begin."
@@ -194,6 +240,59 @@ final class AppState: ObservableObject {
     @Published var showRosterEditor = false
     @Published var showShortcutsSheet = false
 
+    // MARK: - The welcome sheet
+
+    /// Opens by itself on a first launch, and from Help → Welcome & Tutorial after that.
+    @Published var showWelcome = false
+
+    /// What the tutorial offered to do for you, held until the sheet has closed. Deliberately
+    /// not `@Published`: it's read once, by `ContentView`'s `onDismiss`, and republishing the
+    /// whole state to announce it would be noise.
+    var pendingWelcomeAction: WelcomeAction?
+
+    /// Guards against offering the tutorial twice in one run. `ContentView.onAppear` can fire
+    /// again for the same state, and a second window gets its own `onAppear` over the same
+    /// `AppState` — two views racing to present one sheet is how you get a sheet that doesn't
+    /// appear at all.
+    private var welcomeOffered = false
+
+    /// Offers the tutorial on a first launch. Called from `onAppear` rather than decided in
+    /// `init`, so the window exists before a sheet is asked to sit on it — a sheet presented
+    /// during the very first layout pass is the kind of thing that works on one macOS version
+    /// and silently doesn't on the next.
+    ///
+    /// `bool(forKey:)` would read false for a key that was never set and for one set to false
+    /// alike, which is why the absence is what's checked.
+    func offerWelcomeIfFirstLaunch() {
+        guard !welcomeOffered else { return }
+        welcomeOffered = true
+        guard UserDefaults.standard.object(forKey: "welcomeShown") == nil else { return }
+        showWelcome = true
+    }
+
+    /// Called when the sheet is finished with — either button, or Skip at any step.
+    ///
+    /// The flag is written here rather than when the sheet opens, so a first launch that's
+    /// force-quit or crashes while the sheet is up still offers the tutorial next time. The
+    /// cost of getting that wrong is asymmetric: being asked twice is a shrug, never being
+    /// offered it at all is the feature silently not existing.
+    func finishWelcome() {
+        showWelcome = false
+        UserDefaults.standard.set(true, forKey: "welcomeShown")
+    }
+
+    /// Run from the sheet's `onDismiss`, once the sheet has actually gone — both of these open
+    /// a modal panel, which can't be put up from inside a sheet that's still on screen.
+    /// Clears as it fires, so reopening the tutorial and skipping doesn't repeat the last one.
+    func runPendingWelcomeAction() {
+        guard let action = pendingWelcomeAction else { return }
+        pendingWelcomeAction = nil
+        switch action {
+        case .chooseFolder: chooseCard()
+        case .importRoster: importRoster()
+        }
+    }
+
     /// Set by a successful import so the tagging panel can jump to the roster that just
     /// arrived. It lives here because importing is now a File menu command as well as a
     /// button in the panel, and the panel isn't always on screen to run it.
@@ -205,7 +304,9 @@ final class AppState: ObservableObject {
     @Published var showVerifySheet = false
     @Published var verifyDestinations: [URL] = []
     @Published var verifyReport: Verifier.Report?
-    @Published var isVerifying = false
+    @Published var isVerifying = false {
+        didSet { refreshSleepHold() }
+    }
 
     func addVerifyDestination() {
         let panel = NSOpenPanel()
@@ -572,8 +673,14 @@ final class AppState: ObservableObject {
         activeTeamIDs = UserDefaults.standard.stringArray(forKey: "activeTeamIDs") ?? []
         focusedTeamID = UserDefaults.standard.string(forKey: "focusedTeamID")
         keyboardFlow = UserDefaults.standard.bool(forKey: "keyboardFlow")
+        // On unless it's been turned off, so the absence of the key has to be the test —
+        // `bool(forKey:)` reads false for never-set and for false alike.
+        if UserDefaults.standard.object(forKey: "keepAwakeDuringTransfer") != nil {
+            keepAwakeDuringTransfer = UserDefaults.standard.bool(forKey: "keepAwakeDuringTransfer")
+        }
         // Whatever stage it was left at means nothing now: the flow always starts on clips.
         tagStage = .clips
+
     }
 
     // MARK: - Derived state
@@ -638,7 +745,7 @@ final class AppState: ObservableObject {
     /// show a count of what they're about to act on, and that count must not move under them.
     var aSheetIsUp: Bool {
         showExportSheet || showVerifySheet || showRosterEditor
-            || showPresetEditor || showShortcutsSheet
+            || showPresetEditor || showShortcutsSheet || showWelcome
     }
 
     @discardableResult
@@ -1324,7 +1431,6 @@ final class AppState: ObservableObject {
             }
         }
 
-        isCopying = true
         copyFilesDone = 0
         copyFilesTotal = totalFiles
         copyBytesDone = 0
@@ -1346,6 +1452,15 @@ final class AppState: ObservableObject {
         }
 
         let flagWord = keepWord
+
+        // Raised last, immediately before the work starts, for two reasons: it's the flag
+        // that holds the Mac awake, so the log reads in the order things happen rather than
+        // announcing the sleep hold before the copy it's for; and if anything above ever
+        // grows an early return, the gate won't already be up with no job behind it.
+        // Everything from here to the `Task` runs synchronously on the main actor, so the
+        // UI never sees a half-set state.
+        isCopying = true
+
         Task.detached(priority: .userInitiated) {
             var copied = 0
             var skipped = 0

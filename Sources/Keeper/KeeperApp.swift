@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.6"
+    static let version = "0.7"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -29,6 +29,8 @@ struct KeeperApp: App {
     /// Also observed, because the Undo item's own name comes from the library's history and
     /// `AppState` doesn't republish when that changes.
     @ObservedObject private var library = TagLibrary.shared
+    /// For the Help menu's toggle and its disabled state while a check is running.
+    @ObservedObject private var updates = UpdateCheck.shared
 
     init() {
         // `swift run Keeper --self-check` runs the checks and exits without ever opening a
@@ -135,14 +137,32 @@ struct KeeperApp: App {
                     .help("Whether a clip's XML sidecar travels with it. The export sheet "
                           + "shows this too; this is the one that applies when you drag a "
                           + "row straight to Finder.")
+                Toggle("Keep the Mac Awake While Transferring",
+                       isOn: $state.keepAwakeDuringTransfer)
+                    .help("Stops the Mac idling to sleep part way through a copy or a check. "
+                          + "Idle sleep only — closing a laptop lid will still sleep it. "
+                          + "Switching this off takes effect immediately, even mid-transfer.")
                 Toggle("Debug Log", isOn: $state.debugMode)
                     .keyboardShortcut(shortcuts.equivalent(.debugLog),
                                       modifiers: shortcuts.modifiers(.debugLog))
             }
             CommandGroup(replacing: .help) {
+                // Help first, which is what someone opening this menu is after; the update
+                // items are housekeeping and sit below.
+                // Disabled while something else is up: SwiftUI doesn't reliably present two
+                // sheets at once, and the menus stay live behind one, so this is reachable
+                // mid-export if nothing stops it.
+                Button("Welcome & Tutorial…") { state.showWelcome = true }
+                    .disabled(state.aSheetIsUp)
                 Button("Keeper Guide") { NSWorkspace.shared.open(AppInfo.guide) }
                 Button("Keeper on GitHub") { NSWorkspace.shared.open(AppInfo.repo) }
                 Button("Report a Problem") { NSWorkspace.shared.open(AppInfo.issues) }
+                Divider()
+                Button("Check for Updates…") { UpdateCheck.shared.check(manual: true) }
+                    .disabled(updates.checking)
+                Toggle("Check for Updates Automatically", isOn: $updates.enabled)
+                    .help("Asks GitHub once a day whether there's a newer release. Nothing "
+                          + "is sent and nothing is downloaded.")
                 Divider()
                 Button("JFlowerMedia Website") { NSWorkspace.shared.open(AppInfo.website) }
                 Button("JFlowerMedia on Instagram") { NSWorkspace.shared.open(AppInfo.instagram) }
