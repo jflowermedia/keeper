@@ -59,6 +59,10 @@ enum SelfCheck {
         updates()
         welcome()
         sleepHold()
+        addingTeams()
+        subjects()
+        oneOffCategories()
+        categorySections()
 
         print("\n\(passes) passed, \(failures.count) failed")
         if !failures.isEmpty {
@@ -399,6 +403,360 @@ enum SelfCheck {
             failures.append("the current version's own release didn't parse")
             print("  FAIL the current version's own release didn't parse")
         }
+    }
+
+    // MARK: - Category sections
+    //
+    // Sections are organisation, not meaning: the flattened order is still the one order,
+    // and a tag records a bare word. So the things that can break are structural — a label
+    // in two sections is one category pretending to be two, a migration that drops a
+    // customised list loses work silently, and an empty section list leaves the grid with
+    // nothing to arrow between and no way back.
+
+    private static func categorySections() {
+        section("Category sections")
+
+        let defaults = CategorySection.defaults
+        expectTrue("there are sections out of the box", !defaults.isEmpty)
+
+        let flat = defaults.flatMap(\.items)
+        expect("no category appears in two sections", Set(flat).count, flat.count)
+
+        let ids = defaults.map(\.id)
+        expect("no two sections share an id", Set(ids).count, ids.count)
+        expectTrue("none of them is called Recent",
+                   !ids.contains("recent"))
+
+        // Migration: a library from before sections keeps every word it had, in order.
+        let customised = ["Goal", "Zamboni", "Chirp", "Mascot cam"]
+        let migrated = CategorySection.migrating(customised)
+        expect("a customised list survives migration", migrated.flatMap(\.items), customised)
+        expect("and lands in one section", migrated.filter { !$0.items.isEmpty }.count, 1)
+        expect("under a name you'd expect", migrated.first?.name ?? "none", "Gameplay")
+
+        // An empty library gets the starting set rather than no sections at all.
+        expect("nothing to migrate gives the defaults",
+               CategorySection.migrating([]).count, defaults.count)
+        expectTrue("which is never empty", !CategorySection.migrating([]).isEmpty)
+
+        // The flattened order is what filenames rank on, so it has to be stable and complete.
+        expect("flattening keeps section order",
+               defaults.first?.items.first ?? "none", "Goal")
+        expect("and reaches the last section",
+               defaults.flatMap(\.items).count, defaults.reduce(0) { $0 + $1.items.count })
+
+        // ← → wrap in both directions, over any number of sections.
+        func step(_ index: Int, _ count: Int, forward: Bool) -> Int {
+            (index + (forward ? 1 : -1) + count) % count
+        }
+        expect("right wraps past the end", step(2, 3, forward: true), 0)
+        expect("left wraps past the start", step(0, 3, forward: false), 2)
+        expect("right advances", step(0, 3, forward: true), 1)
+        expect("left goes back", step(2, 3, forward: false), 1)
+        for count in 1...6 {
+            var seen: Set<Int> = []
+            var index = 0
+            for _ in 0..<count {
+                seen.insert(index)
+                index = step(index, count, forward: true)
+            }
+            expect("\(count) section(s): every one is reachable", seen.count, count)
+            expect("\(count) section(s): and it returns to the start", index, 0)
+        }
+
+        // A clamp, because a section can vanish while the cursor sits past it — removing one,
+        // or the Recent section emptying itself.
+        func clamp(_ index: Int, _ count: Int) -> Int {
+            guard count > 0 else { return 0 }
+            return min(max(index, 0), count - 1)
+        }
+        // "Recent" is reserved. A real section with that name would share the one-offs'
+        // id and could never be moved or removed again — the pill's menu keys on the id.
+        expect("the reserved id is what the pseudo-section uses",
+               CategorySection.reservedID, "recent")
+        expectTrue("so a section named Recent must be refused",
+                   Team.slug("Recent") == CategorySection.reservedID)
+        expectTrue("and one named RECENT too",
+                   Team.slug("RECENT") == CategorySection.reservedID)
+        expectTrue("but Recents is fine",
+                   Team.slug("Recents") != CategorySection.reservedID)
+
+        // Moving a category between sections. An existing library migrates into one
+        // section, so this is the path every long list has to go through to get sorted —
+        // and the thing it must never do is lose a word or leave it in two places.
+        func move(_ name: String, to target: String,
+                  in sections: [CategorySection]) -> [CategorySection] {
+            guard let from = sections.firstIndex(where: { $0.items.contains(name) }),
+                  let to = sections.firstIndex(where: { $0.id == target }),
+                  from != to
+            else { return sections }
+            var out = sections
+            out[from].items.removeAll { $0 == name }
+            out[to].items.append(name)
+            return out
+        }
+
+        let before = CategorySection.defaults
+        let after = move("Goal", to: "misc", in: before)
+        expect("the word left its old section",
+               after.first { $0.id == "gameplay" }?.items.contains("Goal") ?? true, false)
+        expect("and arrived in the new one",
+               after.first { $0.id == "misc" }?.items.contains("Goal") ?? false, true)
+        expect("nothing was lost", Set(after.flatMap(\.items)), Set(before.flatMap(\.items)))
+        expect("and nothing is in two places",
+               Set(after.flatMap(\.items)).count, after.flatMap(\.items).count)
+
+        expect("moving to its own section changes nothing",
+               move("Goal", to: "gameplay", in: before).flatMap(\.items),
+               before.flatMap(\.items))
+        expect("moving a word that isn't there changes nothing",
+               move("Zamboni", to: "misc", in: before).flatMap(\.items),
+               before.flatMap(\.items))
+        expect("moving to a section that isn't there changes nothing",
+               move("Goal", to: "nowhere", in: before).flatMap(\.items),
+               before.flatMap(\.items))
+
+        // Emptying one section entirely still leaves every word somewhere.
+        var shuffled = before
+        for word in before.first(where: { $0.id == "gameplay" })?.items ?? [] {
+            shuffled = move(word, to: "misc", in: shuffled)
+        }
+        expect("a whole section can be emptied",
+               shuffled.first { $0.id == "gameplay" }?.items.isEmpty ?? false, true)
+        expect("with every word still accounted for",
+               Set(shuffled.flatMap(\.items)), Set(before.flatMap(\.items)))
+        expect("and the sections themselves remain", shuffled.count, before.count)
+
+        expect("an index past the end clamps", clamp(7, 3), 2)
+        expect("a negative one clamps", clamp(-2, 3), 0)
+        expect("no sections is still safe", clamp(5, 0), 0)
+    }
+
+    // MARK: - One-off categories
+    //
+    // A word used once on one card shouldn't silt up the category list forever, so a category
+    // that isn't in the permanent list is kept as a capped, newest-first one-off instead. The
+    // ways that goes wrong are all quiet: a word in both lists draws twice in the grid and
+    // the cursor stops on it twice; an uncapped list is just the permanent list again; and a
+    // one-off outranking a real category would name a goal clip after the dancing in it.
+    //
+    // `noteRecent` is on the live library, so the rule is modelled here against a plain array
+    // and pinned to the real cap.
+
+    private static func oneOffCategories() {
+        section("One-off categories")
+
+        func note(_ name: String, into recents: [String], permanent: [String]) -> [String] {
+            let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty,
+                  !permanent.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame })
+            else { return recents }
+            var out = recents.filter { $0.caseInsensitiveCompare(clean) != .orderedSame }
+            out.insert(clean, at: 0)
+            return Array(out.prefix(TagLibrary.recentLimit))
+        }
+
+        let permanent = TagLibrary.defaultCategories
+        expect("a one-off is recorded", note("Dancing", into: [], permanent: permanent), ["Dancing"])
+        expect("a real category is not", note("Goal", into: [], permanent: permanent), [])
+        expect("nor one in a different case",
+               note("goal", into: [], permanent: permanent), [])
+        expect("blank is ignored", note("   ", into: [], permanent: permanent), [])
+
+        // Using one again moves it to the front rather than repeating it.
+        let twice = note("Dancing", into: note("Clapping", into: ["Dancing"], permanent: permanent),
+                         permanent: permanent)
+        expect("reusing moves it to the front", twice, ["Dancing", "Clapping"])
+        expect("and never duplicates", Set(twice).count, twice.count)
+
+        // The cap: the oldest falls off, which is what stops this becoming the thing it
+        // replaces.
+        var recents: [String] = []
+        for n in 1...(TagLibrary.recentLimit + 5) {
+            recents = note("Word \(n)", into: recents, permanent: permanent)
+        }
+        expect("the list stays capped", recents.count, TagLibrary.recentLimit)
+        expect("the newest is first", recents.first ?? "none",
+               "Word \(TagLibrary.recentLimit + 5)")
+        expectTrue("and the oldest fell off", !recents.contains("Word 1"))
+
+        // Nothing may appear in both lists, because the grid draws the two end to end.
+        let all = permanent + recents
+        expect("no category is listed twice", Set(all).count, all.count)
+
+        // Promoting: it has to leave the one-offs in the same breath it joins the list.
+        let promoted = permanent + ["Dancing"]
+        let leftover = ["Dancing", "Clapping"].filter { word in
+            !promoted.contains { $0.caseInsensitiveCompare(word) == .orderedSame }
+        }
+        expect("a kept category leaves the one-offs", leftover, ["Clapping"])
+        let afterPromote = promoted + leftover
+        expect("so it still isn't listed twice", Set(afterPromote).count, afterPromote.count)
+
+        // Priority: permanent beats passing-through, whatever order they were applied.
+        let priority = permanent + ["Dancing"]
+        func rank(_ c: String) -> Int { priority.firstIndex(of: c) ?? Int.max }
+        expectTrue("a real category outranks a one-off", rank("Goal") < rank("Dancing"))
+        expectTrue("a one-off still outranks something unlisted",
+                   rank("Dancing") < rank("Never seen"))
+    }
+
+    // MARK: - Subjects
+    //
+    // A subject rides in the bench as a `Player` with no number and a reserved team id. The
+    // two ways that can go wrong are both silent: two subjects sharing an id, which is a
+    // duplicate in a SwiftUI grid rather than anything that looks like an error; and a
+    // subject's reserved id reaching a tag's `teamID`, where nothing would ever match it
+    // again and the filename would carry a team that doesn't exist.
+
+    private static func subjects() {
+        section("Subjects")
+
+        // Every default has to produce a distinct bench id.
+        let ids = Subjects.defaults.map { Subjects.entry($0).id }
+        expect("every default subject has its own id", Set(ids).count, ids.count)
+
+        let mascot = Subjects.entry("Mascot")
+        expect("the id is namespaced", mascot.id, "subject:mascot/")
+        expect("and the name survives", mascot.name, "Mascot")
+        expect("with no number", mascot.number, "")
+        expectTrue("it knows it's a subject", mascot.isSubject)
+
+        // The label is what the bench draws. A numberless entry must read as a bare name,
+        // not as "#  Mascot".
+        expect("it labels as a bare name", mascot.label, "Mascot")
+
+        // And a real player must not be mistaken for one.
+        let player = Player(teamID: "winnipeg-jets-alumni", number: "26", name: "Blake Wheeler")
+        expectTrue("a player is not a subject", !player.isSubject)
+        expect("a player still labels with its number", player.label, "#26  Blake Wheeler")
+
+        // A team whose own slug begins with the marker would be indistinguishable from a
+        // subject. The prefix ends in a colon, which `Team.slug` strips, so no real team id
+        // can start with it.
+        expectTrue("no real team id can look like a subject",
+                   !Team.slug("Subject: Mascot").hasPrefix(Subjects.teamIDPrefix))
+        expectTrue("nor one actually called Subjects",
+                   !Team.slug("Subjects").hasPrefix(Subjects.teamIDPrefix))
+
+        // Two subjects differing only in case or punctuation would share a slug, and so an
+        // id. `addSubject` is what refuses them; this pins the rule it refuses on.
+        expect("case folds into one slug", Team.slug("Mascot"), Team.slug("MASCOT"))
+        expect("punctuation folds too", Team.slug("Mic E. Moose"), "mic-e-moose")
+
+        // The number filter: typing a digit means you're after a person, so subjects go.
+        let bench = [player, mascot]
+        let filtered = bench.filter { $0.number.hasPrefix("2") }
+        expect("typing a number hides the subjects", filtered.count, 1)
+        expect("and keeps the player", filtered.first?.name ?? "none", "Blake Wheeler")
+
+        // A library written before subjects existed has no key at all, and must come back
+        // with the starting set rather than an empty bench tail — while one deliberately
+        // emptied stays empty. That's the nil-versus-[] distinction in the load path.
+        let old: [String]? = nil
+        let emptied: [String]? = []
+        expect("an old library gets the defaults", (old ?? Subjects.defaults).count,
+               Subjects.defaults.count)
+        expect("an emptied one stays empty", (emptied ?? Subjects.defaults).count, 0)
+    }
+
+    // MARK: - Adding a team
+    //
+    // This one shipped broken — found in use, not by reading — and is why the search for a
+    // free name moved into `TagLibrary`, beside the guard it has to agree with.
+    //
+    // A team keeps its id for life, because tags are keyed to it. So the "New team" that the
+    // + button creates still has the id `new-team` after you rename it to a real club. The
+    // editor used to look for a free *name*, find "New team" unused, and hand it to `addTeam`
+    // — which refuses on the *id* and returned nil. The + button did nothing from then on,
+    // and the only thing on screen was a stale "Saved." from the save it does first.
+
+    private static func addingTeams() {
+        section("Adding a team")
+
+        func team(_ id: String, _ name: String) -> Team {
+            Team(id: id, name: name, code: nil, league: nil, players: [])
+        }
+
+        expect("an empty library gets the plain name",
+               TagLibrary.freeTeamName(in: []), "New team")
+
+        // The bug, exactly: id still `new-team`, name long since changed.
+        let renamed = [team("new-team", "Dauphin Kings")]
+        expect("a renamed team's id doesn't block the next add",
+               TagLibrary.freeTeamName(in: renamed), "New team 2")
+
+        // And it keeps working, rather than only surviving one more press.
+        let twiceRenamed = [team("new-team", "Dauphin Kings"),
+                            team("new-team-2", "Virden Oil Capitals")]
+        expect("twice renamed, still fine",
+               TagLibrary.freeTeamName(in: twiceRenamed), "New team 3")
+
+        // A team actually still called "New team" is caught by name as it always was.
+        expect("an unrenamed New team is skipped",
+               TagLibrary.freeTeamName(in: [team("new-team", "New team")]), "New team 2")
+
+        // Case shouldn't matter, by name or by id.
+        expect("a differently-cased name is still taken",
+               TagLibrary.freeTeamName(in: [team("whatever", "NEW TEAM")]), "New team 2")
+
+        // Unrelated teams don't push the number along.
+        expect("unrelated teams are ignored",
+               TagLibrary.freeTeamName(in: [team("dauphin-kings", "Dauphin Kings")]),
+               "New team")
+
+        // The name it returns has to be one `addTeam` will actually accept — which is the
+        // agreement that broke. Re-check it against `addTeam`'s own guard.
+        for teams in [[], renamed, twiceRenamed, [team("new-team", "New team")]] {
+            let name = TagLibrary.freeTeamName(in: teams)
+            let id = Team.slug(name)
+            let wouldBeRefused = teams.contains {
+                $0.id == id || $0.name.caseInsensitiveCompare(name) == .orderedSame
+            }
+            expectTrue("\"\(name)\" is a name addTeam would accept", !wouldBeRefused)
+        }
+
+        // Importing a CSV for a team that already exists under a different id — the second
+        // half of the same bug. The + button made a team, it got renamed, and a CSV for that
+        // same club then arrived as a separate team of the same name. Two teams sharing a
+        // name is a state the editor won't save, so both became uneditable.
+        let renamedToClub = [team("new-team", "Winnipeg Jets Alumni")]
+        expect("an import finds the renamed team by name",
+               TagLibrary.importTarget(slug: "winnipeg-jets-alumni",
+                                       name: "Winnipeg Jets Alumni",
+                                       in: renamedToClub)?.id ?? "nothing",
+               "new-team")
+
+        expect("a normal import still matches on the id",
+               TagLibrary.importTarget(slug: "dauphin-kings",
+                                       name: "Dauphin Kings",
+                                       in: [team("dauphin-kings", "Dauphin Kings")])?.id ?? "nothing",
+               "dauphin-kings")
+
+        expect("case doesn't stop the name match",
+               TagLibrary.importTarget(slug: "winnipeg-jets-alumni",
+                                       name: "WINNIPEG JETS ALUMNI",
+                                       in: renamedToClub)?.id ?? "nothing",
+               "new-team")
+
+        expectTrue("a genuinely new team matches nothing",
+                   TagLibrary.importTarget(slug: "virden-oil-capitals",
+                                           name: "Virden Oil Capitals",
+                                           in: renamedToClub) == nil)
+
+        // The id wins over the name, so re-importing can still rename a team in place rather
+        // than being dragged to whichever other team happens to use the new name.
+        let both = [team("dauphin-kings", "Dauphin Kings"), team("new-team", "Dauphin Kings II")]
+        expect("the id is preferred over the name",
+               TagLibrary.importTarget(slug: "dauphin-kings",
+                                       name: "Dauphin Kings II",
+                                       in: both)?.id ?? "nothing",
+               "dauphin-kings")
+
+        // The slug, since the whole bug turned on what it does to a name.
+        expect("the slug of the default name", Team.slug("New team"), "new-team")
+        expect("the slug of the numbered one", Team.slug("New team 2"), "new-team-2")
+        expect("punctuation and case collapse", Team.slug("St. Mary's U18 (A)"), "st-mary-s-u18-a")
     }
 
     // MARK: - Keeping the Mac awake

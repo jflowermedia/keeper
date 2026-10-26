@@ -371,15 +371,20 @@ struct RosterEditor: View {
         // Save first, so a team isn't created and then left unreachable behind a bad edit.
         guard commitIfPossible(thenDismiss: false) else { return }
 
-        var name = "New team"
-        var n = 2
-        while library.teams.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
-            name = "New team \(n)"
-            n += 1
-        }
+        // The search for a free name lives in `TagLibrary`, next to the guard in `addTeam`
+        // that it has to agree with. It used to be here and tested only the name, which left
+        // the + button permanently dead once you'd renamed a team it created.
+        let name = library.freeTeamName()
         // Starts in the league you were just looking at, which is usually the right one.
         let league = (draft?.league).flatMap { $0.isEmpty ? nil : $0 }
-        guard let team = library.addTeam(named: name, league: league) else { return }
+        guard let team = library.addTeam(named: name, league: league) else {
+            // Shouldn't be reachable now, but it was before and the only sign was a stale
+            // "Saved." left over from the save above — so it says something either way.
+            problem = "Couldn't add a team. Close the roster editor and try again, and please "
+                + "report it if it keeps happening."
+            note = nil
+            return
+        }
         selectedTeamID = team.id
         problem = nil
         note = nil

@@ -11,6 +11,10 @@ struct TagPanel: View {
     @State private var selectedPlayerIDs: Set<String> = []
     @State private var newCategory = ""
     @State private var showingCategoryField = false
+    @State private var newSubject = ""
+    @State private var showingSubjectField = false
+    @State private var newSection = ""
+    @State private var addingSection = false
     /// Same key as the menu item's, so the two stay in step.
     @AppStorage("advanceAfterTag") private var advanceAfterTag = false
 
@@ -73,6 +77,7 @@ struct TagPanel: View {
             } else {
                 teamPicker
                 focusPills
+                subjectField
                 playerGrid
                     .flowSection(.players, current: state.tagStage, active: state.keyboardFlow)
                 Divider()
@@ -358,6 +363,52 @@ struct TagPanel: View {
     /// headers, and the grid went on showing rosters that had left the data. There's only
     /// ever one bench on screen now, so none of that is needed: the pills say which, and
     /// `flowPlayers` is the same list the cursor indexes.
+    /// Adding a subject — the mascot, the crowd, the anthem. Tucked under the bench it
+    /// appends to, and hidden until asked for, because it's a once-a-season job rather than
+    /// something to step past on every clip.
+    @ViewBuilder
+    private var subjectField: some View {
+        HStack(spacing: 6) {
+            Button {
+                showingSubjectField.toggle()
+                if !showingSubjectField { newSubject = "" }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: showingSubjectField ? "minus.circle" : "plus.circle")
+                    Text("Subject")
+                }
+                .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("Something you shoot that isn't on a roster — the mascot, the crowd, the "
+                  + "anthem. They sit at the end of every bench and tag like a player, so "
+                  + "the category is still free to say what happened.")
+
+            if showingSubjectField {
+                TextField("Mascot", text: $newSubject)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(commitSubject)
+                Button("Add", action: commitSubject)
+                    .disabled(newSubject.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func commitSubject() {
+        let clean = newSubject.trimmingCharacters(in: .whitespacesAndNewlines)
+        let before = library.subjects.count
+        library.addSubject(clean)
+        guard library.subjects.count > before else {
+            state.status = Team.slug(clean).isEmpty
+                ? "A subject needs a name with letters or numbers in it."
+                : "There's already a subject called \"\(clean)\"."
+            return
+        }
+        newSubject = ""
+        showingSubjectField = false
+    }
+
     private var playerGrid: some View {
         // Resolved once for the whole grid rather than per chip.
         let onClip = playersOnClip
@@ -439,6 +490,17 @@ struct TagPanel: View {
             .buttonStyle(.plain)
             .id(row.id)
             .overlay(cursorRing(on: isCursor(.players, index)))
+            // Only subjects, because a player is removed in the roster editor where the
+            // warning about their tags belongs. Removing a subject takes nothing away from
+            // the clips already tagged with it — the name was recorded on the tag.
+            .contextMenu {
+                if player.isSubject {
+                    Button("Remove \"\(player.name)\"", role: .destructive) {
+                        selectedPlayerIDs.remove(player.id)
+                        library.removeSubject(player.name)
+                    }
+                }
+            }
         }
     }
 
@@ -482,22 +544,45 @@ struct TagPanel: View {
             }
 
             if showingCategoryField {
-                HStack(spacing: 6) {
-                    TextField("New category", text: $newCategory)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(commitCategory)
-                    Button("Add", action: commitCategory)
-                        .disabled(newCategory.trimmingCharacters(in: .whitespaces).isEmpty)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        TextField("Dancing", text: $newCategory)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(tagOnce)
+                        // Return does the common thing. The word lands in the one-offs by
+                        // being used, so there's nothing to decide at the moment of typing —
+                        // which is the whole point of a one-off.
+                        Button("Tag", action: tagOnce)
+                            .disabled(clip == nil || typedCategory.isEmpty)
+                        Button("Add", action: commitCategory)
+                            .disabled(typedCategory.isEmpty)
+                    }
+                    Text("Tag uses it once and keeps it to hand. Add puts it in the list for good.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
+
+            sectionPills
 
             // 96, not 84: an adaptive grid packs in as many columns of at least the minimum
             // as will fit and only then widens them, so a wider panel gives *narrower*
             // cells. At 84 a 300pt panel lands on 88pt cells, and the tick on an applied
             // chip then costs a letter off "Celebration". 96 keeps three columns at worst.
+            if state.flowCategories.isEmpty {
+                Text(state.currentCategorySection?.id == CategorySection.reservedID
+                     ? "Nothing used once yet."
+                     : "No categories in this section. Type one above, or ← → to another.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            }
+
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                ForEach(Array(library.categories.enumerated()), id: \.element) { index, category in
+                ForEach(Array(state.flowCategories.enumerated()), id: \.element) { index, category in
                     let applied = onThisClip.contains(category)
+                    let oneOff = library.recentCategories.contains(category)
                     Button { tag(with: category) } label: {
                         TagChip(tint: applied ? Color.green : nil, alignment: .center) {
                             HStack(spacing: 4) {
@@ -511,6 +596,11 @@ struct TagPanel: View {
                                     // A long category you've added yourself shrinks a little
                                     // rather than losing its end to an ellipsis.
                                     .minimumScaleFactor(0.85)
+                                    // A one-off reads as lighter than the permanent list, so
+                                    // the set you actually curated still stands out in a grid
+                                    // that now holds both.
+                                    .italic(oneOff)
+                                    .foregroundStyle(oneOff && !applied ? .secondary : .primary)
                             }
                         }
                     }
@@ -523,9 +613,35 @@ struct TagPanel: View {
                             + "whoever you've got selected."
                           : "Tag this clip as \(category)")
                     .contextMenu {
-                        Button("Remove \"\(category)\"", role: .destructive) {
-                            if state.filterCategory == category { state.filterCategory = nil }
-                            library.removeCategory(category)
+                        if oneOff {
+                            Menu("Keep \"\(category)\" in") {
+                                ForEach(library.categorySections) { target in
+                                    Button(target.name) {
+                                        library.keepCategory(category, to: target.id)
+                                    }
+                                }
+                            }
+                            Button("Forget \"\(category)\"", role: .destructive) {
+                                if state.filterCategory == category { state.filterCategory = nil }
+                                library.forgetRecent(category)
+                            }
+                        } else {
+                            if library.categorySections.count > 1 {
+                                Menu("Move \"\(category)\" to") {
+                                    ForEach(library.categorySections) { target in
+                                        Button(target.name) {
+                                            library.moveCategory(category, toSection: target.id)
+                                            state.categoryCursor = 0
+                                        }
+                                        .disabled(target.items.contains(category))
+                                    }
+                                }
+                                Divider()
+                            }
+                            Button("Remove \"\(category)\"", role: .destructive) {
+                                if state.filterCategory == category { state.filterCategory = nil }
+                                library.removeCategory(category)
+                            }
                         }
                     }
                 }
@@ -548,8 +664,164 @@ struct TagPanel: View {
         }
     }
 
+    /// One pill per section, with ← → the keyboard equivalent. The same shape as the bench
+    /// pills a stage earlier, because it's the same idea: which set am I looking at.
+    private var sectionPills: some View {
+        let sections = state.categorySections
+        return VStack(alignment: .leading, spacing: 6) {
+            pillRow(sections)
+            // Its own row rather than an overlay. As an overlay it floated down across the
+            // first line of chips, covering the categories you were about to look at.
+            if addingSection {
+                HStack(spacing: 6) {
+                    TextField("Fans", text: $newSection)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(commitSection)
+                    Button("Add", action: commitSection)
+                        .disabled(newSection.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Cancel") { addingSection = false; newSection = "" }
+                        .buttonStyle(.link)
+                }
+            }
+        }
+    }
+
+    private func pillRow(_ sections: [CategorySection]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                let on = index == min(max(state.categorySectionIndex, 0), sections.count - 1)
+                Button {
+                    state.categorySectionIndex = index
+                    state.categoryCursor = 0
+                } label: {
+                    Text(section.name)
+                        .font(.caption2.weight(on ? .bold : .regular))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(on ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1))
+                        .foregroundStyle(on ? Color.accentColor : .secondary)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(section.id == CategorySection.reservedID
+                      ? "Words you've used once. The last \(TagLibrary.recentLimit) are kept."
+                      : "\(section.items.count) categor\(section.items.count == 1 ? "y" : "ies")")
+                .contextMenu {
+                    // Recent isn't a real section — it's a view of the one-offs — so it has
+                    // nothing to rename, reorder or delete.
+                    if section.id != CategorySection.reservedID {
+                        // The index follows the section. Without this, moving the one
+                        // you're looking at leaves you looking at whatever took its place.
+                        Button("Move Left") { moveSection(section.id, by: -1) }
+                            .disabled(index == 0)
+                        Button("Move Right") { moveSection(section.id, by: 1) }
+                            .disabled(index >= library.categorySections.count - 1)
+                        Divider()
+                        Button("Remove \"\(section.name)\"", role: .destructive) {
+                            library.removeSection(section.id)
+                            state.categorySectionIndex = 0
+                            state.categoryCursor = 0
+                            // Its categories went with it, one of which may have been the
+                            // filter the clip list is currently narrowed by.
+                            state.dropDanglingFilters()
+                        }
+                        .disabled(library.categorySections.count < 2)
+                    }
+                }
+            }
+
+            Button {
+                addingSection.toggle()
+                if !addingSection { newSection = "" }
+            } label: {
+                Image(systemName: "plus.circle")
+            }
+            .buttonStyle(.plain)
+            .help("Add a section of categories")
+
+            Spacer(minLength: 0)
+
+            if state.keyboardFlow && sections.count > 1 {
+                Text("← →")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .help("Switch section from the keyboard")
+            }
+        }
+    }
+
+    private func moveSection(_ id: String, by offset: Int) {
+        let wasOn = state.currentCategorySection?.id == id
+        library.moveSection(id, by: offset)
+        if wasOn, let index = library.categorySections.firstIndex(where: { $0.id == id }) {
+            state.categorySectionIndex = index
+        }
+    }
+
+    private func commitSection() {
+        let clean = newSection.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wanted = Team.slug(clean)
+        let before = library.categorySections.count
+        library.addSection(clean)
+
+        // Counted rather than looked up: a duplicate name finds the *existing* section, so
+        // searching for it would read as success. Refusals used to close the field as if it
+        // had worked, which looks exactly like the feature being broken.
+        guard library.categorySections.count > before,
+              let index = library.categorySections.firstIndex(where: { $0.id == wanted })
+        else {
+            state.status = wanted == CategorySection.reservedID
+                ? "\"Recent\" is kept for the one-off tags — pick another name."
+                : wanted.isEmpty
+                    ? "A section needs a name with letters or numbers in it."
+                    : "There's already a section called \"\(clean)\"."
+            return          // the field stays open with what you typed still in it
+        }
+
+        // Jump to it. You made a section to put things in, so leaving you looking at the
+        // one you were on means an arrow press before you can do anything with it.
+        state.categorySectionIndex = index
+        state.categoryCursor = 0
+        newSection = ""
+        addingSection = false
+    }
+
+    private var typedCategory: String {
+        newCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func commitCategory() {
-        library.addCategory(newCategory)
+        let clean = typedCategory
+        let before = library.categories.count
+        // Into the section on screen, which is the one you were looking at when you decided
+        // it was missing. Never into Recent, which isn't a real section.
+        library.addCategory(clean,
+                            to: library.sectionForNewCategory(
+                                viewing: state.currentCategorySection?.id))
+        guard library.categories.count > before else {
+            // A category has to be unique across every section, so the one it clashes with
+            // may not even be on screen. Naming it is the difference between "that didn't
+            // work" and knowing why.
+            if let existing = library.categorySections.first(where: {
+                $0.items.contains { $0.caseInsensitiveCompare(clean) == .orderedSame }
+            }) {
+                state.status = "\"\(clean)\" is already in \(existing.name)."
+            } else {
+                state.status = "A category needs a name."
+            }
+            return
+        }
+        newCategory = ""
+        showingCategoryField = false
+    }
+
+    /// Tags the clip with whatever's typed without adding it to the permanent list. The word
+    /// is recorded as a one-off by `applyTags` itself, so it only sticks around if it was
+    /// actually used — and the oldest falls off once there are more than a dozen.
+    private func tagOnce() {
+        let name = typedCategory
+        guard !name.isEmpty, clip != nil else { return }
+        tag(with: name)
         newCategory = ""
         showingCategoryField = false
     }

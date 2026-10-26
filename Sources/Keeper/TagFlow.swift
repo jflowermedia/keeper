@@ -156,10 +156,15 @@ extension AppState {
 
     /// Every player across the rosters in play, whichever bench is showing and whatever a
     /// typed number is hiding. What a hand-made selection is resolved against.
-    var allActivePlayers: [Player] { activeTeams.flatMap(\.players) }
+    var allActivePlayers: [Player] { activeTeams.flatMap(\.players) + library.subjectEntries }
 
-    /// The roster on screen, before the number filter.
-    var rosterPlayers: [Player] { shownTeams.flatMap(\.players) }
+    /// The roster on screen, before the number filter, with the subjects on the end.
+    ///
+    /// Subjects live in the bench rather than in a section of their own because that's where
+    /// your hand already is — the cursor, Return, and the outline all work on them unchanged.
+    /// They have no number, so the moment you start typing one they drop out of the grid,
+    /// which is what you want: typing a number means you're after a person.
+    var rosterPlayers: [Player] { shownTeams.flatMap(\.players) + library.subjectEntries }
 
     /// What the grid shows: the roster narrowed to the number being typed. The cursor
     /// indexes this, so a filtered grid and the cursor can't drift apart.
@@ -203,7 +208,40 @@ extension AppState {
 
     func focusLabel(for team: Team) -> String { Self.shortName(team) }
 
-    var flowCategories: [String] { library.categories }
+    /// The sections ← → step between: the real ones, then the one-offs if there are any.
+    ///
+    /// Recents are a section rather than a tail on the last one, so a list you curated never
+    /// quietly fills with words you typed once.
+    var categorySections: [CategorySection] {
+        let real = library.categorySections
+        guard !library.recentCategories.isEmpty else { return real }
+        return real + [CategorySection(name: "Recent", items: library.recentCategories)]
+    }
+
+    /// The section the cursor is in, clamped — sections can be removed while the flow sits
+    /// on one, and the Recent section disappears the moment its last word is forgotten.
+    var currentCategorySection: CategorySection? {
+        let sections = categorySections
+        guard !sections.isEmpty else { return nil }
+        return sections[min(max(categorySectionIndex, 0), sections.count - 1)]
+    }
+
+    /// What the grid draws and the cursor walks: one section at a time.
+    var flowCategories: [String] { currentCategorySection?.items ?? [] }
+
+    /// ← → at the category stage, mirroring what they do between benches.
+    func cycleCategorySection(forward: Bool) {
+        let sections = categorySections
+        guard sections.count > 1 else {
+            status = "Only one section of categories — add another with + beside them."
+            return
+        }
+        let current = min(max(categorySectionIndex, 0), sections.count - 1)
+        categorySectionIndex = (current + (forward ? 1 : -1) + sections.count) % sections.count
+        // A fresh section starts at its first label rather than wherever the last one left
+        // the cursor, which would otherwise land you somewhere arbitrary.
+        categoryCursor = 0
+    }
 
     /// "VIR vs WPG", "Virden Oil Capitals", "3 rosters" — what the picker reads. Two full
     /// club names won't fit the button, which is what the filename code is good for.
@@ -446,12 +484,17 @@ extension AppState {
             go(to: .players)
         case "tab":
             rotateStage(forward: !shift)
-        case "up", "left":
+        case "up":
             categoryCursor = max(0, categoryCursor - 1)
-        case "down", "right":
+        case "down":
             // Every category can be removed by hand, and then `count - 1` is -1.
             guard !categories.isEmpty else { return }
             categoryCursor = min(categories.count - 1, categoryCursor + 1)
+        case "left", "right":
+            // Between sections, exactly as they move between benches a stage earlier. They
+            // used to duplicate ↑ ↓, which left the app using the same keys for two
+            // different jobs depending on which stage you were in.
+            cycleCategorySection(forward: key == "right")
         case "return":
             // Return files it and moves on; ⇧Return files it and comes back to the players
             // on the same clip, which is the goal-then-assist case. Tab no longer files
@@ -497,7 +540,15 @@ extension AppState {
             status = "\(clip.name) has no UMID in its XML, so it can't be tagged."
             return
         }
-        guard let category = cursorCategory else { return }
+        guard let category = cursorCategory else {
+            // Said rather than ignored, the same rule as switching benches with one roster:
+            // a section can be emptied by moving its last category elsewhere, and Return
+            // doing nothing in silence is how "tagging stopped working" starts.
+            status = currentCategorySection.map {
+                "\($0.name) has no categories in it — ← → to another section."
+            } ?? "No categories to tag with."
+            return
+        }
 
         let player = flowPlayer
         let result = applyTags(to: clip,

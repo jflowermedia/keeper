@@ -249,7 +249,9 @@ struct ContentView: View {
             Menu {
                 Button("Any category") { state.filterCategory = nil }
                 Divider()
-                ForEach(state.library.categories, id: \.self) { category in
+                // The one-offs too, or a word you tagged five clips with this afternoon
+                // would be the one thing you couldn't filter by.
+                ForEach(state.library.allCategories, id: \.self) { category in
                     Button(category) { state.filterCategory = category }
                 }
             } label: {

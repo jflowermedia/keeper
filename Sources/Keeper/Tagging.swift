@@ -10,6 +10,69 @@ struct Player: Codable, Identifiable, Hashable {
 
     var id: String { "\(teamID)/\(number)" }
     var label: String { number.isEmpty ? name : "#\(number)  \(name)" }
+
+    /// Whether this bench entry is a subject rather than a person on a roster.
+    var isSubject: Bool { teamID.hasPrefix(Subjects.teamIDPrefix) }
+}
+
+/// One named group of categories.
+struct CategorySection: Codable, Identifiable, Hashable {
+    var name: String
+    var items: [String]
+
+    /// Slugged, so two sections can't share an id in the pills. `addSection` refuses a name
+    /// that would collide.
+    var id: String { Team.slug(name) }
+
+    /// The one-offs are shown as a section but aren't one — they're a view of
+    /// `recentCategories`, with nothing to rename, reorder or delete. So the name is
+    /// reserved: a real section called "Recent" would share its id and could never be moved
+    /// or removed again.
+    static let reservedID = "recent"
+
+    /// What a new library starts with. Gameplay carries the labels that were the whole list
+    /// before sections existed; Misc starts empty on purpose, as somewhere to promote a
+    /// one-off into.
+    static let defaults: [CategorySection] = [
+        CategorySection(name: "Gameplay",
+                        items: ["Goal", "Assist", "Save", "Hit", "Penalty",
+                                "Faceoff", "Shot", "Celebration"]),
+        CategorySection(name: "Media", items: ["Interview", "B-Roll"]),
+        CategorySection(name: "Misc", items: [])
+    ]
+
+    /// Where a library from before sections lands: everything it had, in one section, under
+    /// the name it would have been given anyway. Nothing is dropped and nothing is reordered.
+    static func migrating(_ flat: [String]) -> [CategorySection] {
+        guard !flat.isEmpty else { return defaults }
+        return [CategorySection(name: "Gameplay", items: flat),
+                CategorySection(name: "Media", items: []),
+                CategorySection(name: "Misc", items: [])]
+    }
+}
+
+/// Things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena.
+///
+/// They sit in the bench and are picked exactly like a player, because that's where your
+/// hand already is and because the *subject* of a clip and *what happens in it* are different
+/// questions. Tagging a mascot shot as the category "Mascot" would spend the category slot
+/// and leave nowhere to say it was also a Celebration.
+///
+/// A subject rides as a `Player` with no number and a reserved team id. That isn't a hack
+/// for its own sake: `label` already renders a numberless entry as a bare name, the number
+/// filter already skips anything whose number doesn't match what you're typing, and the
+/// cursor already walks whatever the bench holds. The one place it has to be special-cased
+/// is `makeTag`, which must not file the reserved id as if it were a real team.
+enum Subjects {
+    static let teamIDPrefix = "subject:"
+
+    static let defaults = ["Mascot", "Crowd", "Anthem", "Arena", "Officials", "Bench"]
+
+    /// A bench entry for one subject. The reserved id keeps each distinct — several entries
+    /// with no number would otherwise share `teamID/number` and collide in the grid.
+    static func entry(_ name: String) -> Player {
+        Player(teamID: teamIDPrefix + Team.slug(name), number: "", name: name)
+    }
 }
 
 struct Team: Codable, Identifiable, Hashable {
@@ -138,7 +201,19 @@ final class TagLibrary: ObservableObject {
 
     @Published var teams: [Team] = []
     /// Order matters: it is also the tag priority used when naming a clip that has several.
-    @Published var categories: [String] = TagLibrary.defaultCategories
+    /// Categories in sections — Gameplay, Media, Misc — which ← → step between while ↑ ↓
+    /// move within one. The grouping is organisation only: with forty labels a flat grid is
+    /// a search every time, and sections turn that into "which kind of thing is this".
+    @Published var categorySections: [CategorySection] = CategorySection.defaults
+
+    /// Every category, in section order. Computed rather than stored, so everything that
+    /// treats the list as flat — filename priority, the preset editor, the filter menu —
+    /// carries on unchanged and there is only one order to keep straight.
+    var categories: [String] { categorySections.flatMap(\.items) }
+    /// Non-roster subjects, shown at the end of every bench. See `Subjects`.
+    @Published var subjects: [String] = Subjects.defaults
+    /// One-off categories, newest first and capped. See `noteRecent`.
+    @Published private(set) var recentCategories: [String] = []
     @Published private(set) var tags: [Tag] = []
     @Published var presets: [RenamePreset] = [.standard()]
 
@@ -563,6 +638,51 @@ final class TagLibrary: ObservableObject {
     }
 
     /// A new, empty team to type a roster into. Returns nil if the name is taken.
+    /// A name `addTeam` will accept: free by name *and* by the id derived from it.
+    ///
+    /// Both have to be tested together, and that's the whole bug this exists to stop. A team
+    /// keeps its original id for life — tags are keyed to it, so renaming a team mustn't
+    /// detach them — which means the "New team" that the + button creates still has the id
+    /// `new-team` after you've renamed it to something real. Search on the name alone and
+    /// "New team" looks free; `addTeam` then refuses it on the id, and the + button is dead
+    /// for good with nothing on screen to say why.
+    ///
+    /// Keeping the search here, beside the guard it has to agree with, is the point. The two
+    /// drifted apart once because they lived in different files.
+    func freeTeamName(startingAt base: String = "New team") -> String {
+        Self.freeTeamName(in: teams, startingAt: base)
+    }
+
+    /// Which existing team an imported block belongs to, or nil for a new one.
+    ///
+    /// The id first, then the name. A team keeps its id for life because tags are keyed to
+    /// it, so one made with the + button and renamed to "Winnipeg Jets Alumni" still has the
+    /// id `new-team`. Matching on the id alone filed a CSV for that club as a *second* team
+    /// of the same name — and two teams sharing a name is a state the roster editor refuses
+    /// to save, so the editor was bricked by a sequence of entirely reasonable steps.
+    static func importTarget(slug: String, name: String, in teams: [Team]) -> Team? {
+        if let byID = teams.first(where: { $0.id == slug }) { return byID }
+        return teams.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// The same search over a given list, so the checks can exercise it against a handful of
+    /// made-up teams rather than against your real library.
+    static func freeTeamName(in teams: [Team], startingAt base: String = "New team") -> String {
+        func taken(_ candidate: String) -> Bool {
+            let id = Team.slug(candidate)
+            return teams.contains { $0.id == id
+                || $0.name.caseInsensitiveCompare(candidate) == .orderedSame }
+        }
+        guard taken(base) else { return base }
+        // Bounded rather than `while true`: a run of names that somehow all collide should
+        // give up and let the caller report it, not spin.
+        for n in 2...500 {
+            let candidate = "\(base) \(n)"
+            if !taken(candidate) { return candidate }
+        }
+        return "\(base) \(UUID().uuidString.prefix(8))"
+    }
+
     func addTeam(named name: String, league: String? = nil) -> Team? {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
@@ -632,27 +752,171 @@ final class TagLibrary: ObservableObject {
         save()
     }
 
-    func addCategory(_ name: String) {
+    /// Adds to a section, or to the first one when none is named. A category has to be
+    /// unique across every section, not just within one: the filter menu, the filename
+    /// priority and the tags themselves all key on the bare word, so the same label in two
+    /// sections would be the same category pretending to be two.
+    func addCategory(_ name: String, to sectionID: String? = nil) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty,
               !categories.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame })
         else { return }
-        categories.append(clean)
+        let index = sectionID.flatMap { id in categorySections.firstIndex { $0.id == id } } ?? 0
+        guard categorySections.indices.contains(index) else { return }
+        categorySections[index].items.append(clean)
         save()
     }
 
     func removeCategory(_ name: String) {
-        categories.removeAll { $0 == name }
+        for index in categorySections.indices {
+            categorySections[index].items.removeAll { $0 == name }
+        }
         save()
     }
 
+    // MARK: Sections
+
+    func addSection(_ name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = Team.slug(clean)
+        guard !clean.isEmpty, !slug.isEmpty,
+              slug != CategorySection.reservedID,
+              !categorySections.contains(where: { $0.id == slug })
+        else { return }
+        categorySections.append(CategorySection(name: clean, items: []))
+        save()
+    }
+
+    /// Removing a section takes its categories with it. Clips already tagged with them keep
+    /// the word — a tag records the label, not a pointer to this list — which is why this
+    /// doesn't need the warning that removing a player does.
+    func removeSection(_ id: String) {
+        // Never leave nothing to arrow between: a grid with no sections has no way back.
+        guard categorySections.count > 1 else { return }
+        categorySections.removeAll { $0.id == id }
+        save()
+    }
+
+    func moveSection(_ id: String, by offset: Int) {
+        guard let from = categorySections.firstIndex(where: { $0.id == id }) else { return }
+        let to = from + offset
+        guard categorySections.indices.contains(to) else { return }
+        categorySections.swapAt(from, to)
+        save()
+    }
+
+    // MARK: One-offs
+
+    /// How many one-offs are kept before the oldest falls off.
+    ///
+    /// Capped on purpose. The whole point is that a word you used once on one card ages out
+    /// by itself — a list that only ever grows is the thing being avoided, and an uncapped
+    /// one would just be the permanent list with extra steps.
+    static let recentLimit = 12
+
+    /// Records a category that isn't in the permanent list, newest first.
+    ///
+    /// Called when a tag is applied rather than when a word is typed, so a word you thought
+    /// better of never appears. Anything already permanent is ignored: a category can be in
+    /// one list or the other, never both, or it would draw twice in the grid and the cursor
+    /// would stop on it twice.
+    func noteRecent(_ name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty,
+              !categories.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame })
+        else { return }
+        recentCategories.removeAll { $0.caseInsensitiveCompare(clean) == .orderedSame }
+        recentCategories.insert(clean, at: 0)
+        if recentCategories.count > Self.recentLimit {
+            recentCategories = Array(recentCategories.prefix(Self.recentLimit))
+        }
+        save()
+    }
+
+    /// Promotes a one-off into the permanent list. It leaves the recents in the same breath,
+    /// because being in both is the one state that draws it twice.
+    func keepCategory(_ name: String, to sectionID: String? = nil) {
+        recentCategories.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        addCategory(name, to: sectionID)          // saves
+    }
+
+    /// Where a new category goes when you haven't said: the section on screen, unless that's
+    /// the one-offs, in which case the last real one — which is Misc out of the box, and is
+    /// the catch-all wherever you've moved it to.
+    func sectionForNewCategory(viewing sectionID: String?) -> String? {
+        if let sectionID, sectionID != CategorySection.reservedID,
+           categorySections.contains(where: { $0.id == sectionID }) {
+            return sectionID
+        }
+        return categorySections.last?.id
+    }
+
+    func forgetRecent(_ name: String) {
+        recentCategories.removeAll { $0 == name }
+        save()
+    }
+
+    /// What the grid draws and the cursor walks: the permanent list, then the one-offs.
+    ///
+    /// Also the filename priority, so a clip tagged both Goal and Dancing is named for the
+    /// goal — anything permanent outranks anything passing through.
+    var allCategories: [String] { categories + recentCategories }
+
+    /// Rejects a name whose slug is already taken, not just an exact repeat: two subjects
+    /// sharing a slug would share a bench id, and a duplicate id in a grid is the one thing
+    /// SwiftUI misbehaves over rather than merely drawing oddly.
+    func addSubject(_ name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slug = Team.slug(clean)
+        guard !clean.isEmpty, !slug.isEmpty,
+              !subjects.contains(where: { Team.slug($0) == slug })
+        else { return }
+        subjects.append(clean)
+        save()
+    }
+
+    func removeSubject(_ name: String) {
+        subjects.removeAll { $0 == name }
+        save()
+    }
+
+    /// The bench entries for the subjects, in the order they're listed.
+    var subjectEntries: [Player] { subjects.map(Subjects.entry) }
+
     /// Reordering categories changes which tag wins in a filename, so it is a real setting
     /// rather than cosmetics.
+    /// Whether `moveCategory` would do anything — a category can only move within its own
+    /// section, so the arrow on the last item of Gameplay has to be dead even though there
+    /// are more categories below it in the flattened list.
+    func canMoveCategory(_ name: String, by offset: Int) -> Bool {
+        guard let section = categorySections.firstIndex(where: { $0.items.contains(name) }),
+              let from = categorySections[section].items.firstIndex(of: name)
+        else { return false }
+        return categorySections[section].items.indices.contains(from + offset)
+    }
+
+    /// Moves a category into another section, keeping its position at the end of the one it
+    /// joins. An existing library migrates into a single section, so this is how a list built
+    /// before sections existed gets sorted out without retyping any of it.
+    func moveCategory(_ name: String, toSection sectionID: String) {
+        guard let from = categorySections.firstIndex(where: { $0.items.contains(name) }),
+              let to = categorySections.firstIndex(where: { $0.id == sectionID }),
+              from != to
+        else { return }
+        categorySections[from].items.removeAll { $0 == name }
+        categorySections[to].items.append(name)
+        save()
+    }
+
     func moveCategory(_ name: String, by offset: Int) {
-        guard let from = categories.firstIndex(of: name) else { return }
+        guard let section = categorySections.firstIndex(where: { $0.items.contains(name) }),
+              let from = categorySections[section].items.firstIndex(of: name)
+        else { return }
         let to = from + offset
-        guard categories.indices.contains(to) else { return }
-        categories.swapAt(from, to)
+        // Within its own section, not across the flattened list — a category sliding out of
+        // Gameplay and into Media because you nudged it past the end would be a surprise.
+        guard categorySections[section].items.indices.contains(to) else { return }
+        categorySections[section].items.swapAt(from, to)
         save()
     }
 
@@ -720,7 +984,18 @@ final class TagLibrary: ObservableObject {
     // version without going anywhere near the real library on disk.
     struct Archive: Codable {
         var teams: [Team]
-        var categories: [String]
+        /// The flat list as written before sections existed. Still read, so an older library
+        /// migrates; no longer written, so `categorySections` is the one source once saved.
+        var categories: [String]?
+        var categorySections: [CategorySection]?
+        /// Optional, so a library written before subjects existed still reads. Swift's
+        /// generated decoder throws on a missing key even where a default is declared, which
+        /// is why every field added since the first version is written this way. Declared
+        /// here, beside `categories`, because the memberwise initialiser takes its arguments
+        /// in declaration order and `save()` passes them in this one.
+        var subjects: [String]?
+        /// Same reason as `subjects`: optional so an older library still reads.
+        var recentCategories: [String]?
         var tags: [Tag]
         var presets: [RenamePreset]?
         var keepOverrides: [String: Bool]?
@@ -778,7 +1053,18 @@ final class TagLibrary: ObservableObject {
             return
         }
         teams = archive.teams
-        categories = archive.categories.isEmpty ? Self.defaultCategories : archive.categories
+        // Sections if the library has them, otherwise whatever flat list it had, moved
+        // into one section. A library with neither gets the starting set.
+        if let sections = archive.categorySections, !sections.isEmpty {
+            categorySections = sections
+        } else {
+            categorySections = CategorySection.migrating(archive.categories ?? [])
+        }
+        // A library from before subjects existed has none, and should get the
+        // starting set rather than an empty bench tail. One deliberately emptied
+        // stays empty, which is why nil and [] are told apart.
+        subjects = archive.subjects ?? Subjects.defaults
+        recentCategories = archive.recentCategories ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         keepOverrides = archive.keepOverrides ?? [:]
@@ -790,7 +1076,14 @@ final class TagLibrary: ObservableObject {
         guard loadFailure == nil else { return }   // never overwrite a library we couldn't read
         backUpIfDue()
         let archive = Archive(teams: teams,
+                              // Written as well as the sections, not instead: a library
+                              // saved here still opens in a build from before sections
+                              // existed, which would otherwise fail to decode and refuse
+                              // to load at all.
                               categories: categories,
+                              categorySections: categorySections,
+                              subjects: subjects,
+                              recentCategories: recentCategories,
                               tags: tags,
                               presets: presets,
                               keepOverrides: keepOverrides)
@@ -929,7 +1222,18 @@ final class TagLibrary: ObservableObject {
         backUpIfDue()
 
         teams = archive.teams
-        categories = archive.categories.isEmpty ? Self.defaultCategories : archive.categories
+        // Sections if the library has them, otherwise whatever flat list it had, moved
+        // into one section. A library with neither gets the starting set.
+        if let sections = archive.categorySections, !sections.isEmpty {
+            categorySections = sections
+        } else {
+            categorySections = CategorySection.migrating(archive.categories ?? [])
+        }
+        // A library from before subjects existed has none, and should get the
+        // starting set rather than an empty bench tail. One deliberately emptied
+        // stays empty, which is why nil and [] are told apart.
+        subjects = archive.subjects ?? Subjects.defaults
+        recentCategories = archive.recentCategories ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         keepOverrides = archive.keepOverrides ?? [:]
@@ -1037,15 +1341,31 @@ final class TagLibrary: ObservableObject {
             let sorted = players.sorted {
                 (Int($0.number) ?? Int.max, $0.name) < (Int($1.number) ?? Int.max, $1.name)
             }
+            let name = teamNames[id] ?? id
+
+            // Match on the id first, then on the name. A team keeps its id for life, so one
+            // created by the + button and renamed still has the id `new-team` — and matching
+            // on the id alone would file this import as a *second* team with the same name.
+            // Two teams of one name is a state the roster editor then refuses to save, which
+            // is a brick wall reached by doing nothing unusual.
+            let existing = Self.importTarget(slug: id, name: name, in: teams)
+
+            // Keep whichever id already exists, because tags are keyed to it. The players
+            // were stamped with the slug while they were being grouped, so they have to be
+            // re-stamped to match, or the roster and its tags would belong to different teams.
+            let teamID = existing?.id ?? id
+            let players = teamID == id ? sorted : sorted.map {
+                Player(teamID: teamID, number: $0.number, name: $0.name, position: $0.position)
+            }
+
             // An import replaces the whole team, so a CSV without a code or league column
             // would otherwise silently wipe one you'd already set. Fall back to what's
             // there: re-importing to fix a spelling shouldn't cost you a filename code.
-            let existing = team(id: id)
-            upsert(team: Team(id: id,
-                              name: teamNames[id] ?? id,
+            upsert(team: Team(id: teamID,
+                              name: name,
                               code: teamCodes[id] ?? existing?.code,
                               league: teamLeagues[id] ?? existing?.league,
-                              players: sorted))
+                              players: players))
             imported += sorted.count
         }
 

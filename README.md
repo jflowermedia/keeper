@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.7.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.8.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -148,6 +148,12 @@ Only `number` and `name` are needed. A header row is optional, several teams can
 - **`league`** groups the team menus. `org`, `organisation`, `organization` and `group` work too.
 
 Team names must be distinct, since importing one replaces any team of the same name — a club's men's and women's sides need names that differ. Re-importing updates existing tags, matched on team and number, and columns you leave out keep what's already set.
+
+**Categories come in sections** — Gameplay, Media, Misc to start. **← →** step between them and **↑ ↓** move within one, the same way ← → switch benches a stage earlier. Click **+** beside the pills to add a section; right-click a pill to move or remove it. Right-click a category and **Move “Anthem” to** files it under another section, which is how a list built before sections gets sorted out — an existing library arrives with everything in Gameplay. Removing a section takes its categories with it, but clips already tagged keep their labels. A new category joins whichever section you're looking at.
+
+**One-off tags.** Click **+** by the categories, type a word and press **Tag**: the clip is tagged and the word is kept to hand as a one-off without joining your permanent list. One-offs gather in their own **Recent** section at the end, in italics, the last twelve are kept and the oldest falls off by itself, so a word you used once on one card doesn't silt up the list forever. Right-click one to **Keep** it permanently or **Forget** it. A real category always outranks a one-off in filenames, so a goal with dancing in it is still named for the goal. **Add** puts a word straight in the permanent list instead.
+
+**Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They sit at the end of every bench and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Add your own with **+ Subject** under the bench; right-click one to remove it. They have no number, so they drop out of the grid the moment you start typing one. A subject's tag records whichever team you're focused on.
 
 **⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams.
 

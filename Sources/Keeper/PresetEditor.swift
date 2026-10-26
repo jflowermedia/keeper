@@ -224,11 +224,11 @@ struct PresetEditor: View {
                     Button { library.moveCategory(category, by: -1) } label: {
                         Image(systemName: "chevron.up")
                     }
-                    .disabled(index == 0)
+                    .disabled(!library.canMoveCategory(category, by: -1))
                     Button { library.moveCategory(category, by: 1) } label: {
                         Image(systemName: "chevron.down")
                     }
-                    .disabled(index == library.categories.count - 1)
+                    .disabled(!library.canMoveCategory(category, by: 1))
                 }
                 .buttonStyle(.borderless)
                 .padding(.horizontal, 9)

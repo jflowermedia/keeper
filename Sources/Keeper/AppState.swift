@@ -211,6 +211,9 @@ final class AppState: ObservableObject {
 
     @Published var playerCursor = 0
     @Published var categoryCursor = 0
+    /// Which category section ← → have landed on. Survives leaving and re-entering the
+    /// stage, so tagging a run of crowd shots doesn't mean arrowing back each time.
+    @Published var categorySectionIndex = 0
     /// Digits typed at the player stage, shown on screen so a half-typed number is never
     /// a mystery.
     @Published var numberEntry = ""
@@ -391,6 +394,12 @@ final class AppState: ObservableObject {
            !library.allPlayers.contains(where: { $0.position == position }) {
             filterPosition = nil
         }
+        // Removing a section takes its categories with it, and a one-off ages out on its
+        // own. Either way the filter bar would go on claiming to filter by something the
+        // menu no longer offers, with no way to clear it but Clear.
+        if let category = filterCategory, !library.allCategories.contains(category) {
+            filterCategory = nil
+        }
     }
 
     func importRoster() {
@@ -514,10 +523,10 @@ final class AppState: ObservableObject {
         guard let preset = activePreset, let clip = exportClips.first else { return nil }
         let tags = library.tags(forUMID: clip.umid)
         let rosterCode = library
-            .team(id: Renamer.topTag(of: tags, priority: library.categories)?.teamID)
+            .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
             .flatMap(\.code)
         let base = Renamer.baseName(for: clip, tags: tags, preset: preset,
-                                    priority: library.categories, rosterCode: rosterCode)
+                                    priority: library.allCategories, rosterCode: rosterCode)
         return (clip.name, "\(base).\(clip.videoURL.pathExtension)")
     }
 
@@ -555,10 +564,10 @@ final class AppState: ObservableObject {
         return exportClips.filter { clip in
             let tags = library.tags(forUMID: clip.umid)
             let rosterCode = library
-                .team(id: Renamer.topTag(of: tags, priority: library.categories)?.teamID)
+                .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
                 .flatMap(\.code)
             let base = Renamer.baseName(for: clip, tags: tags, preset: preset,
-                                        priority: library.categories, rosterCode: rosterCode)
+                                        priority: library.allCategories, rosterCode: rosterCode)
             return base != clip.videoURL.deletingPathExtension().lastPathComponent
         }.count
     }
@@ -1045,14 +1054,24 @@ final class AppState: ObservableObject {
                          player: Player?,
                          fallbackTeam: Team?,
                          category: String) -> Tag {
-        let team = player.flatMap { library.team(id: $0.teamID) } ?? fallbackTeam
+        // A subject's team id is a reserved marker, not a team. Filed as-is it would put
+        // `subject:mascot` in the tag's teamID, where nothing would ever match it again —
+        // so the team is the one you were looking at, exactly as for a tag with no one
+        // against it at all.
+        let isSubject = player?.isSubject ?? false
+        let team = isSubject
+            ? fallbackTeam
+            : (player.flatMap { library.team(id: $0.teamID) } ?? fallbackTeam)
+
         return Tag(umid: umid,
                    clipName: clip.name,
                    volumeName: clip.volumeName,
                    path: clip.videoURL.path,
-                   teamID: player?.teamID ?? team?.id,
+                   teamID: isSubject ? team?.id : (player?.teamID ?? team?.id),
                    teamName: team?.name,
-                   playerNumber: player?.number,
+                   // Nil rather than the empty string a subject carries, so the filename
+                   // builder and anything matching on a number see "no number", not "".
+                   playerNumber: isSubject ? nil : player?.number,
                    playerName: player?.name,
                    playerPosition: player.flatMap { $0.position.isEmpty ? nil : $0.position },
                    category: category)
@@ -1078,6 +1097,11 @@ final class AppState: ObservableObject {
                    players: [Player],
                    fallbackTeam: Team?,
                    category: String) -> TagResult {
+        // A category that isn't in the permanent list is a one-off, and this is the moment
+        // it earns its place in the recents — when a tag is actually filed, not when the
+        // word was typed. `noteRecent` ignores anything already permanent.
+        library.noteRecent(category)
+
         let label = "Tag \(clip.name) as \(category)"
 
         if players.isEmpty {
@@ -1213,19 +1237,19 @@ final class AppState: ObservableObject {
             case .byCategory:
                 // Exactly one folder, matching the tag the file is being named after, so a
                 // clip exists once rather than copied into every category it carries.
-                let top = Renamer.topTag(of: tags, priority: library.categories)?.category
+                let top = Renamer.topTag(of: tags, priority: library.allCategories)?.category
                 folders = [top ?? "Untagged"]
             }
 
             // The video and its sidecar must share a base name, or they stop pairing up
             // when this folder is scanned later.
-            let winningTeam = Renamer.topTag(of: tags, priority: library.categories)?.teamID
+            let winningTeam = Renamer.topTag(of: tags, priority: library.allCategories)?.teamID
             let rosterCode = library.team(id: winningTeam).flatMap(\.code)
             let base = preset.map {
                 Renamer.baseName(for: clip,
                                  tags: tags,
                                  preset: $0,
-                                 priority: library.categories,
+                                 priority: library.allCategories,
                                  rosterCode: rosterCode)
             }
 
@@ -1282,12 +1306,12 @@ final class AppState: ObservableObject {
         for clip in scope {
             let tags = library.tags(forUMID: clip.umid)
             let rosterCode = library
-                .team(id: Renamer.topTag(of: tags, priority: library.categories)?.teamID)
+                .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
                 .flatMap(\.code)
             let base = Renamer.baseName(for: clip,
                                         tags: tags,
                                         preset: preset,
-                                        priority: library.categories,
+                                        priority: library.allCategories,
                                         rosterCode: rosterCode)
             if base != clip.videoURL.deletingPathExtension().lastPathComponent {
                 plan.append((clip, base))
