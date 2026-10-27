@@ -101,9 +101,8 @@ struct TagPanel: View {
                         .font(.caption)
                         .frame(maxWidth: .infinity)
                 }
-                .help(state.hasExplicitSelection
-                      ? "Clears every tag from the clips you have selected"
-                      : "Nothing is selected, so this clears tags from every clip the filter is showing")
+                .help("Clears every tag from the clips you have selected · "
+                      + "\(Shortcuts.shared.display(.clearTags)) does the same")
             }
         }
         .padding(12)
@@ -279,11 +278,27 @@ struct TagPanel: View {
     @ViewBuilder
     private var focusPills: some View {
         let teams = state.activeTeams
-        if teams.count > 1 {
+        // Shown for the pills, but also whenever there's a filter to report — with one
+        // roster in play there are no pills, and the typed number had nowhere to appear.
+        if teams.count > 1 || !state.numberEntry.isEmpty || state.subjectsOnly {
             HStack(spacing: 4) {
-                ForEach(teams) { focusPill(for: $0) }
+                if teams.count > 1 {
+                    ForEach(teams) { focusPill(for: $0) }
+                }
 
                 Spacer(minLength: 0)
+
+                if state.subjectsOnly {
+                    Text("Subjects")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.16))
+                        .clipShape(Capsule())
+                        .help("Players hidden · \(Shortcuts.shared.display(.subjectsOnly)) "
+                              + "to show them again")
+                }
 
                 // The typed number lives here, beside the bench it's filtering, because
                 // this is where you're looking while you type it.
@@ -570,9 +585,11 @@ struct TagPanel: View {
             // cells. At 84 a 300pt panel lands on 88pt cells, and the tick on an applied
             // chip then costs a letter off "Celebration". 96 keeps three columns at worst.
             if state.flowCategories.isEmpty {
-                Text(state.currentCategorySection?.id == CategorySection.reservedID
-                     ? "Nothing used once yet."
-                     : "No categories in this section. Type one above, or ← → to another.")
+                Text(!state.categoryEntry.isEmpty
+                     ? "Nothing numbered \(state.categoryEntry) here."
+                     : state.currentCategorySection?.id == CategorySection.reservedID
+                        ? "Nothing used once yet."
+                        : "No categories in this section. Type one above, or ← → to another.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -580,7 +597,8 @@ struct TagPanel: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                ForEach(Array(state.flowCategories.enumerated()), id: \.element) { index, category in
+                ForEach(Array(state.flowCategoryItems.enumerated()), id: \.element.id) { index, item in
+                    let category = item.name
                     let applied = onThisClip.contains(category)
                     let oneOff = library.recentCategories.contains(category)
                     Button { tag(with: category) } label: {
@@ -589,6 +607,14 @@ struct TagPanel: View {
                                 if applied {
                                     Image(systemName: "checkmark")
                                         .font(.caption2.weight(.bold))
+                                }
+                                // Only while the keyboard flow is on. A positional number
+                                // is a way of typing at a chip, so it's clutter to anyone
+                                // reaching for the mouse.
+                                if state.keyboardFlow {
+                                    Text("\(item.number)")
+                                        .font(.caption2.weight(.bold).monospacedDigit())
+                                        .foregroundStyle(.secondary)
                                 }
                                 Text(category)
                                     .font(.caption.weight(applied ? .semibold : .medium))
@@ -693,6 +719,9 @@ struct TagPanel: View {
                 Button {
                     state.categorySectionIndex = index
                     state.categoryCursor = 0
+                    // The numbers belong to the section on screen, so digits typed against
+                    // the one you're leaving would quietly narrow the one you arrive at.
+                    state.categoryEntry = ""
                 } label: {
                     Text(section.name)
                         .font(.caption2.weight(on ? .bold : .regular))
@@ -721,6 +750,7 @@ struct TagPanel: View {
                             library.removeSection(section.id)
                             state.categorySectionIndex = 0
                             state.categoryCursor = 0
+                            state.categoryEntry = ""
                             // Its categories went with it, one of which may have been the
                             // filter the clip list is currently narrowed by.
                             state.dropDanglingFilters()
@@ -741,7 +771,16 @@ struct TagPanel: View {
 
             Spacer(minLength: 0)
 
-            if state.keyboardFlow && sections.count > 1 {
+            if !state.categoryEntry.isEmpty {
+                Text(state.categoryEntry)
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.16))
+                    .clipShape(Capsule())
+                    .help("Showing categories starting \(state.categoryEntry) · ⌫ to go back")
+            } else if state.keyboardFlow && sections.count > 1 {
                 Text("← →")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

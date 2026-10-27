@@ -29,11 +29,15 @@ final class FlowKeyState {
 
     var active = false
     var stage: TagStage = .clips
+    /// Whether the subjects key is held rather than toggled. Mirrored here because the
+    /// key-up monitor runs outside the main actor and has to decide without asking.
+    var holdSubjects = false
 
     private init() {
         // The toggle is stored, so the monitor has to start out agreeing with it — the
         // first keystroke can arrive before any view has had a chance to set this.
         active = UserDefaults.standard.bool(forKey: "keyboardFlow")
+        holdSubjects = UserDefaults.standard.bool(forKey: "subjectsKeyIsHold")
     }
 
     /// Whether the flow wants this key, given where it is. Everything the flow doesn't
@@ -62,12 +66,23 @@ final class FlowKeyState {
             // full-screen preview, which is the one thing Escape is for everywhere else.
             return stage != .clips
         default:
-            // A digit picks a jersey number, a letter jumps to a category — but only at the
-            // stage that uses them, so 1 and 3 still shuttle the clip everywhere else.
+            // A digit picks a jersey number at the bench and a position at the categories,
+            // a letter jumps to a category — but only at the stage that uses them, so 1 and
+            // 3 still shuttle the clip everywhere else.
+            //
+            // Digits have to be claimed at the categories step as well as the bench. Left
+            // out, typing 1 to reach the first category fell through to the transport keys
+            // and shuttled the clip backwards instead — doing something else entirely
+            // rather than nothing, which is the worse of the two failures.
             guard key.count == 1, let character = key.first else { return false }
             switch stage {
-            case .players:    return character.isNumber
-            case .categories: return character.isLetter
+            case .players:
+                // The subjects key is read from the bindings rather than written in, so
+                // rebinding it works — a US keyboard wants ` where a British one has §.
+                // Claimed at the bench and nowhere else, which is what was asked for and
+                // also what stops it swallowing a key you've bound elsewhere.
+                return character.isNumber || Shortcuts.shared.isBound(key, to: .subjectsOnly)
+            case .categories: return character.isLetter || character.isNumber
             case .clips:      return false
             }
         }
@@ -83,6 +98,19 @@ final class FlowKeyState {
 /// a bare index repeats across rosters, so switching bench would hand the new roster the
 /// old one's identities and SwiftUI would reuse the views rather than update them; and
 /// `Player.id` is `teamID/number`, which two players wearing the same number would share.
+/// One category on screen, with the position you'd type to reach it.
+///
+/// The number is positional, not stored: it's where the category sits in its section right
+/// now. Reorder it, or move it to another section, and the number changes with it — which is
+/// the point, since it's only ever a shorthand for "the third one down".
+struct FlowCategory: Identifiable, Hashable {
+    let number: Int
+    let name: String
+
+    /// Both parts, because two sections can hold a 1 and the grid is rebuilt as you switch.
+    var id: String { "\(number)-\(name)" }
+}
+
 enum GridID {
     static func player(at index: Int, _ player: Player) -> String {
         "\(index)-\(player.id)"
@@ -169,6 +197,10 @@ extension AppState {
     /// What the grid shows: the roster narrowed to the number being typed. The cursor
     /// indexes this, so a filtered grid and the cursor can't drift apart.
     var flowPlayers: [Player] {
+        // Subjects only, when asked for. The two filters are never on together — typing a
+        // number means you want a person, and asking for subjects means you don't — so they
+        // turn each other off rather than combining into an empty grid.
+        if subjectsOnly { return rosterPlayers.filter(\.isSubject) }
         guard !numberEntry.isEmpty else { return rosterPlayers }
         return rosterPlayers.filter { $0.number.hasPrefix(numberEntry) }
     }
@@ -226,11 +258,34 @@ extension AppState {
         return sections[min(max(categorySectionIndex, 0), sections.count - 1)]
     }
 
-    /// What the grid draws and the cursor walks: one section at a time.
-    var flowCategories: [String] { currentCategorySection?.items ?? [] }
+    /// What the grid draws and the cursor walks: one section at a time, narrowed by any
+    /// digits typed.
+    var flowCategories: [String] { flowCategoryItems.map(\.name) }
+
+    /// The current section's categories with their positions attached.
+    ///
+    /// The number is the position in the section, worked out as it draws rather than stored:
+    /// reorder a category or move it to another section and its number follows immediately,
+    /// which it has to, because the number is only ever a way of pointing at what's on screen.
+    var sectionCategories: [FlowCategory] {
+        (currentCategorySection?.items ?? []).enumerated().map {
+            FlowCategory(number: $0.offset + 1, name: $0.element)
+        }
+    }
+
+    /// Narrowed by the digits typed, matching on the position as a prefix — so 1 leaves 1 and
+    /// 10–19 on screen and the cursor sits on the first, which is what makes "type 1, press
+    /// Return" land on the first category whatever else starts with a 1.
+    var flowCategoryItems: [FlowCategory] {
+        guard !categoryEntry.isEmpty else { return sectionCategories }
+        return sectionCategories.filter { String($0.number).hasPrefix(categoryEntry) }
+    }
 
     /// ← → at the category stage, mirroring what they do between benches.
     func cycleCategorySection(forward: Bool) {
+        // The numbers belong to the section on screen, so digits typed against the old one
+        // mean nothing here.
+        categoryEntry = ""
         let sections = categorySections
         guard sections.count > 1 else {
             status = "Only one section of categories — add another with + beside them."
@@ -338,6 +393,8 @@ extension AppState {
     func resetFlow() {
         tagStage = .clips
         numberEntry = ""
+        categoryEntry = ""
+        subjectsOnly = false
         flowPlayerID = nil
     }
 
@@ -345,10 +402,18 @@ extension AppState {
 
     /// Acts on a key the monitor claimed for the flow. One press acts once, however many
     /// windows heard about it — same token trick as the arrow keys.
-    func handleFlowKey(_ key: String, shift: Bool, token: Int) {
+    func handleFlowKey(_ key: String, shift: Bool, token: Int, up: Bool = false) {
         guard token != lastFlowToken else { return }
         lastFlowToken = token
         guard keyboardFlow else { return }
+
+        // A key coming back up only ever means one thing, and only at the bench. Routing it
+        // through the stage handlers would make every one of them answer a question they
+        // were never asked.
+        if up {
+            releaseSubjectsKey()
+            return
+        }
 
         switch tagStage {
         case .clips:      clipsStageKey(key, shift: shift)
@@ -378,6 +443,8 @@ extension AppState {
             // shouldn't still be the one a later tag lands on.
             flowPlayerID = nil
             numberEntry = ""
+            categoryEntry = ""
+            subjectsOnly = false
             tagStage = .clips
 
         case .players:
@@ -388,6 +455,8 @@ extension AppState {
             // Cleared first, then checked: the roster is only empty-looking while a
             // number from last time is still narrowing it.
             numberEntry = ""
+            categoryEntry = ""
+            subjectsOnly = false
             guard !rosterPlayers.isEmpty else {
                 status = library.teams.isEmpty
                     ? "No roster yet — import one with ⌘I."
@@ -407,6 +476,8 @@ extension AppState {
                 return
             }
             numberEntry = ""
+            categoryEntry = ""
+            subjectsOnly = false
             tagStage = .categories
         }
     }
@@ -459,6 +530,10 @@ extension AppState {
             flowPlayerID = player.id
             go(to: .categories)
         default:
+            if Shortcuts.shared.isBound(key, to: .subjectsOnly) {
+                pressSubjectsKey()
+                return
+            }
             guard let character = key.first, character.isNumber else { return }
             // A typed number narrows the grid rather than moving a cursor through it:
             // 1 leaves #1 and #10–#19 on screen, 7 then leaves #17 alone. With twenty-odd
@@ -470,9 +545,63 @@ extension AppState {
                 status = "No #\(attempt) on \(shownTeams.first?.name ?? "this roster")."
                 return
             }
+            // Asking for a number means you want a person, so it drops the subjects filter
+            // rather than ending up with both on and nothing on screen.
+            subjectsOnly = false
             numberEntry = attempt
             playerCursor = 0
         }
+    }
+
+    /// The subjects key going down.
+    ///
+    /// Held, it switches on and stays on until the key comes back up. Toggled, it flips —
+    /// which makes three crowd shots in a row one press rather than three, at the cost of a
+    /// mode you can forget you're in. Which one suits depends on whether the subjects are a
+    /// detour or the job, so it's a setting rather than a decision made here.
+    func pressSubjectsKey() {
+        guard !subjectsKeyIsHold else {
+            // Idempotent, because holding a key repeats it. Setting what's already set
+            // costs nothing, so the repeats need no special handling.
+            showSubjectsOnly()
+            return
+        }
+        toggleSubjectsOnly()
+    }
+
+    /// The subjects key coming back up. Only means anything while it's a hold.
+    func releaseSubjectsKey() {
+        guard subjectsKeyIsHold, subjectsOnly else { return }
+        subjectsOnly = false
+        playerCursor = 0
+    }
+
+    private func showSubjectsOnly() {
+        guard !subjectsOnly else { return }
+        guard !library.subjectEntries.isEmpty else {
+            status = "No subjects yet — add one under the bench."
+            return
+        }
+        subjectsOnly = true
+        numberEntry = ""
+        playerCursor = 0
+    }
+
+    /// Flips the bench between everyone and the subjects.
+    func toggleSubjectsOnly() {
+        guard !subjectsOnly else {
+            subjectsOnly = false
+            playerCursor = 0
+            return
+        }
+        guard !library.subjectEntries.isEmpty else {
+            status = "No subjects yet — add one under the bench."
+            return
+        }
+        // Said rather than silently ignored, the same rule as the rest of the flow.
+        subjectsOnly = true
+        numberEntry = ""
+        playerCursor = 0
     }
 
     private func categoriesStageKey(_ key: String, shift: Bool) {
@@ -501,10 +630,26 @@ extension AppState {
             // anything — it only moves between sections.
             applyFlowTag(stayOnClip: shift)
         case "delete":
-            break
+            // One digit at a time, the same as backspacing the bench's number.
+            guard !categoryEntry.isEmpty else { return }
+            categoryEntry.removeLast()
+            categoryCursor = 0
         default:
-            guard let character = key.first, character.isLetter else { return }
-            jumpCategory(startingWith: character)
+            guard let character = key.first else { return }
+            if character.isNumber {
+                // Narrows by position rather than jumping, so it behaves like the bench and
+                // copes with a section holding more than nine categories.
+                let attempt = categoryEntry + key
+                guard sectionCategories.contains(where: { String($0.number).hasPrefix(attempt) })
+                else {
+                    status = "No \(attempt) in \(currentCategorySection?.name ?? "this section")."
+                    return
+                }
+                categoryEntry = attempt
+                categoryCursor = 0
+            } else if character.isLetter {
+                jumpCategory(startingWith: character)
+            }
         }
     }
 
@@ -570,6 +715,8 @@ extension AppState {
 
         flowPlayerID = nil
         numberEntry = ""
+        categoryEntry = ""
+        subjectsOnly = false
         if stayOnClip {
             tagStage = .players       // same clip, next player
         } else {

@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.8"
+    static let version = "0.8.1"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -128,6 +128,13 @@ struct KeeperApp: App {
                 Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
                     .keyboardShortcut(shortcuts.equivalent(.keyboardFlow),
                                       modifiers: shortcuts.modifiers(.keyboardFlow))
+                Toggle("Warn Before Clearing Tags", isOn: $state.warnBeforeClearingTags)
+                    .help("Whether \(shortcuts.display(.clearTags)) and the Remove Tags "
+                          + "button ask before clearing. ⌘Z puts the tags back either way.")
+                Toggle("Hold for Subjects Only", isOn: $state.subjectsKeyIsHold)
+                    .help("Whether \(shortcuts.display(.subjectsOnly)) shows the subjects "
+                          + "only while it's held down, rather than switching them on and "
+                          + "off. Rebind the key itself in Keyboard Shortcuts.")
                 Toggle("Move On After Tagging", isOn: $advanceAfterTag)
                 Divider()
                 // The same setting the export sheet shows, which is where it matters and

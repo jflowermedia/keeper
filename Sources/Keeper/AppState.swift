@@ -8,6 +8,7 @@ extension Notification.Name {
     /// lives on it — `ContentView` picks this up and does the move where it's safe to.
     /// `userInfo["delta"]` is -1 or 1.
     static let keeperMoveSelection = Notification.Name("keeperMoveSelection")
+    static let keeperClearTags = Notification.Name("keeperClearTags")
 
     /// Posted by `TagLibrary` when it has just written a rolling backup, so the Restore
     /// menu's cached list picks it up without the menus listing the folder on every rebuild.
@@ -178,6 +179,8 @@ final class AppState: ObservableObject {
             // The cursor indexes the grid, and the grid just changed length.
             playerCursor = 0
             numberEntry = ""
+            categoryEntry = ""
+            subjectsOnly = false
         }
     }
 
@@ -217,6 +220,25 @@ final class AppState: ObservableObject {
     /// Digits typed at the player stage, shown on screen so a half-typed number is never
     /// a mystery.
     @Published var numberEntry = ""
+    /// Digits typed at the category stage, narrowing the grid by position the way
+    /// `numberEntry` narrows the bench by shirt number.
+    @Published var categoryEntry = ""
+    /// Narrows the bench to the subjects — mascot, crowd, anthem and the rest — leaving the
+    /// players out. Toggled by the key bound to `.subjectsOnly`, and only at the bench.
+    @Published var subjectsOnly = false
+
+    /// Whether the subjects key is held down rather than pressed to toggle. Off by default:
+    /// a toggle is the gentler of the two, and a hold is only better once you know the key
+    /// well enough to want it under a finger.
+    @Published var subjectsKeyIsHold = false {
+        didSet {
+            UserDefaults.standard.set(subjectsKeyIsHold, forKey: "subjectsKeyIsHold")
+            FlowKeyState.shared.holdSubjects = subjectsKeyIsHold
+            // Switching modes with the filter up would leave it stuck on in hold mode, with
+            // no key-up ever coming to clear it.
+            subjectsOnly = false
+        }
+    }
     @Published var flowPlayerID: String?
 
     /// One key press acts once, however many windows heard about it.
@@ -682,6 +704,12 @@ final class AppState: ObservableObject {
         activeTeamIDs = UserDefaults.standard.stringArray(forKey: "activeTeamIDs") ?? []
         focusedTeamID = UserDefaults.standard.string(forKey: "focusedTeamID")
         keyboardFlow = UserDefaults.standard.bool(forKey: "keyboardFlow")
+        subjectsKeyIsHold = UserDefaults.standard.bool(forKey: "subjectsKeyIsHold")
+        // On unless it's been turned off, so the absence of the key is what's tested —
+        // `bool(forKey:)` reads false for never-set and for false alike.
+        if UserDefaults.standard.object(forKey: "warnBeforeClearingTags") != nil {
+            warnBeforeClearingTags = UserDefaults.standard.bool(forKey: "warnBeforeClearingTags")
+        }
         // On unless it's been turned off, so the absence of the key has to be the test —
         // `bool(forKey:)` reads false for never-set and for false alike.
         if UserDefaults.standard.object(forKey: "keepAwakeDuringTransfer") != nil {
@@ -743,6 +771,16 @@ final class AppState: ObservableObject {
     /// `selectRelative`, but acting on each key press only once however many windows heard
     /// about it. The token comes from the key monitor, which counts the presses.
     private var lastMoveToken = 0
+    private var lastClearToken = 0
+
+    /// Whether clearing tags asks first. On unless you've turned it off, because the one
+    /// press that wipes tags off a whole card is worth a question the first few times.
+    @Published var warnBeforeClearingTags = true {
+        didSet {
+            UserDefaults.standard.set(warnBeforeClearingTags,
+                                      forKey: "warnBeforeClearingTags")
+        }
+    }
 
     func moveSelection(_ delta: Int, token: Int) {
         guard token != lastMoveToken else { return }
@@ -995,10 +1033,16 @@ final class AppState: ObservableObject {
         return selected.isEmpty ? visible : selected
     }
 
-    /// The clips the tag buttons act on: whatever is selected, or everything the filter
-    /// is showing when nothing is.
+    /// The clips a tag clear acts on: the tagged ones among those you've actually selected.
+    ///
+    /// Deliberately without the fallback `dragClips` has. Exporting or marking everything on
+    /// screen when nothing is picked is a reasonable default — you can see what you're about
+    /// to get, and both are reversible in an obvious way. Wiping the tags off everything on
+    /// screen is not, and with the warning turned off it would sit one keystroke away at all
+    /// times. So clearing tags needs you to say which clips, every time.
     var taggedInScope: [Clip] {
-        dragClips.filter { library.isTagged($0.umid) }
+        guard hasExplicitSelection else { return [] }
+        return dragClips.filter { library.isTagged($0.umid) }
     }
 
     var hasExplicitSelection: Bool {
@@ -1008,37 +1052,75 @@ final class AppState: ObservableObject {
     var removeTagsLabel: String {
         let count = taggedInScope.count
         guard count > 0 else { return "No tags to remove" }
-        return hasExplicitSelection
-            ? "Remove tags from \(count) selected"
-            : "Remove tags from all \(count) shown"
+        return "Remove tags from \(count) selected"
     }
 
     /// Destructive and unpickable from the clip list in bulk, so it asks first and spells
     /// out the scope — "all shown" is easy to trigger by not selecting anything.
-    func removeTagsInScope() {
+    /// `token` is only passed when a key press got here, and only to stop a second window
+    /// putting up a second alert for the same one. The button passes nothing.
+    func removeTagsInScope(token: Int? = nil) {
+        if let token {
+            guard token != lastClearToken else { return }
+            lastClearToken = token
+        }
+        // A sheet is already asking you something; a second alert over the top of it isn't
+        // an answer to anything you did.
+        guard !aSheetIsUp else { return }
+
+        // Refused outright rather than falling back to everything on screen. The two
+        // reasons read very differently to someone who just pressed the key, so they're
+        // told apart rather than sharing one message.
+        guard hasExplicitSelection else {
+            status = "Select the clips you want to clear tags from first."
+            return
+        }
+
         let targets = taggedInScope
-        guard !targets.isEmpty else { return }
+        guard !targets.isEmpty else {
+            // Said rather than ignored. The button is hidden when there's nothing to remove,
+            // so a key press is the only way to get here, and silence would read as broken.
+            status = "Nothing tagged in the clips you've selected."
+            return
+        }
         let tagCount = targets.reduce(0) { $0 + library.tags(forUMID: $1.umid).count }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Remove \(tagCount) tag\(tagCount == 1 ? "" : "s")?"
         let plural = targets.count == 1 ? "" : "s"
-        alert.informativeText = (hasExplicitSelection
-            ? "This clears every tag from the \(targets.count) selected clip\(plural)."
-            : "Nothing is selected, so this clears every tag from all \(targets.count) "
-              + "tagged clip\(plural) the filter is showing.")
-            + "\n\n⌘Z puts them back."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Remove Tags")
-        guard alert.runModal() != .alertFirstButtonReturn else { return }
+
+        if warnBeforeClearingTags {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Remove \(tagCount) tag\(tagCount == 1 ? "" : "s")?"
+            alert.informativeText =
+                "This clears every tag from the \(targets.count) selected clip\(plural)."
+                + "\n\n⌘Z puts them back. If you turn this question off, you can bring it "
+                + "back with View → Warn Before Clearing Tags."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Remove Tags")
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "Don't ask again"
+
+            let answer = alert.runModal()
+            guard answer != .alertFirstButtonReturn else { return }
+
+            // Only once you've gone through with it. Ticking the box and then cancelling
+            // reads as "not this one" at least as much as "stop asking", and of the two
+            // readings the safe one is to keep asking.
+            if alert.suppressionButton?.state == .on {
+                warnBeforeClearingTags = false
+                addLog("Clearing tags will no longer ask first "
+                       + "(View → Warn Before Clearing Tags puts it back)")
+            }
+        }
 
         let removed = library.removeAllTags(
             forUMIDs: targets.compactMap(\.umid),
             undoLabel: "Remove the Tags from \(targets.count) Clip\(plural)")
         addLog("Removed \(removed) tag(s) from \(targets.count) clip(s)")
+        // With the warning turned off this line is the only account of what just happened,
+        // so it names the clips rather than only counting the tags.
         status = "Removed \(removed) tag\(removed == 1 ? "" : "s") from "
-            + "\(targets.count) clip\(plural)." + undoHint
+            + "\(targets.count) selected clip\(plural)." + undoHint
     }
 
     // MARK: - Filing a tag

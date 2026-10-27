@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.8.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.8.1.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -151,7 +151,11 @@ Team names must be distinct, since importing one replaces any team of the same n
 
 **Categories come in sections** — Gameplay, Media, Misc to start. **← →** step between them and **↑ ↓** move within one, the same way ← → switch benches a stage earlier. Click **+** beside the pills to add a section; right-click a pill to move or remove it. Right-click a category and **Move “Anthem” to** files it under another section, which is how a list built before sections gets sorted out — an existing library arrives with everything in Gameplay. Removing a section takes its categories with it, but clips already tagged keep their labels. A new category joins whichever section you're looking at.
 
+**Type a number to reach a category.** In keyboard tagging each category shows its position in the section, and typing that number narrows the grid the same way typing a shirt number narrows the bench — type `1` and press Return to tag the first one, `12` for the twelfth. **⌫** takes a digit back. The numbers are positions, not labels, so reordering a category or moving it to another section renumbers it straight away.
+
 **One-off tags.** Click **+** by the categories, type a word and press **Tag**: the clip is tagged and the word is kept to hand as a one-off without joining your permanent list. One-offs gather in their own **Recent** section at the end, in italics, the last twelve are kept and the oldest falls off by itself, so a word you used once on one card doesn't silt up the list forever. Right-click one to **Keep** it permanently or **Forget** it. A real category always outranks a one-off in filenames, so a goal with dancing in it is still named for the goal. **Add** puts a word straight in the permanent list instead.
+
+**§** at the bench narrows it to the subjects and hides the players; press it again for everyone. That's the key left of 1 on a British keyboard — a US layout has ` there, so it's rebindable in **Keyboard Shortcuts** under *Keyboard tagging*. It works at the bench and nowhere else. Typing a number turns it off, since subjects have no number. By default it toggles; **View → Hold for Subjects Only** makes it a hold instead, so the subjects show while the key is down and the players come back when you let go.
 
 **Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They sit at the end of every bench and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Add your own with **+ Subject** under the bench; right-click one to remove it. They have no number, so they drop out of the grid the moment you start typing one. A subject's tag records whichever team you're focused on.
 
@@ -238,6 +242,8 @@ Build your own in **Edit Presets…**: a name, a fallback team code, a separator
 **⌘D** opens the debug log: which sidecar paired with which video, what marked each clip, and the result of every copy. **Copy Log** puts it on the clipboard for a bug report.
 
 **Your tags live in** `~/Library/Application Support/Keeper/library.json`, with teams, categories and presets.
+
+**To clear every tag from a set of clips**, select them and press **/** — or use the button at the bottom of the tagging panel. It only ever acts on clips you've selected: with nothing selected it refuses and says so, rather than falling back to everything on screen. ⌘Z puts them back, and the key is rebindable in **Keyboard Shortcuts**. The question has a **Don't ask again** box, and **View → Warn Before Clearing Tags** brings it back — it's on by default.
 
 **To take back a flag or a tag**, **⌘Z** — the undo button at the bottom right does the same, and both name the change. It covers marking and unmarking, in bulk as well as one at a time, tagging, and removing tags. Forty steps deep, and ⌘⇧Z redoes. It doesn't survive quitting, and it deliberately doesn't cover roster edits or a restore — those are bigger than one keystroke and have the backups below.
 

@@ -481,6 +481,292 @@ enum SelfCheck {
         expectTrue("but Recents is fine",
                    Team.slug("Recents") != CategorySection.reservedID)
 
+        // Typing a number to reach a category. It narrows by position rather than jumping,
+        // so it copes with a section holding more than nine — and the number is positional,
+        // so reordering has to renumber without anything being stored.
+        func numbered(_ items: [String]) -> [(Int, String)] {
+            items.enumerated().map { ($0.offset + 1, $0.element) }
+        }
+        func narrowed(_ items: [String], typing entry: String) -> [(Int, String)] {
+            guard !entry.isEmpty else { return numbered(items) }
+            return numbered(items).filter { String($0.0).hasPrefix(entry) }
+        }
+
+        let gameplay = ["Goal", "Assist", "Save", "Hit", "Penalty", "Faceoff", "Shot",
+                        "Celebration", "Interview", "B-Roll", "Chant", "Dancing"]
+
+        expect("nothing typed shows everything", narrowed(gameplay, typing: "").count,
+               gameplay.count)
+        expect("typing 1 leaves 1, 10, 11 and 12",
+               narrowed(gameplay, typing: "1").map(\.0), [1, 10, 11, 12])
+        expect("and the cursor's first is the one you meant",
+               narrowed(gameplay, typing: "1").first?.1 ?? "none", "Goal")
+        expect("typing 11 leaves one", narrowed(gameplay, typing: "11").map(\.1), ["Chant"])
+        expect("typing 3 leaves one", narrowed(gameplay, typing: "3").map(\.1), ["Save"])
+        expect("a single-digit match leaves just that one",
+               narrowed(gameplay, typing: "9").map(\.1), ["Interview"])
+        expect("a two-digit miss leaves nothing",
+               narrowed(gameplay, typing: "19").count, 0)
+
+        // The refusal guard: a digit that would empty the grid is turned away, so what's
+        // typed can never leave nothing on screen.
+        func accepts(_ items: [String], _ entry: String, _ digit: String) -> Bool {
+            !narrowed(items, typing: entry + digit).isEmpty
+        }
+        expectTrue("1 is accepted", accepts(gameplay, "", "1"))
+        expectTrue("1 then 1 is accepted", accepts(gameplay, "1", "1"))
+        expectTrue("1 then 9 is refused", !accepts(gameplay, "1", "9"))
+        expectTrue("0 on its own is refused", !accepts(gameplay, "", "0"))
+
+        // Positional, so reordering renumbers and nothing has to be migrated.
+        var reordered = gameplay
+        reordered.swapAt(0, 2)
+        expect("after a swap the number follows the category",
+               narrowed(reordered, typing: "1").first?.1 ?? "none", "Save")
+        expect("and the one that moved takes its new number",
+               numbered(reordered).first { $0.1 == "Goal" }?.0 ?? 0, 3)
+
+        // A shorter section renumbers from 1 with no gaps.
+        let short = ["Chant", "Dancing"]
+        expect("a short section numbers from one", numbered(short).map(\.0), [1, 2])
+        expect("every category has exactly one number",
+               Set(numbered(gameplay).map(\.0)).count, gameplay.count)
+
+        // Which keys the flow takes. This is the gate every key passes through before any
+        // of the above runs, and leaving digits out of the categories step meant typing 1
+        // fell through to the transport keys and shuttled the clip instead — a key doing
+        // something else entirely, which is worse than it doing nothing.
+        expectTrue("a digit is taken at the bench",
+                   FlowKeyState.claims("3", stage: .players, shift: false))
+        expectTrue("a digit is taken at the categories",
+                   FlowKeyState.claims("3", stage: .categories, shift: false))
+        expectTrue("but never at the clips, where 1 and 3 shuttle",
+                   !FlowKeyState.claims("3", stage: .clips, shift: false))
+        expectTrue("a letter is taken at the categories",
+                   FlowKeyState.claims("s", stage: .categories, shift: false))
+        expectTrue("a letter is not taken at the bench",
+                   !FlowKeyState.claims("s", stage: .players, shift: false))
+        expectTrue("space is never taken, so it still plays and pauses",
+                   !FlowKeyState.claims("space", stage: .categories, shift: false))
+        expectTrue("delete is taken at the categories, to backspace a number",
+                   FlowKeyState.claims("delete", stage: .categories, shift: false))
+        expectTrue("escape is left alone at the clips, for full screen",
+                   !FlowKeyState.claims("escape", stage: .clips, shift: false))
+        expectTrue("shift-down is left to the clip list",
+                   !FlowKeyState.claims("down", stage: .clips, shift: true))
+
+        // The subjects key. Bound rather than written in, so it has to be claimed by asking
+        // the bindings — and only at the bench, which is where it does anything.
+        let subjectsKey = Shortcuts.shared.combo(.subjectsOnly).key
+        expectTrue("the subjects key has a binding", !subjectsKey.isEmpty)
+        expectTrue("it is taken at the bench",
+                   FlowKeyState.claims(subjectsKey, stage: .players, shift: false))
+        expectTrue("but not at the categories",
+                   !FlowKeyState.claims(subjectsKey, stage: .categories, shift: false))
+        expectTrue("and not at the clips",
+                   !FlowKeyState.claims(subjectsKey, stage: .clips, shift: false))
+        expectTrue("it is answered by the bindings, not a hard-coded key",
+                   Shortcuts.shared.isBound(subjectsKey, to: .subjectsOnly))
+
+        // It lives outside the transport group, so the transport can never see it — which is
+        // what stops a rebind to a letter or digit stealing a shuttle key.
+        expect("it is a flow action", ShortcutAction.subjectsOnly.group, .flow)
+        expectTrue("so the transport never resolves it",
+                   Shortcuts.shared.reviewAction(forKey: subjectsKey) == nil)
+
+        // The bench filter itself: subjects in, players out, and never both filters at once.
+        let bench = [Player(teamID: "jets", number: "26", name: "Blake Wheeler"),
+                     Player(teamID: "jets", number: "33", name: "Dustin Byfuglien"),
+                     Subjects.entry("Mascot"),
+                     Subjects.entry("Crowd")]
+        let onlySubjects = bench.filter(\.isSubject)
+        expect("every subject survives", onlySubjects.count, 2)
+        expect("and it is all of them, not one",
+               Set(onlySubjects.map(\.name)), ["Mascot", "Crowd"])
+        expectTrue("no player survives", !onlySubjects.contains { !$0.isSubject })
+        expect("the players are what's left behind",
+               bench.filter { !$0.isSubject }.count, 2)
+
+        // A number filter and the subjects filter would leave nothing, since subjects have
+        // no number — which is why one turns the other off rather than stacking.
+        expect("subjects have no number to match",
+               onlySubjects.filter { $0.number.hasPrefix("2") }.count, 0)
+
+        // Whether a key can be bound at all. This gate used to stop at 0x7F — ASCII only —
+        // which made the default subjects key dead on the keyboard it was chosen for: § is
+        // U+00A7, so it was refused, while the ` in the same place on a US layout passed.
+        func usable(_ s: Unicode.Scalar) -> Bool { KeyCombo.isUsableKeyCharacter(s) }
+
+        expectTrue("§ can be bound", usable("§"))
+        expectTrue("` can be bound", usable("`"))
+        expectTrue("an ordinary letter can be bound", usable("k"))
+        expectTrue("a digit can be bound", usable("7"))
+        expectTrue("punctuation can be bound", usable("["))
+        expectTrue("£ can be bound", usable("£"))
+        expectTrue("an accented letter can be bound", usable("é"))
+
+        expectTrue("a control character cannot", !usable("\u{01}"))
+        expectTrue("delete cannot", !usable("\u{7F}"))
+        expectTrue("a C1 control cannot", !usable("\u{90}"))
+        expectTrue("an arrow key's private-use scalar cannot", !usable("\u{F700}"))
+        expectTrue("nor the end of that block", !usable("\u{F8FF}"))
+
+        // The default has to survive the gate it's matched through, or the key does nothing
+        // and nothing says why.
+        let defaultKey = Shortcuts.shared.combo(.subjectsOnly).key
+        expectTrue("the default subjects key is bindable",
+                   defaultKey.unicodeScalars.allSatisfy(usable))
+        expectTrue("and it reads back as itself", !Shortcuts.shared.display(.subjectsOnly).isEmpty)
+
+        // What may be bound to the subjects key. Its own group, with its own rules: a bare
+        // press like a review key, but it also must not take a digit, because digits are the
+        // bench's shirt-number filter and the clash would be silent — the key would work and
+        // the number it shadowed would quietly stop.
+        func refused(_ combo: KeyCombo) -> Bool {
+            Shortcuts.refusal(for: combo, group: .flow) != nil
+        }
+        expectTrue("§ is allowed", !refused(KeyCombo(key: "§")))
+        expectTrue("a backtick is allowed", !refused(KeyCombo(key: "`")))
+        expectTrue("a letter is allowed", !refused(KeyCombo(key: "m")))
+        expectTrue("a digit is refused", refused(KeyCombo(key: "4")))
+        expectTrue("Tab is refused", refused(KeyCombo(key: "tab")))
+        expectTrue("Return is refused", refused(KeyCombo(key: "return")))
+        expectTrue("an arrow is refused", refused(KeyCombo(key: "left")))
+        expectTrue("Space is refused", refused(KeyCombo(key: "space")))
+        expectTrue("Delete is refused", refused(KeyCombo(key: "delete")))
+        expectTrue("Escape is refused", refused(KeyCombo(key: "escape")))
+        expectTrue("a modifier is refused", refused(KeyCombo(key: "m", command: true)))
+        expectTrue("an empty key is refused", refused(KeyCombo(key: "")))
+
+        // And the default it ships with has to pass its own rules.
+        expectTrue("the shipped default is allowed",
+                   !refused(Shortcuts.shared.combo(.subjectsOnly)))
+
+        // Clearing tags on a key press. A review key, so it works at every step of the flow
+        // rather than only where the flow is looking — and it must not be claimed by the
+        // flow, or it would never reach the transport handler that runs it.
+        let clearKey = Shortcuts.shared.combo(.clearTags).key
+        expectTrue("it has a binding", !clearKey.isEmpty)
+        expect("it is a review action", ShortcutAction.clearTags.group, .review)
+        expectTrue("so the transport resolves it",
+                   Shortcuts.shared.reviewAction(forKey: clearKey) == .clearTags)
+        for stage in [TagStage.clips, .players, .categories] {
+            expectTrue("the flow leaves it alone at \(stage)",
+                       !FlowKeyState.claims(clearKey, stage: stage, shift: false))
+        }
+        expectTrue("its own default passes the review rules",
+                   Shortcuts.refusal(for: Shortcuts.shared.combo(.clearTags),
+                                     group: .review) == nil)
+
+        // And it must not be sitting on another action's key, which would make one of the
+        // two silently stop working.
+        var seen: [String: ShortcutAction] = [:]
+        var clashes: [String] = []
+        for action in ShortcutAction.allCases where action.group == .review {
+            for combo in Shortcuts.shared.combos(action) {
+                if let other = seen[combo.key], other != action {
+                    clashes.append("\(combo.key): \(other) and \(action)")
+                }
+                seen[combo.key] = action
+            }
+        }
+        expect("no two review keys share a binding", clashes, [])
+
+        // Clearing tags needs clips picked by hand. `dragClips` falls back to everything on
+        // screen when nothing is selected, which suits exporting and marking — but with the
+        // warning turned off that fallback would put "wipe every tag on screen" one keystroke
+        // away, so the tag-clearing scope refuses it instead.
+        func clearScope(selected: [String], tagged: Set<String>, visible: [String]) -> [String] {
+            guard !selected.isEmpty else { return [] }
+            return visible.filter { selected.contains($0) && tagged.contains($0) }
+        }
+        let shown = ["a", "b", "c", "d"]
+        let tagged: Set<String> = ["a", "c"]
+
+        expect("nothing selected clears nothing",
+               clearScope(selected: [], tagged: tagged, visible: shown), [])
+        expect("a selection clears only its tagged clips",
+               clearScope(selected: ["a", "b"], tagged: tagged, visible: shown), ["a"])
+        expect("a selection with no tags clears nothing",
+               clearScope(selected: ["b", "d"], tagged: tagged, visible: shown), [])
+        expect("selecting everything is still only the tagged ones",
+               clearScope(selected: shown, tagged: tagged, visible: shown), ["a", "c"])
+
+        // The thing that must never happen, whatever the card looks like.
+        for visible in [[], ["a"], shown] {
+            expectTrue("nothing selected never reaches a clip (\(visible.count) shown)",
+                       clearScope(selected: [], tagged: tagged, visible: visible).isEmpty)
+        }
+
+        // The clear-tags warning, and the box that turns it off.
+        //
+        // Default-on has to come from the absence of the stored key, not from reading it:
+        // `bool(forKey:)` answers false for "never set" and for "set to false" alike, so
+        // reading it would quietly default the warning off on a fresh install.
+        func warnOnLaunch(stored: Bool?) -> Bool { stored ?? true }
+        expectTrue("a fresh install warns", warnOnLaunch(stored: nil))
+        expectTrue("one that turned it off stays off", !warnOnLaunch(stored: false))
+        expectTrue("one that turned it back on warns", warnOnLaunch(stored: true))
+
+        // The suppression box only counts when the removal went ahead. Ticking it and then
+        // cancelling means "not this one" at least as much as "stop asking".
+        func warnAfter(_ warning: Bool, ticked: Bool, confirmed: Bool) -> Bool {
+            guard warning, confirmed, ticked else { return warning }
+            return false
+        }
+        expectTrue("tick and confirm turns it off",
+                   !warnAfter(true, ticked: true, confirmed: true))
+        expectTrue("tick and cancel leaves it on",
+                   warnAfter(true, ticked: true, confirmed: false))
+        expectTrue("confirm without ticking leaves it on",
+                   warnAfter(true, ticked: false, confirmed: true))
+        expectTrue("cancel without ticking leaves it on",
+                   warnAfter(true, ticked: false, confirmed: false))
+        expectTrue("with the warning already off it stays off",
+                   !warnAfter(false, ticked: false, confirmed: true))
+
+        // What actually happens on a press, warning or not. The removal must be reachable
+        // either way, and must never happen on a cancel.
+        func removes(warning: Bool, confirmed: Bool) -> Bool {
+            warning ? confirmed : true
+        }
+        expectTrue("no warning removes straight away", removes(warning: false, confirmed: false))
+        expectTrue("warning plus confirm removes", removes(warning: true, confirmed: true))
+        expectTrue("warning plus cancel removes nothing",
+                   !removes(warning: true, confirmed: false))
+
+        // Hold versus toggle. Modelled rather than driven, because the real thing needs a
+        // key-up event — but the rule is the whole of the difference.
+        func down(_ on: Bool, hold: Bool) -> Bool { hold ? true : !on }
+        func up(_ on: Bool, hold: Bool) -> Bool { hold ? false : on }
+
+        expectTrue("toggle: down turns it on", down(false, hold: false))
+        expectTrue("toggle: down again turns it off", !down(true, hold: false))
+        expectTrue("toggle: up changes nothing", up(true, hold: false))
+        expectTrue("toggle: up on an off filter changes nothing", !up(false, hold: false))
+
+        expectTrue("hold: down turns it on", down(false, hold: true))
+        expectTrue("hold: down again leaves it on, so repeats are harmless",
+                   down(true, hold: true))
+        expectTrue("hold: up turns it off", !up(true, hold: true))
+        expectTrue("hold: up with nothing on stays off", !up(false, hold: true))
+
+        // Held down and released, however many repeats arrive in between, ends off. A hold
+        // that could end stuck on would leave the bench showing no players with no sign why.
+        for repeats in 0...5 {
+            var on = false
+            on = down(on, hold: true)
+            for _ in 0..<repeats { on = down(on, hold: true) }
+            on = up(on, hold: true)
+            expectTrue("hold with \(repeats) repeat(s) ends off", !on)
+        }
+
+        // Tapping in toggle mode leaves it on — that being the point of a toggle.
+        var toggled = false
+        toggled = down(toggled, hold: false)
+        toggled = up(toggled, hold: false)
+        expectTrue("toggle: a tap leaves it on", toggled)
+
         // Moving a category between sections. An existing library migrates into one
         // section, so this is the path every long list has to go through to get sorted —
         // and the thing it must never do is lose a word or leave it in two places.

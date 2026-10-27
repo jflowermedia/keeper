@@ -56,6 +56,20 @@ extension KeyCombo {
     /// come back lowercased and the punctuation is mapped back to the key it sits on, which
     /// is a US layout assumption; on another layout the letters still work, which is what
     /// nearly every shortcut uses.
+    /// Whether a character can stand as a bindable key: printable, and not one of the
+    /// private-use scalars AppKit hands out for the function and arrow keys.
+    ///
+    /// Deliberately not limited to ASCII. The named keys above are matched before this, so
+    /// anything reaching here is an ordinary character someone can actually press.
+    static func isUsableKeyCharacter(_ character: Unicode.Scalar) -> Bool {
+        if character.value < 0x20 { return false }          // control characters
+        if character.value == 0x7F { return false }         // delete, handled above anyway
+        if (0x80...0x9F).contains(character.value) { return false }   // C1 controls
+        // AppKit's private-use block for the keys that aren't characters.
+        if (0xF700...0xF8FF).contains(character.value) { return false }
+        return true
+    }
+
     static func name(for event: NSEvent) -> String? {
         guard let raw = event.charactersIgnoringModifiers, raw.count == 1,
               let character = raw.unicodeScalars.first
@@ -86,9 +100,12 @@ extension KeyCombo {
         default: break
         }
 
-        // A function key or anything else outside the printable range can't be shown or
-        // matched reliably, so it isn't offered.
-        guard character.value >= 0x20, character.value < 0x7F else { return nil }
+        // A function key or anything else that can't be shown or matched reliably isn't
+        // offered. This used to stop at 0x7F, which quietly meant ASCII only — and so threw
+        // away § on a British keyboard, the key left of 1, while the ` sitting in the same
+        // place on a US layout worked. A keyboard shortcut that depends on the layout you
+        // bought the Mac with is no good to anyone.
+        guard Self.isUsableKeyCharacter(character) else { return nil }
 
         let lowered = raw.lowercased()
         if event.modifierFlags.contains(.shift), let base = shiftedBack[lowered] {
@@ -151,20 +168,26 @@ extension KeyCombo {
 
 enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
     // Reviewing: one press, no modifiers, caught by the event monitor in `Playback`.
-    case playPause, shuttleBack, shuttleForward, previousClip, nextClip
+    case playPause, shuttleBack, shuttleForward, previousClip, nextClip, clearTags
     // Menu commands: always with ⌘, set on the menu item itself.
     case chooseFolder, rescan, export, verify, importRoster, editRosters
     case toggleKeep, markKeep, markNotKeep
     case fullScreen, taggingPanel, keyboardFlow, debugLog
+    // Keyboard tagging only, and only at one step of it. Its own group because a key that
+    // works in one place and nowhere else needs saying, and because being outside `.review`
+    // keeps it away from the transport keys entirely.
+    case subjectsOnly
 
     var id: String { rawValue }
 
-    enum Group { case review, menu }
+    enum Group { case review, menu, flow }
 
     var group: Group {
         switch self {
-        case .playPause, .shuttleBack, .shuttleForward, .previousClip, .nextClip:
+        case .playPause, .shuttleBack, .shuttleForward, .previousClip, .nextClip, .clearTags:
             return .review
+        case .subjectsOnly:
+            return .flow
         default:
             return .menu
         }
@@ -190,6 +213,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .taggingPanel:    return "Tagging panel"
         case .keyboardFlow:    return "Keyboard tagging"
         case .debugLog:        return "Debug log"
+        case .clearTags:       return "Clear tags on selected clips"
+        case .subjectsOnly:    return "Subjects only"
         }
     }
 
@@ -223,6 +248,8 @@ final class Shortcuts: ObservableObject {
         .shuttleForward: [KeyCombo(key: "3")],
         .previousClip:   [KeyCombo(key: "up")],
         .nextClip:       [KeyCombo(key: "down")],
+        // Destructive, but it asks before it does anything, so a bare key is fine.
+        .clearTags:      [KeyCombo(key: "/")],
 
         .chooseFolder:   [KeyCombo(key: "o", command: true)],
         .rescan:         [KeyCombo(key: "r", command: true)],
@@ -236,7 +263,12 @@ final class Shortcuts: ObservableObject {
         .fullScreen:     [KeyCombo(key: "f", command: true)],
         .taggingPanel:   [KeyCombo(key: "e", command: true)],
         .keyboardFlow:   [KeyCombo(key: "t", command: true, shift: true)],
-        .debugLog:       [KeyCombo(key: "d", command: true)]
+        .debugLog:       [KeyCombo(key: "d", command: true)],
+
+        // The key left of 1 on a British keyboard. A US layout has ` there instead, which
+        // is why this one is worth rebinding rather than assuming — and why it's bindable
+        // at all rather than hard-coded.
+        .subjectsOnly:   [KeyCombo(key: "§")]
     ]
 
     private init() {
@@ -270,6 +302,12 @@ final class Shortcuts: ObservableObject {
 
     /// Which review action a bare key press means, if any. The monitor has already
     /// established there are no modifiers held.
+    /// Whether a bare key press is the one bound to an action. Used by the tagging flow,
+    /// which asks about one action rather than searching for whichever matches.
+    func isBound(_ key: String, to action: ShortcutAction) -> Bool {
+        combos(action).contains { $0.key == key && !$0.hasModifier }
+    }
+
     func reviewAction(forKey key: String) -> ShortcutAction? {
         for action in ShortcutAction.allCases where action.group == .review {
             if combos(action).contains(where: { $0.key == key && !$0.hasModifier }) {
@@ -393,7 +431,9 @@ final class Shortcuts: ObservableObject {
         "q", "w", "h", "m", "n", "a", "c", "v", "x", "z", "p", ",", "`"
     ]
 
-    private static func refusal(for combo: KeyCombo, group: ShortcutAction.Group) -> String? {
+    /// Why a binding can't be used, or nil if it can. Internal rather than private so the
+    /// checks can exercise the rules without going through the recorder.
+    static func refusal(for combo: KeyCombo, group: ShortcutAction.Group) -> String? {
         guard !combo.key.isEmpty else { return "That key can't be used." }
 
         switch group {
@@ -412,6 +452,22 @@ final class Shortcuts: ObservableObject {
             if !combo.shift, !combo.option, !combo.control,
                systemReserved.contains(combo.key) {
                 return "\(combo.display) belongs to macOS. Try it with ⇧ or ⌥."
+            }
+        case .flow:
+            // Read straight off the keyboard while your hand is on the bench, so the same
+            // rule as a review key: one press, nothing held.
+            guard !combo.hasModifier else {
+                return "A keyboard tagging key is a single press with no modifier."
+            }
+            if ["escape", "return", "tab", "up", "down", "left", "right", "delete", "space"]
+                .contains(combo.key) {
+                return "\(combo.display) already moves you around the tagging flow."
+            }
+            // Digits are the bench's own filter. Taking one would mean the key worked and
+            // the shirt number it shadowed quietly stopped.
+            if combo.key.count == 1, combo.key.first?.isNumber == true {
+                return "Digits pick a shirt number at the bench, so \(combo.display) can't "
+                     + "be used here."
             }
         }
         return nil

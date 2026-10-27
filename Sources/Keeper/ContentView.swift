@@ -83,7 +83,8 @@ struct ContentView: View {
                   let shift = note.userInfo?["shift"] as? Bool,
                   let token = note.userInfo?["token"] as? Int
             else { return }
-            state.handleFlowKey(key, shift: shift, token: token)
+            state.handleFlowKey(key, shift: shift, token: token,
+                                up: note.userInfo?["up"] as? Bool ?? false)
         }
         // A roster can be edited or deleted while the cursor is sitting in it.
         .onChange(of: state.library.teams) { _ in
@@ -98,6 +99,21 @@ struct ContentView: View {
             // Every window's view hears this, and they share one `AppState`, so without the
             // token a second window would move the selection twice for one key press.
             state.moveSelection(delta, token: token)
+        }
+        // Same hop, same reason: the monitor can't put an alert up from outside the main
+        // actor, and the token stops a second window asking twice for one key press.
+        .onReceive(NotificationCenter.default.publisher(for: .keeperClearTags)) { note in
+            guard let token = note.userInfo?["token"] as? Int else { return }
+            // Off the current turn of the run loop before the alert goes up. `onReceive`
+            // fires as part of SwiftUI's own update, and `runModal` spins a nested run loop
+            // inside it — the same shape of problem as putting a file picker up from inside
+            // a sheet, which cost a week earlier in this app's life.
+            //
+            // A second window's copy of this hop can run *during* that modal, because the
+            // nested run loop drains the main queue. It's harmless only because the token is
+            // claimed at the top of `removeTagsInScope`, before the alert goes up — so the
+            // second one is already a repeat by the time it gets there.
+            DispatchQueue.main.async { state.removeTagsInScope(token: token) }
         }
     }
 
@@ -736,6 +752,10 @@ final class Playback: ObservableObject {
     /// The view itself, for full screen. Weak: AppKit owns it, and it outlives nothing.
     private(set) weak var playerView: AVPlayerView?
     private var monitor: Any?
+    /// Separate from the key-down monitor on purpose. Folding `.keyUp` into that one would
+    /// send every key through the flow twice, and the flow's answer to most keys is to move
+    /// something — so a stray second pass is a visible bug rather than a wasted call.
+    private var releaseMonitor: Any?
     private var scrubTimer: Timer?
     private var scrubbing = false
     private var rateObservation: NSKeyValueObservation?
@@ -852,6 +872,7 @@ final class Playback: ObservableObject {
     /// what lets this bail out early on anything held down.
     func startListening() {
         guard monitor == nil else { return }
+        startListeningForRelease()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // ⌘, ⌥ and ⌃ belong to the menus. Shift is let through, because the keyboard
             // flow uses ⇧Return and ⇧Tab; the review keys below still insist on no
@@ -916,6 +937,7 @@ final class Playback: ObservableObject {
             case .shuttleBack:    return playback.shuttle(forward: false) ? nil : event
             case .previousClip:   return playback.moveSelection(-1) ? nil : event
             case .nextClip:       return playback.moveSelection(1) ? nil : event
+            case .clearTags:      return playback.requestClearTags() ? nil : event
             default:              return event
             }
         }
@@ -927,12 +949,38 @@ final class Playback: ObservableObject {
     /// Hands a keystroke to the tagging flow, which lives on `AppState` where the clips and
     /// the rosters are. Same reason as `moveSelection`: this closure runs outside the main
     /// actor, so it posts rather than calls.
-    func sendFlowKey(_ key: String, shift: Bool) {
+    /// Watches only for the subjects key coming back up, and only when that key is a hold.
+    ///
+    /// Everything else is returned untouched, including the key-up of every other key — the
+    /// narrowest possible reach for something that has to see every release in the app.
+    private func startListeningForRelease() {
+        guard releaseMonitor == nil else { return }
+        releaseMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { event in
+            let flow = FlowKeyState.shared
+            guard flow.active, flow.holdSubjects, flow.stage == .players,
+                  let key = KeyCombo.name(for: event),
+                  Shortcuts.shared.isBound(key, to: .subjectsOnly)
+            else { return event }
+
+            // Same guards the key-down monitor applies: a release while a panel, a sheet or
+            // a text field has the keyboard is not ours to act on.
+            if let responder = event.window?.firstResponder, responder is NSText { return event }
+            if NSApp.modalWindow != nil { return event }
+            if event.window is NSPanel { return event }
+            if event.window?.isSheet == true || event.window?.attachedSheet != nil { return event }
+
+            Playback.shared.sendFlowKey(key, shift: false, up: true)
+            return nil
+        }
+    }
+
+    func sendFlowKey(_ key: String, shift: Bool, up: Bool = false) {
         moveToken += 1
         NotificationCenter.default.post(name: .keeperFlowKey,
                                         object: nil,
                                         userInfo: ["key": key,
                                                    "shift": shift,
+                                                   "up": up,
                                                    "token": moveToken])
     }
 
@@ -941,6 +989,21 @@ final class Playback: ObservableObject {
     /// Only once a clip is loaded, so before the first selection the arrow keys fall through
     /// to the list's own handling and pick a row the ordinary way. Returns false when there's
     /// nothing loaded, which is what leaves the key press untouched.
+    /// Asks the window to clear the tags on whatever is in scope.
+    ///
+    /// Always returns true, unlike the transport keys: there's nothing here that depends on
+    /// a clip being loaded, and the window itself works out whether there's anything to
+    /// remove — and says so if there isn't, rather than letting the key fall through to
+    /// whatever else might want it.
+    @discardableResult
+    func requestClearTags() -> Bool {
+        moveToken += 1
+        NotificationCenter.default.post(name: .keeperClearTags,
+                                        object: nil,
+                                        userInfo: ["token": moveToken])
+        return true
+    }
+
     func moveSelection(_ delta: Int) -> Bool {
         guard player?.currentItem != nil else { return false }
         moveToken += 1

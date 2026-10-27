@@ -62,6 +62,10 @@ struct ShortcutsSheet: View {
         ShortcutAction.allCases.filter { $0.group == .menu }
     }
 
+    private var flowActions: [ShortcutAction] {
+        ShortcutAction.allCases.filter { $0.group == .flow }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -77,6 +81,12 @@ struct ShortcutsSheet: View {
                     section("Menu commands",
                             note: "These sit in the menus, so each one needs ⌘.",
                             actions: menuActions)
+
+                    section("Keyboard tagging",
+                            note: "Only while keyboard tagging is on, and only at the bench. "
+                                + "The default is the key left of 1 on a British keyboard; "
+                                + "a US layout has ` there instead.",
+                            actions: flowActions)
 
                     fixedKeys
                 }
