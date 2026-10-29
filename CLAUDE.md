@@ -111,14 +111,3 @@ claiming anything works**, and run `swift run Keeper --self-check` before commit
 
 Still worth doing: when a rule is pure (version comparison, a scope, a filter), add it
 to `SelfCheck.swift`. Those suites exist because each one is a bug that shipped.
-
-## The person you're working with
-
-Shoots junior and alumni hockey, and uses this app on real cards with footage that
-matters. Prefers to be told what's wrong plainly, including when a request would be a
-mistake. Asks for a QC pass after features — that means actually hunting for bugs and
-reporting what was found, not a summary of what was built.
-
-## Environment
-
-`ls` is aliased to a modern replacement; `ls -t` fails. Use `command ls -t`.
