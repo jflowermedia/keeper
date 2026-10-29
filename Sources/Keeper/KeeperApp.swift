@@ -14,6 +14,9 @@ enum AppInfo {
     /// The guide lives in the README, under its own heading.
     static let guide = URL(string: "https://github.com/jflowermedia/keeper#guide")!
     static let issues = URL(string: "https://github.com/jflowermedia/keeper/issues")!
+    /// Sony's own page on setting up Clip Flag. It's the FX3 guide — Sony has no
+    /// model-neutral one — but the custom key setting reads the same across its bodies.
+    static let sonyClipFlag = URL(string: "https://helpguide.sony.net/ilc/2210/v1/en/contents/TP1001690663.html")!
 }
 
 @main

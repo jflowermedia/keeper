@@ -51,6 +51,10 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 
 ## Which cameras
 
+**Set the flag up in camera first.** Keeper sorts by the KEEP flag, so the camera has to be putting one on. On a Sony, assign **Clip Flag KEEP** to a custom button (**Custom Key Setting**), then press it while recording or playing a clip back; press it twice to take it off. [Sony's guide to Clip Flag](https://helpguide.sony.net/ilc/2210/v1/en/contents/TP1001690663.html) has the details — it's written for the FX3, where Clip Flag needs firmware 6.00 or later, so check your own body's firmware.
+
+**Keep the XML files.** The flag is saved in the XML sidecar the camera writes beside each clip, not in the video. Point Keeper at the card itself, or at a copy that kept those files — an offload that copied only the `.MP4`s leaves nothing to read, and those clips won't be listed.
+
 Built against a **Sony ILCE-7SM3 (A7S III)**, where a flagged clip's XML carries `status="KEEP"` on `<TargetMaterial>`. Sony is the only camera in the **Camera** menu because it's the only one tested. **Other…** takes whatever word your camera writes, and detection is deliberately loose, so other cameras that write an XML sidecar are likely to work. If yours doesn't, debug mode shows what's in your sidecars — open an issue with it.
 
 ## Install
@@ -88,7 +92,7 @@ chmod +x build_app.sh
 
 # Guide
 
-On a first launch Keeper offers a short walkthrough of the basics: card, KEEPs, roster, tags, export, check. **Help → Welcome & Tutorial** brings it back at any point, and the keys it quotes follow your own shortcuts rather than the defaults. Its last step links here, and so does **Help → Keeper Guide**. This is the long version, with every setting.
+On a first launch Keeper offers a short walkthrough of the basics: setting up the flag in camera, then card, KEEPs, roster, tags, export, check. **Help → Welcome & Tutorial** brings it back at any point, and the keys it quotes follow your own shortcuts rather than the defaults. Its last step links here, and so does **Help → Keeper Guide**. This is the long version, with every setting.
 
 ## Shortcuts
 

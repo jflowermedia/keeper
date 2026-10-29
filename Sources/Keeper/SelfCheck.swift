@@ -1484,10 +1484,13 @@ enum SelfCheck {
         expect("it ends by pointing at the guide",
                WelcomeTour.steps.last?.link?.url == AppInfo.guide, true)
 
-        // The first step has to be the one that gets you off a blank window. A tour that opens
-        // on anything else is a tour for someone who's already started.
-        expect("it opens on choosing a folder",
-               WelcomeTour.steps.first?.key == .chooseFolder, true)
+        // Choosing a folder is what gets you off a blank window, so it can't be buried. It's
+        // second now rather than first: setting up the KEEP flag happens in the camera before
+        // there's a card to choose, and skipping it is how a first scan comes up empty.
+        expect("choosing a folder is one of the first two steps",
+               WelcomeTour.steps.prefix(2).contains { $0.key == .chooseFolder }, true)
+        expect("and setting up the flag comes before it",
+               WelcomeTour.steps.first?.title, "Mark clips in camera")
     }
 
     // MARK: - Pairing sidecars to videos

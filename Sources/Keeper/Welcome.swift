@@ -216,6 +216,17 @@ enum WelcomeTour {
     /// in the README follows — so the two can't drift into describing different apps. Each step
     /// is one job and a couple of lines; anything longer belongs in the README.
     static let steps: [Step] = [
+        // First, because it happens in the camera before there's a card to point at — and
+        // without it everything after ends at an empty Kept list with no clue why.
+        Step(title: "Mark clips in camera",
+             body: "Keeper sorts by the KEEP flag your camera puts on a clip. On a Sony, assign "
+                 + "Clip Flag KEEP to a custom button with Custom Key Setting, then press it "
+                 + "while recording or playing back. Press it twice to take the flag off.\n\n"
+                 + "The flag is saved in the XML file the camera writes beside each clip, not "
+                 + "in the video. Point Keeper at the card itself, or at a copy that kept the "
+                 + "XML files.",
+             link: (label: "Sony's guide to Clip Flag", url: AppInfo.sonyClipFlag)),
+
         Step(title: "Choose your card",
              body: "Plug in the card and choose it, or any folder of camera clips. Keeper lists "
                  + "each clip by its XML sidecar, so a video with no sidecar won't appear.\n\n"
