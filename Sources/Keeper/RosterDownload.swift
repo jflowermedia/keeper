@@ -468,6 +468,12 @@ struct RosterDownloadSheet: View {
             .padding(16)
         }
         .frame(width: 680, height: 540)
+        .sheet(isPresented: Binding(
+            get: { state.rosterReview != nil && state.rosterReviewFromDownload },
+            set: { if !$0 { state.finishRosterReview(apply: false) } }
+        )) {
+            RosterReviewSheet(state: state)
+        }
         .onAppear { state.loadLeagueTeams() }
         // Ticks are team codes, and codes from one league mean nothing in another.
         .onChange(of: state.rosterSource) { _ in

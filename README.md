@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.9.1.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.9.2.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -14,7 +14,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 **Previews without leaving the app.** Space plays and pauses, 1 and 3 shuttle back and forward through 2x, 4x and 8x, and the arrow keys walk the list — so a review pass never needs the mouse. ⌘F fills the screen. Every one of those keys can be changed.
 
-**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Turn on **Both teams** for a game and switch benches with one key. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
+**Tags clips to players and events.** Download a roster, import one as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Turn on **Both teams** for a game and switch benches with one key. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
 
 **Or tag without the mouse.** Turn on keyboard tagging and a clip is arrow, Tab, jersey number, Return, Return — through the clips, into the roster, onto the category and on to the next clip.
 
@@ -51,7 +51,7 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 
 ## Which cameras
 
-Built against a **Sony ILCE-7SM3 (A7S III)**, where a flagged clip's XML carries `status="KEEP"` on `<TargetMaterial>`. The flag word is configurable and detection is deliberately loose, so other cameras that write an XML sidecar are likely to work. If yours doesn't, debug mode shows what's in your sidecars — open an issue with it.
+Built against a **Sony ILCE-7SM3 (A7S III)**, where a flagged clip's XML carries `status="KEEP"` on `<TargetMaterial>`. Sony is the only camera in the **Camera** menu because it's the only one tested. **Other…** takes whatever word your camera writes, and detection is deliberately loose, so other cameras that write an XML sidecar are likely to work. If yours doesn't, debug mode shows what's in your sidecars — open an issue with it.
 
 ## Install
 
@@ -120,9 +120,9 @@ On a first launch Keeper offers a short walkthrough of the basics: card, KEEPs, 
 
 ## Scanning
 
-**Choose Folder…** takes a card, an SSD, or any folder, and scans everything underneath for `.xml` sidecars. Filter by **IS KEEP**, **IS NOT KEEP** or **ALL**. Click a clip to preview it, shift or ⌘-click for several, ⌘A for all.
+**Choose Folder…** takes a card, an SSD, or any folder, and scans everything underneath for `.xml` sidecars. Filter by **Kept**, **Not kept** or **All**. Click a clip to preview it, shift or ⌘-click for several, ⌘A for all.
 
-The footer counts the clips and totals the data the filter is showing, so **IS KEEP** answers "how much am I actually keeping" and **ALL** answers "how big is this card". Hover the figure for all three at once.
+The footer counts the clips and totals the data the filter is showing, so **Kept** answers "how much am I actually keeping" and **All** answers "how big is this card". Hover the figure for all three at once.
 
 Once a clip is playing, ↑ and ↓ move through the list and the preview follows, so a pass is arrow, space, ⌘K, arrow — no mouse. The arrows work full screen too.
 
@@ -151,7 +151,9 @@ Only `number` and `name` are needed. A header row is optional, several teams can
 - **`code`** is the short form used in filenames.
 - **`league`** groups the team menus. `org`, `organisation`, `organization` and `group` work too.
 
-Team names must be distinct, since importing one replaces any team of the same name — a club's men's and women's sides need names that differ. Re-importing updates existing tags, matched on team and number, and columns you leave out keep what's already set.
+Team names must be distinct, since an import matches teams by name — a club's men's and women's sides need names that differ.
+
+**Importing a team you already have** — from a CSV or a download — shows what would change before anything is written: who's new, who's gone, and whose name or position differs. For each team pick **Merge**, which adds the new players and keeps everyone you have exactly as you have them, so a spelling you fixed by hand survives; **Replace**, which uses the new list exactly; or **Skip**. Merge is the default. A team that comes in identical, or one you don't have yet, imports without asking. Existing tags pick up corrected names, matched on team and number, and columns you leave out keep what's already set.
 
 **Categories come in sections** — Gameplay, Media, Misc to start. **← →** step between them and **↑ ↓** move within one, the same way ← → switch benches a stage earlier. Click **+** beside the pills to add a section; right-click a pill to move or remove it. Right-click a category and **Move “Anthem” to** files it under another section, which is how a list built before sections gets sorted out — an existing library arrives with everything in Gameplay. Removing a section takes its categories with it, but clips already tagged keep their labels. A new category joins whichever section you're looking at.
 
@@ -181,7 +183,7 @@ An accent ring means **picked**. A green tick means **already on this clip**.
 
 ### Both teams at once
 
-Tick **Both teams** beside the roster menu for a game. Off, picking a roster swaps it in. On, a second roster can join the first, up to two, and only from the same league: teams in another league are greyed out in the menu. Turning it off keeps whichever bench is on screen. A tag takes the team from the player, so it doesn't matter which bench they're on.
+Tick **Both teams** beside the roster menu for a game. Off, picking a roster swaps it in. On, a second roster can join the first, up to two, and only from the same league: teams in another league are greyed out in the menu. Turning it off keeps whichever bench is on screen. Importing a team that's already in play leaves both benches as they are; importing a new one from the same league takes the place of the bench on screen. A tag takes the team from the player, so it doesn't matter which bench they're on.
 
 Only one bench shows at a time — forty chips is too many to read at once. A row of pills shows each team's code, then **Subjects**; click one, or press **← →**, to switch. A typed jersey number only reaches the bench on screen, so 9 always means *this* team's #9.
 
@@ -245,7 +247,7 @@ Everything adjustable, and where it lives. None of it touches a card. Defaults a
 
 | Setting | Where | Default | What it does |
 |---|---|---|---|
-| **Flag word** | Toolbar | `KEEP` | The word in the XML that marks a clip. Press Return to rescan. Change it if your camera writes something else. |
+| **Camera** | Toolbar | Sony | Which camera made the clips, so Keeper knows how it marks a kept one. **Other…** shows a box for the word your camera writes; press Return to rescan. |
 | **Both teams** | Tagging panel, beside the roster menu | Off | Two rosters in play for a game, from the same league. |
 | **Move On After Marking** | Mark menu | On | ⌘K goes to the next clip. A badge click never moves the preview either way. |
 | **Move On After Tagging** | View menu, tagging panel ⋯ | Off | Goes to the next clip as soon as a tag lands. Leave it off if a clip usually takes two tags. |
@@ -263,9 +265,9 @@ The Export sheet starts from its defaults each time you open Keeper — camera n
 
 ## If something's wrong
 
-**Before formatting a card** — **Check Copied** at the bottom right, or ⌘⇧V. Add every folder you copied that card into, and it reports which clips are accounted for, which are missing, and which arrived the wrong size, with the gigabytes on the card set against the gigabytes found in each folder. Matching is by the camera's clip ID, so renamed copies are still recognised; that needs the XML sidecars to have travelled with them.
+**Before formatting a card** — **Check Copied** at the bottom right, or ⌘⇧V. When a copy finishes, a link beside the status line opens it with that copy's folder already added. Add every folder you copied that card into, and it reports which clips are accounted for, which are missing, and which arrived the wrong size, with the gigabytes on the card set against the gigabytes found in each folder. Matching is by the camera's clip ID, so renamed copies are still recognised; that needs the XML sidecars to have travelled with them.
 
-**No KEEP clips found** — right-click a clip, choose **Show XML…** to see what your camera writes, then type that word into **Flag word**.
+**No KEEP clips found** — right-click a clip, choose **Show XML…** to see what your camera writes, then pick **Other…** in the **Camera** menu and type that word in.
 
 **A copy that keeps failing** stops itself after five failures in a row and says so, rather than reporting one identical error per remaining file. Check the destination has room and is still connected, then run it again — what already copied is kept and skipped as duplicates.
 

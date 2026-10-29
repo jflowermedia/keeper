@@ -59,9 +59,11 @@ enum SelfCheck {
         updates()
         welcome()
         scanSummary()
+        cameraPresets()
         teamPick()
         benchStops()
         clipRange()
+        reimport()
         sleepHold()
         addingTeams()
         subjects()
@@ -1292,6 +1294,60 @@ enum SelfCheck {
     // Two at most, one league. A pair across leagues is a mis-click in a long menu, and
     // three benches was never something the panel could show.
 
+    // MARK: - Re-importing a roster
+    //
+    // A download used to replace a team outright, hand edits and all. These are the two
+    // rules the review is built on: what counts as a change, and that Merge only ever adds.
+
+    private static func reimport() {
+        section("Re-importing a roster")
+        func p(_ number: String, _ name: String, _ position: String = "") -> Player {
+            Player(teamID: "jets", number: number, name: name, position: position)
+        }
+        let mine = [p("9", "Adam Lowry", "Forward"), p("33", "Dylan Samberg", "Defence"),
+                    p("37", "Connor Hellebuyck", "Goalie")]
+        let theirs = [p("9", "Adam Lowry", "Forward"), p("33", "Dylan Samburg", "Defence"),
+                      p("55", "Mark Scheifele", "Forward")]
+        let changes = TagLibrary.rosterChanges(old: mine, new: theirs)
+        expect("a new number is added", changes.added.map(\.number), ["55"])
+        expect("a missing number is gone", changes.removed.map(\.number), ["37"])
+        expect("a different name is a change", changes.changed.map(\.new.number), ["33"])
+        expect("the summary counts all three", changes.summary, "1 new · 1 gone · 1 changed")
+        expectTrue("the same list is no change",
+                   TagLibrary.rosterChanges(old: mine, new: mine).isEmpty)
+        expectTrue("a blank position in the new list isn't a change",
+                   TagLibrary.rosterChanges(old: mine, new: mine.map { p($0.number, $0.name) }).isEmpty)
+        expect("a new position is", TagLibrary.rosterChanges(
+                   old: [p("9", "Adam Lowry", "Forward")], new: [p("9", "Adam Lowry", "Defence")])
+                   .changed.count, 1)
+
+        let merged = TagLibrary.merged(existing: mine, incoming: theirs, teamID: "jets")
+        expect("merge keeps everyone you have and adds the new",
+               merged.map(\.number), ["9", "33", "37", "55"])
+        expect("merge keeps your spelling", merged.first { $0.number == "33" }?.name, "Dylan Samberg")
+        expect("merge keeps a player the new list dropped",
+               merged.first { $0.number == "37" }?.name, "Connor Hellebuyck")
+        expect("merge stamps additions with the real team id",
+               TagLibrary.merged(existing: [], incoming: [Player(teamID: "slug", number: "1", name: "A")],
+                                 teamID: "new-team").first?.teamID, "new-team")
+
+        // Which benches an import brings into play.
+        let leagues = ["a": "NHL", "b": "NHL", "c": "NHL", "x": "MJHL"]
+        let league: (String) -> String = { leagues[$0] ?? TagLibrary.ungroupedLeague }
+        func after(_ current: [String], _ id: String, shown: String? = nil, both: Bool = true) -> [String] {
+            TeamPick.afterImport(current: current, imported: id, shown: shown,
+                                 bothTeams: both, league: league)
+        }
+        expect("one team: an import swaps", after(["a", "b"], "c", both: false), ["c"])
+        expect("both: a team in play stays as it is", after(["a", "b"], "b", shown: "a"), ["a", "b"])
+        expect("both: a second joins the first", after(["a"], "b"), ["a", "b"])
+        expect("both: from another league it comes in alone", after(["a"], "x"), ["x"])
+        expect("both: it replaces the bench on screen", after(["a", "b"], "c", shown: "a"), ["c", "b"])
+        expect("in that bench's place", after(["a", "b"], "c", shown: "b"), ["a", "c"])
+        expect("both: a pair it can't join is replaced", after(["a", "b"], "x", shown: "a"), ["x"])
+        expect("nothing in play: it comes in", after([], "a"), ["a"])
+    }
+
     private static func clipRange() {
         section("Shift-arrow ranges")
         let ids = ["a", "b", "c", "d", "e"]
@@ -1361,6 +1417,16 @@ enum SelfCheck {
         expect("sanitize on nothing", TeamPick.sanitize([], bothTeams: true, league: league), [])
     }
 
+    private static func cameraPresets() {
+        section("The camera menu")
+        expect("Sony looks for KEEP", CameraPreset.sony.word, "KEEP")
+        expect("Other asks for a word", CameraPreset.other.word == nil, true)
+        expect("a stored KEEP is Sony", CameraPreset.matching("KEEP"), .sony)
+        expect("anything else is Other", CameraPreset.matching("OK"), .other)
+        expect("so is nothing", CameraPreset.matching(""), .other)
+        expect("every preset has a name", CameraPreset.allCases.filter { $0.name.isEmpty }.count, 0)
+    }
+
     private static func scanSummary() {
         section("The scan summary")
         expect("normal", ScanSummary.text(clips: 12, keeps: 4, withoutSidecar: 0),
@@ -1368,13 +1434,13 @@ enum SelfCheck {
         expect("one clip", ScanSummary.text(clips: 1, keeps: 1, withoutSidecar: 0),
                "Found 1 clip, 1 marked KEEP.")
         expectTrue("no KEEPs points at the flag word",
-                   ScanSummary.text(clips: 5, keeps: 0, withoutSidecar: 0).contains("Flag word"))
+                   ScanSummary.text(clips: 5, keeps: 0, withoutSidecar: 0).contains("Camera"))
         // The worst case of the lot, measured rather than guessed at: if this outgrows the
         // footer, the truncation eats the middle and the hint goes with it.
         expectTrue("the longest summary stays short",
                    ScanSummary.text(clips: 999, keeps: 0, withoutSidecar: 999).count <= 90)
         expectTrue("no clips at all doesn't blame the flag word",
-                   !ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 0).contains("Flag word"))
+                   !ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 0).contains("Camera"))
         expectTrue("videos without sidecars are named, plural",
                    ScanSummary.text(clips: 3, keeps: 1, withoutSidecar: 2).contains("2 videos with no XML"))
         expectTrue("and singular",

@@ -114,12 +114,9 @@ struct TagPanel: View {
         .onChange(of: clip?.id) { _ in
             selectedPlayerIDs = []
         }
-        // Switch to the roster that just came in, wherever the import was started from.
-        // It replaces what was in play rather than joining it: an import is the start of
-        // a shoot, and the second team gets ticked on in the picker.
-        .onChange(of: state.lastImportedTeamID) { id in
-            guard let id else { return }
-            state.setActiveTeams([id])
+        // Which benches an import brings into play is `AppState.adoptImported`; all the
+        // panel has to do is let go of players picked from the roster before it.
+        .onChange(of: state.lastImportedTeamID) { _ in
             selectedPlayerIDs = []
         }
     }
@@ -225,6 +222,7 @@ struct TagPanel: View {
             Text("No roster yet.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 8) {
+                Button("Download a Roster…") { state.showRosterDownload = true }
                 Button("Import Roster CSV…") { importRoster() }
                 Button("Type One In…") { state.showRosterEditor = true }
             }

@@ -73,6 +73,13 @@ struct ContentView: View {
         .sheet(isPresented: $state.showRosterDownload) {
             RosterDownloadSheet(state: state)
         }
+        // A CSV import's review. One from a download is shown by the download sheet itself.
+        .sheet(isPresented: Binding(
+            get: { state.rosterReview != nil && !state.rosterReviewFromDownload },
+            set: { if !$0 { state.finishRosterReview(apply: false) } }
+        )) {
+            RosterReviewSheet(state: state)
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             Playback.shared.startListening()
@@ -154,14 +161,26 @@ struct ContentView: View {
             Spacer()
 
             HStack(spacing: 4) {
-                Text("Flag word")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                TextField("KEEP", text: $state.keepWord)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 80)
-                    .onSubmit { state.scan() }
-                    .help("The word in the XML that marks a clip. Press Return to rescan.")
+                // A brand rather than a word: "Flag word" with a text box in it asked new
+                // users a question only someone who'd read a sidecar could answer.
+                Picker("Camera", selection: $state.camera) {
+                    ForEach(CameraPreset.allCases) { Text($0.name).tag($0) }
+                }
+                .fixedSize()
+                // Changing it rescans, and a rescan under a running copy would empty the list
+                // the copy was started from.
+                .disabled(state.isScanning || state.isCopying)
+                .help("Which camera made these clips, so Keeper knows how it marks a clip you "
+                      + "kept. Other lets you type the word yourself.")
+                if state.camera == .other {
+                    TextField("KEEP", text: $state.keepWord)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .disabled(state.isScanning || state.isCopying)
+                        .onSubmit { state.scan() }
+                        .help("The word in the XML that marks a clip — right-click a clip and "
+                              + "choose Show XML… to see what yours writes. Press Return to rescan.")
+                }
             }
 
             Button {
@@ -475,7 +494,7 @@ struct ContentView: View {
                     Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
                         .font(.callout)
                     if !state.clips.isEmpty {
-                        // Follows the filter, so IS KEEP / IS NOT KEEP / ALL answers "how
+                        // Follows the filter, so Kept / Not kept / All answers "how
                         // much is that" without a second control. The tooltip has all three.
                         Text(FileUtil.sizeText(state.visibleBytes))
                             .font(.callout.weight(.medium).monospacedDigit())
@@ -523,8 +542,17 @@ struct ContentView: View {
 
             // Both live here now: the two things you do with a scanned card, in the corner
             // you end up in.
+            // Offered the moment a copy finishes, because this is the step that decides
+            // whether the card is safe to format and it was the one easiest to skip.
+            if state.verifySuggestion != nil, !state.isCopying {
+                Button("Check this copy before you format →") { state.openVerify() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Opens Check Copied with the folder you just copied to")
+            }
+
             Button {
-                state.showVerifySheet = true
+                state.openVerify()
             } label: {
                 Label("Check Copied", systemImage: "checkmark.shield")
             }

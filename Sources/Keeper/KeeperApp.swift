@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.9.1"
+    static let version = "0.9.2"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -100,7 +100,7 @@ struct KeeperApp: App {
                     .keyboardShortcut(shortcuts.equivalent(.export),
                                       modifiers: shortcuts.modifiers(.export))
                     .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
-                Button("Check the Card Copied…") { state.showVerifySheet = true }
+                Button("Check the Card Copied…") { state.openVerify() }
                     .keyboardShortcut(shortcuts.equivalent(.verify),
                                       modifiers: shortcuts.modifiers(.verify))
                     .disabled(state.clips.isEmpty || state.isScanning)

@@ -1298,13 +1298,40 @@ final class TagLibrary: ObservableObject {
                                 fallbackTeam: url.deletingPathExtension().lastPathComponent)
     }
 
-    /// The whole of importing, with the file-reading taken out — the same split `load()` has.
-    ///
-    /// A roster fetched over the network comes in as CSV text and goes through this, so it
-    /// gets the identical column handling, duplicate-number refusal, team matching and tag
-    /// refresh. Two import paths that validated differently would be two sets of bugs.
+    /// Reads and replaces in one go, with nothing asked. What the checks and any caller that
+    /// doesn't review changes use; the app's own import paths go through `parseRoster`,
+    /// `conflicts(in:)` and `applyImport` so a team you already have isn't overwritten unseen.
+    @discardableResult
     func importRoster(csv text: String,
                       fallbackTeam: String) throws -> (team: String, players: Int, tagsUpdated: Int) {
+        let incoming = try Self.parseRoster(csv: text, fallbackTeam: fallbackTeam)
+        let result = applyImport(incoming)
+        return (result.team, result.players, result.tagsUpdated)
+    }
+
+    /// One team as a file or a download describes it, before it touches the library.
+    struct IncomingTeam {
+        /// The slug of the name, which the players are stamped with until the import decides
+        /// which real team id they belong to.
+        let slug: String
+        let name: String
+        let code: String?
+        let league: String?
+        let players: [Player]
+    }
+
+    /// The order a roster is kept in: by number, numberless last, then by name.
+    static func rosterOrder(_ a: Player, _ b: Player) -> Bool {
+        (Int(a.number) ?? Int.max, a.name) < (Int(b.number) ?? Int.max, b.name)
+    }
+
+    /// The reading half of an import, with the file-reading taken out — the same split
+    /// `load()` has.
+    ///
+    /// A roster fetched over the network comes in as CSV text and goes through this, so it
+    /// gets the identical column handling and duplicate-number refusal. Two import paths that
+    /// validated differently would be two sets of bugs.
+    static func parseRoster(csv text: String, fallbackTeam: String) throws -> [IncomingTeam] {
         var rows = CSV.parse(text).filter { row in row.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty } }
         guard !rows.isEmpty else { throw ImportError.noRows }
 
@@ -1380,46 +1407,155 @@ final class TagLibrary: ObservableObject {
             }
         }
 
-        var imported = 0
-        for (id, players) in grouped {
-            let sorted = players.sorted {
-                (Int($0.number) ?? Int.max, $0.name) < (Int($1.number) ?? Int.max, $1.name)
+        return grouped.map { id, players in
+            IncomingTeam(slug: id,
+                         name: teamNames[id] ?? id,
+                         code: teamCodes[id],
+                         league: teamLeagues[id],
+                         players: players.sorted(by: rosterOrder))
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    // MARK: Re-importing a team you already have
+
+    /// What a new list would do to a roster, matched on number — a player's identity.
+    struct RosterChanges: Equatable {
+        struct Change: Equatable {
+            let old: Player
+            let new: Player
+        }
+        var added: [Player] = []
+        var removed: [Player] = []
+        var changed: [Change] = []
+
+        var isEmpty: Bool { added.isEmpty && removed.isEmpty && changed.isEmpty }
+
+        /// "3 new · 2 gone · 1 changed", leaving out what's zero.
+        var summary: String {
+            var parts: [String] = []
+            if !added.isEmpty { parts.append("\(added.count) new") }
+            if !removed.isEmpty { parts.append("\(removed.count) gone") }
+            if !changed.isEmpty { parts.append("\(changed.count) changed") }
+            return parts.isEmpty ? "No changes" : parts.joined(separator: " · ")
+        }
+    }
+
+    /// A position left blank in the new list isn't a change: a CSV without a position column
+    /// says nothing about positions, the same way a missing code column keeps the code.
+    static func rosterChanges(old: [Player], new: [Player]) -> RosterChanges {
+        var changes = RosterChanges()
+        let oldByNumber = Dictionary(old.map { ($0.number, $0) }, uniquingKeysWith: { a, _ in a })
+        let newNumbers = Set(new.map(\.number))
+        for player in new {
+            guard let was = oldByNumber[player.number] else {
+                changes.added.append(player)
+                continue
             }
-            let name = teamNames[id] ?? id
+            let renamed = was.name != player.name
+            let moved = !player.position.isEmpty && was.position != player.position
+            if renamed || moved { changes.changed.append(.init(old: was, new: player)) }
+        }
+        changes.removed = old.filter { !newNumbers.contains($0.number) }
+        return changes
+    }
+
+    /// What Merge does: adds the numbers you don't have and leaves everyone you do have
+    /// exactly as they are. It never renames or removes, which is the point of it — a name
+    /// you corrected by hand survives a download that still spells it the league's way.
+    static func merged(existing: [Player], incoming: [Player], teamID: String) -> [Player] {
+        let have = Set(existing.map(\.number))
+        let additions = incoming
+            .filter { !have.contains($0.number) }
+            .map { Player(teamID: teamID, number: $0.number, name: $0.name, position: $0.position) }
+        return (existing + additions).sorted(by: rosterOrder)
+    }
+
+    enum ImportMode: String, CaseIterable, Identifiable {
+        case merge = "Merge"
+        case replace = "Replace"
+        case skip = "Skip"
+        var id: String { rawValue }
+    }
+
+    /// A team that's already in the library and that the new list would change.
+    struct RosterConflict: Identifiable {
+        let incoming: IncomingTeam
+        let existingName: String
+        let changes: RosterChanges
+        var id: String { incoming.slug }
+    }
+
+    /// The incoming teams that match one you have and differ from it. A team you don't have,
+    /// or one that would come in identical, has nothing to ask about.
+    func conflicts(in incoming: [IncomingTeam]) -> [RosterConflict] {
+        incoming.compactMap { team in
+            guard let existing = Self.importTarget(slug: team.slug, name: team.name, in: teams)
+            else { return nil }
+            let changes = Self.rosterChanges(old: existing.players, new: team.players)
+            guard !changes.isEmpty else { return nil }
+            return RosterConflict(incoming: team, existingName: existing.name, changes: changes)
+        }
+    }
+
+    /// The writing half. Each team goes in by its mode — replace unless told otherwise — and
+    /// the result names the team ids actually written, which is what the panel should jump
+    /// to: a team you made by hand keeps its original id, so the slug can point at nothing.
+    @discardableResult
+    func applyImport(_ incoming: [IncomingTeam], modes: [String: ImportMode] = [:])
+        -> (team: String, players: Int, tagsUpdated: Int, teamIDs: [String]) {
+        var players = 0
+        var written: [String] = []
+        var names: [String] = []
+
+        for team in incoming {
+            let mode = modes[team.slug] ?? .replace
+            if mode == .skip { continue }
 
             // Match on the id first, then on the name. A team keeps its id for life, so one
             // created by the + button and renamed still has the id `new-team` — and matching
             // on the id alone would file this import as a *second* team with the same name.
             // Two teams of one name is a state the roster editor then refuses to save, which
             // is a brick wall reached by doing nothing unusual.
-            let existing = Self.importTarget(slug: id, name: name, in: teams)
+            let existing = Self.importTarget(slug: team.slug, name: team.name, in: teams)
 
             // Keep whichever id already exists, because tags are keyed to it. The players
             // were stamped with the slug while they were being grouped, so they have to be
             // re-stamped to match, or the roster and its tags would belong to different teams.
-            let teamID = existing?.id ?? id
-            let players = teamID == id ? sorted : sorted.map {
+            let teamID = existing?.id ?? team.slug
+            let restamped = team.players.map {
                 Player(teamID: teamID, number: $0.number, name: $0.name, position: $0.position)
             }
 
-            // An import replaces the whole team, so a CSV without a code or league column
-            // would otherwise silently wipe one you'd already set. Fall back to what's
-            // there: re-importing to fix a spelling shouldn't cost you a filename code.
-            upsert(team: Team(id: teamID,
-                              name: name,
-                              code: teamCodes[id] ?? existing?.code,
-                              league: teamLeagues[id] ?? existing?.league,
-                              players: players))
-            imported += sorted.count
+            switch mode {
+            case .replace, .skip:
+                // An import replaces the whole team, so a CSV without a code or league column
+                // would otherwise silently wipe one you'd already set. Fall back to what's
+                // there: re-importing to fix a spelling shouldn't cost you a filename code.
+                upsert(team: Team(id: teamID,
+                                  name: team.name,
+                                  code: team.code ?? existing?.code,
+                                  league: team.league ?? existing?.league,
+                                  players: restamped))
+            case .merge:
+                // Yours wins throughout, the name included: Merge only ever adds.
+                let base = existing?.players ?? []
+                upsert(team: Team(id: teamID,
+                                  name: existing?.name ?? team.name,
+                                  code: existing?.code ?? team.code,
+                                  league: existing?.league ?? team.league,
+                                  players: Self.merged(existing: base, incoming: restamped,
+                                                       teamID: teamID)))
+            }
+            players += restamped.count
+            written.append(teamID)
+            names.append(team.name)
         }
 
         // Existing tags adopt any corrected names and newly added columns.
-        let updated = refreshTagsFromRoster()
-
-        let label = grouped.count == 1
-            ? (teamNames.first?.value ?? fallbackTeam)
-            : "\(grouped.count) teams"
-        return (label, imported, updated)
+        let updated = written.isEmpty ? 0 : refreshTagsFromRoster()
+        let label = names.count == 1 ? names[0] : "\(names.count) teams"
+        return (label, players, updated, written)
     }
 }
 

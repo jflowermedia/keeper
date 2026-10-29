@@ -224,9 +224,9 @@ enum WelcomeTour {
              doIt: [.chooseFolder]),
 
         Step(title: "Review your KEEPs",
-             body: "The filter bar along the top splits the card into KEEP and NOT KEEP, using the "
-                 + "flag your camera wrote. If KEEP is empty, your camera may use a different "
-                 + "word — change it in Flag word.\n\n"
+             body: "The filter bar along the top splits the card into Kept and Not kept, using "
+                 + "the flag your camera wrote. Nothing under Kept? Check the Camera menu in the "
+                 + "toolbar — Other… takes whatever word your camera uses.\n\n"
                  + "Arrow keys move between clips and Space plays. Changed your mind? The Mark "
                  + "menu flips the flag, and ⌘Z undoes it. A flag you change is applied to "
                  + "your copy, never to the card.",
@@ -236,7 +236,8 @@ enum WelcomeTour {
              body: "File → Download a Roster… fetches today's numbers for a league — the NHL, "
                  + "for now.\n\n"
                  + "Any other league: import a CSV with a number and a name per player.\n\n"
-                 + "Either way, two players can't share a number.",
+                 + "Already have the team? Keeper shows what's changed and asks before it "
+                 + "touches your roster.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 
@@ -256,7 +257,8 @@ enum WelcomeTour {
 
         Step(title: "Check before you format",
              body: "Check Copied compares your copies with the card and lists anything missing "
-                 + "or the wrong size.\n\n"
+                 + "or the wrong size. When an export finishes, a link beside the status line "
+                 + "opens it with that folder already added.\n\n"
                  + "Only format the card once it's clean.",
              key: .verify),
 

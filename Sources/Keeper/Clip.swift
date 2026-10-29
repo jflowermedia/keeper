@@ -459,9 +459,40 @@ enum ScanSummary {
         // Zero KEEPs on a card that has clips is the signature of a different flag word, far
         // more often than of a shoot where nothing was marked.
         if keeps == 0 {
-            return "Found \(clips) clip\(clips == 1 ? "" : "s"), none marked KEEP — check Flag word."
+            return "Found \(clips) clip\(clips == 1 ? "" : "s"), none marked KEEP — check Camera."
                 + skipped
         }
         return "Found \(clips) clip\(clips == 1 ? "" : "s"), \(keeps) marked KEEP." + skipped
+    }
+}
+
+/// A camera whose KEEP flag Keeper knows how to find, or Other for one it doesn't.
+///
+/// Only Sony is listed because only Sony has been tested — a brand in the menu is a promise
+/// that picking it works. Each new one goes in once its sidecars have been seen.
+enum CameraPreset: String, CaseIterable, Identifiable {
+    case sony
+    case other
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .sony:  return "Sony"
+        case .other: return "Other…"
+        }
+    }
+
+    /// The word the scanner looks for, or nil when you type it yourself.
+    var word: String? {
+        switch self {
+        case .sony:  return "KEEP"
+        case .other: return nil
+        }
+    }
+
+    /// Which preset a stored word belongs to.
+    static func matching(_ word: String) -> CameraPreset {
+        allCases.first { $0.word == word } ?? .other
     }
 }

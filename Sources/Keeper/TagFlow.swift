@@ -837,6 +837,29 @@ enum TeamPick {
         return (current + [id], nil)
     }
 
+    /// The benches after one team has been imported. A team already in play changes nothing:
+    /// that's a mid-game update, and dropping the other bench for it cost a re-tick. A new
+    /// team takes the place of the bench on screen if the pair still makes a game, and
+    /// otherwise comes in on its own.
+    static func afterImport(current: [String], imported: String, shown: String?,
+                            bothTeams: Bool, league: (String) -> String) -> [String] {
+        guard bothTeams else { return [imported] }
+        if current.contains(imported) { return current }
+        if current.count < 2 {
+            guard let first = current.first, league(first) == league(imported) else {
+                return [imported]
+            }
+            return [first, imported]
+        }
+        // Two in play: the one you're not looking at stays, in its place.
+        let replacing = shown.flatMap { current.firstIndex(of: $0) } ?? current.count - 1
+        let other = current[replacing == 0 ? 1 : 0]
+        guard league(other) == league(imported) else { return [imported] }
+        var next = current
+        next[replacing] = imported
+        return next
+    }
+
     /// The list made to obey the rule, keeping as much of it as it can, first one first.
     static func sanitize(_ ids: [String], bothTeams: Bool,
                          league: (String) -> String) -> [String] {
