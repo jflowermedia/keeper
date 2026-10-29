@@ -440,3 +440,28 @@ final class XMLFlags: NSObject, XMLParserDelegate {
         return true
     }
 }
+
+/// What the status line says once a scan finishes.
+///
+/// Pure, and kept apart from `AppState`, so the wording can be checked. It exists because the
+/// two quiet failures — a camera whose flag word isn't KEEP, and clips with no sidecar — both
+/// used to end in a list that simply looked short, with the reason only in the log.
+enum ScanSummary {
+    static func text(clips: Int, keeps: Int, withoutSidecar: Int) -> String {
+        // Short, because the footer shows this on one line and truncates the middle — a long
+        // hint loses exactly the part that says what to do. The full text is on hover.
+        let skipped = withoutSidecar == 0 ? "" :
+            " \(withoutSidecar) video\(withoutSidecar == 1 ? "" : "s") with no XML not listed."
+
+        if clips == 0 {
+            return "No clips with XML sidecars were found in there." + skipped
+        }
+        // Zero KEEPs on a card that has clips is the signature of a different flag word, far
+        // more often than of a shoot where nothing was marked.
+        if keeps == 0 {
+            return "Found \(clips) clip\(clips == 1 ? "" : "s"), none marked KEEP — check Flag word."
+                + skipped
+        }
+        return "Found \(clips) clip\(clips == 1 ? "" : "s"), \(keeps) marked KEEP." + skipped
+    }
+}

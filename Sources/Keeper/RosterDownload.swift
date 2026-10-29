@@ -7,6 +7,47 @@ struct LeagueTeam: Identifiable, Hashable {
     var id: String { code }
 }
 
+/// A league Keeper can fetch rosters from.
+///
+/// Every case needs its own endpoints *and* its own parser, because no two leagues publish the
+/// same JSON — which is why the switches below are exhaustive and have no default. Adding a
+/// league is a new case, and the compiler then points at each place that has to learn about it.
+enum RosterSource: String, CaseIterable, Identifiable {
+    case nhl
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .nhl: return "NHL"
+        }
+    }
+
+    var teamsURL: URL? {
+        switch self {
+        case .nhl: return URL(string: "\(RosterFeed.api)/standings/now")
+        }
+    }
+
+    func rosterURL(for team: LeagueTeam) -> URL? {
+        switch self {
+        case .nhl: return URL(string: "\(RosterFeed.api)/roster/\(team.code)/current")
+        }
+    }
+
+    func teams(in data: Data) -> [LeagueTeam] {
+        switch self {
+        case .nhl: return RosterFeed.teams(in: data)
+        }
+    }
+
+    func csv(from data: Data, team: LeagueTeam) -> String? {
+        switch self {
+        case .nhl: return RosterFeed.csv(from: data, team: team, league: name)
+        }
+    }
+}
+
 /// Reading the NHL's public API: the team list, and a roster turned into the CSV Keeper
 /// already knows how to import.
 ///
@@ -170,7 +211,15 @@ struct RosterDownloadSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Download a Roster").font(.headline)
+                HStack {
+                    Text("Download a Roster").font(.headline)
+                    Spacer()
+                    Picker("League", selection: $state.rosterSource) {
+                        ForEach(RosterSource.allCases) { Text($0.name).tag($0) }
+                    }
+                    .frame(width: 150)
+                    .disabled(state.isFetchingRosters)
+                }
                 Text("Straight from the league, so the numbers are today's. Tick the teams "
                      + "you're shooting.")
                     .font(.caption)
@@ -261,5 +310,10 @@ struct RosterDownloadSheet: View {
         }
         .frame(width: 440, height: 520)
         .onAppear { state.loadLeagueTeams() }
+        // Ticks are team codes, and codes from one league mean nothing in another.
+        .onChange(of: state.rosterSource) { _ in
+            picked.removeAll()
+            search = ""
+        }
     }
 }

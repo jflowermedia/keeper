@@ -2,18 +2,20 @@ import SwiftUI
 
 /// Something the welcome sheet offers to do for you once it's out of the way.
 ///
-/// Recorded rather than run: both of these open an `NSOpenPanel`, and a modal panel put up
+/// Recorded rather than run: most of these open an `NSOpenPanel`, and a modal panel put up
 /// from inside a sheet that's still animating away is how you end up with a picker attached
 /// to a window that's no longer there. `ContentView` runs it from the sheet's `onDismiss`,
 /// which fires after the sheet has actually gone.
 enum WelcomeAction {
     case chooseFolder
     case importRoster
+    case downloadRoster
 
     var label: String {
         switch self {
         case .chooseFolder: return "Choose Folder…"
         case .importRoster: return "Import Roster CSV…"
+        case .downloadRoster: return "Download a Roster…"
         }
     }
 }
@@ -141,8 +143,16 @@ struct WelcomeSheet: View {
                     }
                 }
 
-                if let doIt = current.doIt {
-                    Button(doIt.label) { finish(then: doIt) }
+                if let link = current.link {
+                    Button(link.label) { NSWorkspace.shared.open(link.url) }
+                }
+
+                if !current.doIt.isEmpty {
+                    HStack {
+                        ForEach(current.doIt, id: \.label) { doIt in
+                            Button(doIt.label) { finish(then: doIt) }
+                        }
+                    }
                     Text("This closes the tutorial so you can see what happens.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -196,80 +206,64 @@ enum WelcomeTour {
         /// Shown as a key cap, read live from `Shortcuts`.
         var key: ShortcutAction? = nil
         /// A button that really does this step, after the sheet closes.
-        var doIt: WelcomeAction? = nil
+        var doIt: [WelcomeAction] = []
+        /// A page to open, with the button's label. Unlike `doIt` it leaves the tour open —
+        /// reading the guide is something you do alongside it, not instead of finishing.
+        var link: (label: String, url: URL)? = nil
     }
 
-    /// In the order the work actually happens, which is also the order the guide in the
-    /// README follows — so the two can't drift into describing different apps.
+    /// In the order the work actually happens on a shoot day, which is also the order the guide
+    /// in the README follows — so the two can't drift into describing different apps. Each step
+    /// is one job and a couple of lines; anything longer belongs in the README.
     static let steps: [Step] = [
-        Step(title: "Point it at a card",
-             body: "Choose the card, or any folder holding camera clips. Keeper looks for "
-                 + "video files and the XML sidecars beside them, and the sidecar is where the "
-                 + "KEEP flag lives — a clip with no sidecar can't be listed or tagged.\n\n"
-                 + "Nothing is copied or changed by scanning. You can point it at a card "
-                 + "straight out of the camera.",
+        Step(title: "Choose your card",
+             body: "Plug in the card and choose it, or any folder of camera clips. Keeper lists "
+                 + "each clip by its XML sidecar, so a video with no sidecar won't appear.\n\n"
+                 + "Keeper only reads. Nothing on the card is ever changed.",
              key: .chooseFolder,
-             doIt: .chooseFolder),
+             doIt: [.chooseFolder]),
 
-        Step(title: "KEEP and NOT KEEP",
-             body: "The filter bar splits the card by the flag your camera wrote. KEEP is what "
-                 + "you marked in-camera; NOT KEEP is everything else.\n\n"
-                 + "If KEEP comes up empty, your camera may use a different word. Right-click "
-                 + "a clip and choose Show XML… to see what it actually writes, then put that "
-                 + "word in Flag word."),
-
-        Step(title: "Change your mind",
-             body: "The flag isn't final. With a clip in the preview, the Mark menu's toggle "
-                 + "flips it; the badge on a row does the same without moving the preview; and "
-                 + "with several clips selected, the Mark commands do the lot at once.\n\n"
-                 + "⌘Z takes any of it back — in bulk as well as one at a time — and the undo "
-                 + "button names what it's about to undo before you press it.",
+        Step(title: "Review your KEEPs",
+             body: "The filter bar along the top splits the card into KEEP and NOT KEEP, using the "
+                 + "flag your camera wrote. If KEEP is empty, your camera may use a different "
+                 + "word — change it in Flag word.\n\n"
+                 + "Arrow keys move between clips and Space plays. Changed your mind? The Mark "
+                 + "menu flips the flag, and ⌘Z undoes it. A flag you change is applied to "
+                 + "your copy, never to the card.",
              key: .toggleKeep),
 
-        Step(title: "Get through them quickly",
-             body: "Arrow keys move between clips, and the preview follows. Space plays and "
-                 + "pauses, and the shuttle keys step through a clip without reaching for the "
-                 + "scrubber.\n\n"
-                 + "All of these are one press with no modifier, so a whole pass can be worked "
-                 + "one-handed. They do nothing while you're typing in a field.",
-             key: .playPause),
-
-        Step(title: "Rosters, then tags",
-             body: "Import a team as a CSV, one player per line, with a number and a name. A "
-                 + "header row is optional, several teams can share one file, and there's a "
-                 + "sample roster in the repo to try it with. Two players can't share a "
-                 + "number — that's how Keeper tells them apart.\n\n"
-                 + "Once a roster is in, its bench appears in the tagging panel and you tag a "
-                 + "clip by picking a player and a category. Tags aren't just labels: they're "
-                 + "what the filenames are built from, so a tagged clip comes out of an export "
-                 + "already named for the player and the moment.",
+        Step(title: "Load your roster",
+             body: "File → Download a Roster… fetches today's numbers for a league — the NHL, "
+                 + "for now.\n\n"
+                 + "Any other league: import a CSV with a number and a name per player.\n\n"
+                 + "Either way, two players can't share a number.",
              key: .importRoster,
-             doIt: .importRoster),
+             doIt: [.downloadRoster, .importRoster]),
 
-        Step(title: "Tagging without the mouse",
-             body: "Optional, and worth it for a long card. Tab moves between the clip list, "
-                 + "the bench and the categories, and the section you're on is outlined. "
-                 + "Return selects. Type a number while you're on the bench and it filters to "
-                 + "that shirt, then clears itself when you move on.\n\n"
-                 + "Shooting both teams, the focus keys swap benches without going back to the "
-                 + "mouse.",
+        Step(title: "Tag your clips",
+             body: "Pick a clip, then a player and a category in the panel on the right.\n\n"
+                 + "To skip the mouse: Tab moves between the list, the bench and the "
+                 + "categories, and typing a shirt number jumps to that player.",
              key: .keyboardFlow),
 
-        Step(title: "Export what you're keeping",
-             body: "Export copies the clips you've chosen to wherever you're keeping them, "
-                 + "renaming each one by your filename preset as it goes. Sidecars travel with "
-                 + "them if you want them to.\n\n"
-                 + "It reads the card and writes to your drive. A copy that keeps failing stops "
-                 + "itself after five in a row rather than filling the log with the same error, "
-                 + "and anything already copied is skipped if you run it again.",
+        Step(title: "Export",
+             body: "Export copies the clips you're keeping to your drive. Pick a filename "
+                 + "preset in the sheet and each one is named from its tags; leave it and they "
+                 + "keep the camera's names.\n\n"
+                 + "Run it again and anything already copied is skipped.",
              key: .export),
 
-        Step(title: "Before you format the card",
-             body: "This is the one that matters. Check Copied takes every folder you copied "
-                 + "the card into and reports what's accounted for, what's missing, and what "
-                 + "arrived the wrong size — gigabytes on the card against gigabytes found.\n\n"
-                 + "Matching is by the camera's clip ID, so renamed copies are still "
-                 + "recognised. Keeper is alpha software: check, then format.",
-             key: .verify)
+        Step(title: "Check before you format",
+             body: "Check Copied compares your copies with the card and lists anything missing "
+                 + "or the wrong size.\n\n"
+                 + "Only format the card once it's clean.",
+             key: .verify),
+
+        Step(title: "Where to go next",
+             body: "That's the whole shoot-day loop. The guide covers the rest: filename "
+                 + "presets for each client, every setting, rebinding keys, backups and "
+                 + "restoring your tags, and what to do when something's off.\n\n"
+                 + "It's always under Help → Keeper Guide.",
+             link: (label: "Open the Keeper Guide", url: AppInfo.guide))
     ]
 }

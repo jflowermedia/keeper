@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.8.2.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.8.3.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -88,7 +88,7 @@ chmod +x build_app.sh
 
 # Guide
 
-On a first launch Keeper offers to walk you through this in eight short steps. **Help → Welcome & Tutorial** brings it back at any point, and the keys it quotes follow your own shortcuts rather than the defaults.
+On a first launch Keeper offers a short walkthrough of the basics: card, KEEPs, roster, tags, export, check. **Help → Welcome & Tutorial** brings it back at any point, and the keys it quotes follow your own shortcuts rather than the defaults. Its last step links here, and so does **Help → Keeper Guide**. This is the long version, with every setting.
 
 ## Shortcuts
 
@@ -99,6 +99,8 @@ On a first launch Keeper offers to walk you through this in eight short steps. *
 | 1 and 3 | Shuttle back and forward — press again for 2x, 4x, 8x |
 | ⌘F | Full screen preview (Escape to come back) |
 | ⌘K | Toggle KEEP on the previewed clip |
+| ⌘⇧K | Mark the selection KEEP |
+| ⌥⌘K | Mark the selection NOT KEEP |
 | ⌘Z | Undo the last flag or tag change |
 | ⌘⇧Z | Redo |
 | ⌘O | Choose folder |
@@ -110,9 +112,11 @@ On a first launch Keeper offers to walk you through this in eight short steps. *
 | ⌘S | Export |
 | ⌘⇧V | Check the card copied |
 | ⌘D | Debug log |
-| ⌘, | Change any of these |
+| / | Clear the tags on the selected clips |
+| § | At the bench, show subjects only (see Rosters) |
+| ⌘, | Keyboard Shortcuts — change any of these |
 
-**⌘,** opens the shortcut list. Click a key, press the one you want. The review keys — play, shuttle, previous and next — are single presses with no modifier so they work one-handed; the menu commands need ⌘. Take a key that's already in use and the two swap, so nothing is ever left without one. **Reset All** puts them back.
+**⌘,** opens **Keyboard Shortcuts…**. Click a key, press the one you want. The review keys — play, shuttle, previous and next — are single presses with no modifier so they work one-handed; the menu commands need ⌘. Take a key that's already in use and the two swap, so nothing is ever left without one. **Reset All** puts them back.
 
 ## Scanning
 
@@ -157,9 +161,9 @@ Team names must be distinct, since importing one replaces any team of the same n
 
 **§** at the bench narrows it to the subjects and hides the players; press it again for everyone. That's the key left of 1 on a British keyboard — a US layout has ` there, so it's rebindable in **Keyboard Shortcuts** under *Keyboard tagging*. It works at the bench and nowhere else. Typing a number turns it off, since subjects have no number. By default it toggles; **View → Hold for Subjects Only** makes it a hold instead, so the subjects show while the key is down and the players come back when you let go.
 
-**To get a roster without typing it in**, use **File → Download a Roster…**. It asks the NHL's own public API — the one behind NHL.com — who's playing, you tick the teams you're shooting, and the rosters import with today's numbers. It goes through exactly the same checks an imported CSV does, including refusing a team where two players share a number.
+**To get a roster without typing it in**, use **File → Download a Roster…**. Pick a league at the top of the sheet — the NHL is the only one so far — and it asks that league's own public API who's playing. You tick the teams you're shooting, and the rosters import with today's numbers. It goes through exactly the same checks an imported CSV does, including refusing a team where two players share a number.
 
-That covers the NHL. For every other league, **⌘I** imports a CSV — the format is above, and `tools/nhl-rosters.py` is a worked example if you want to script your own.
+For any league not in the picker, **⌘I** imports a CSV — the format is above, and `tools/nhl-rosters.py` is a worked example if you want to script your own.
 
 **Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They sit at the end of every bench and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Add your own with **+ Subject** under the bench; right-click one to remove it. They have no number, so they drop out of the grid the moment you start typing one. A subject's tag records whichever team you're focused on.
 
@@ -173,7 +177,7 @@ Two players can't share a number and two teams can't share a name, because that'
 
 An accent ring means **picked**. A green tick means **already on this clip**.
 
-**Move On After Tagging**, in the panel's ⋯ menu, goes to the next clip as soon as a tag lands. It's off by default, because a clip usually takes two tags — a goal for one player and an assist for another — and moving on after the first would put the second on the wrong clip. Turn it on for a pass where each clip gets one tag.
+**Move On After Tagging**, in the panel's ⋯ menu and the View menu, goes to the next clip as soon as a tag lands. It's off by default, because a clip usually takes two tags — a goal for one player and an assist for another — and moving on after the first would put the second on the wrong clip. Turn it on for a pass where each clip gets one tag.
 
 ### Both teams at once
 
@@ -234,6 +238,27 @@ Dragging to Finder keeps the camera names — macOS gives the app no say in what
 The built-in **Standard** preset gives `C7531_261003_YWP_Marchetti_Goal.MP4` — original name, shoot date, team code, player surname, tag. The date comes from the XML, so it's when the camera rolled.
 
 Build your own in **Edit Presets…**: a name, a fallback team code, a separator, and the parts in order. Duplicate an existing preset for a new client rather than starting over. Empty parts drop out, so an untagged clip comes out `C7532_261003_YWP.MP4` rather than with gaps.
+
+## Settings
+
+Everything adjustable, and where it lives. None of it touches a card. Defaults are what you get on a fresh install.
+
+| Setting | Where | Default | What it does |
+|---|---|---|---|
+| **Flag word** | Toolbar | `KEEP` | The word in the XML that marks a clip. Press Return to rescan. Change it if your camera writes something else. |
+| **Move On After Marking** | Mark menu | On | ⌘K goes to the next clip. A badge click never moves the preview either way. |
+| **Move On After Tagging** | View menu, tagging panel ⋯ | Off | Goes to the next clip as soon as a tag lands. Leave it off if a clip usually takes two tags. |
+| **Warn Before Clearing Tags** | View menu | On | Whether `/` and the Remove Tags button ask first. ⌘Z restores them either way. |
+| **Hold for Subjects Only** | View menu | Off | Makes `§` a hold instead of a toggle. |
+| **Include XML Sidecars** | View menu, Export sheet | On | Whether a clip's sidecar travels with it. This is the setting that applies when you drag a row to Finder. |
+| **Keep the Mac Awake While Transferring** | View menu | On | Stops idle sleep during a copy or a check. Takes effect immediately, even mid-copy. |
+| **Debug Log** | View menu, toolbar, ⌘D | Off | Shows which sidecar paired with which video and the result of every copy. |
+| **Check for Updates Automatically** | Help menu | On | A once-a-day request to GitHub. Off means Keeper never checks. |
+| **Keyboard Shortcuts…** | ⌘, | | Rebind any key above. |
+| **Edit Filename Presets…** | File menu | | Build a naming convention per client. |
+| **Restore Tags** | File menu | | Roll the library back to a backup. |
+
+The Export sheet starts from its defaults each time you open Keeper — camera names, one folder, copying — so pick your preset and layout per session.
 
 ## If something's wrong
 

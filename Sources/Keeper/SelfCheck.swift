@@ -58,6 +58,7 @@ enum SelfCheck {
         scanner()
         updates()
         welcome()
+        scanSummary()
         sleepHold()
         addingTeams()
         subjects()
@@ -415,6 +416,14 @@ enum SelfCheck {
 
     private static func rosterDownload() {
         section("Downloading a roster")
+        // Every league needs a name to show and endpoints to ask, or its entry in the picker
+        // would open a sheet that can only say "Couldn't reach the league".
+        let team = LeagueTeam(code: "XYZ", name: "Test")
+        expect("every league has a name", RosterSource.allCases.filter { $0.name.isEmpty }.count, 0)
+        expect("league names are distinct",
+               Set(RosterSource.allCases.map(\.name)).count, RosterSource.allCases.count)
+        expect("every league has endpoints",
+               RosterSource.allCases.filter { $0.teamsURL == nil || $0.rosterURL(for: team) == nil }.count, 0)
 
         let jets = LeagueTeam(code: "WPG", name: "Winnipeg Jets")
 
@@ -1263,6 +1272,28 @@ enum SelfCheck {
     // comes from `Shortcuts`, so a binding dropped from the defaults would have the tutorial
     // confidently teaching "—".
 
+    private static func scanSummary() {
+        section("The scan summary")
+        expect("normal", ScanSummary.text(clips: 12, keeps: 4, withoutSidecar: 0),
+               "Found 12 clips, 4 marked KEEP.")
+        expect("one clip", ScanSummary.text(clips: 1, keeps: 1, withoutSidecar: 0),
+               "Found 1 clip, 1 marked KEEP.")
+        expectTrue("no KEEPs points at the flag word",
+                   ScanSummary.text(clips: 5, keeps: 0, withoutSidecar: 0).contains("Flag word"))
+        // The worst case of the lot, measured rather than guessed at: if this outgrows the
+        // footer, the truncation eats the middle and the hint goes with it.
+        expectTrue("the longest summary stays short",
+                   ScanSummary.text(clips: 999, keeps: 0, withoutSidecar: 999).count <= 90)
+        expectTrue("no clips at all doesn't blame the flag word",
+                   !ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 0).contains("Flag word"))
+        expectTrue("videos without sidecars are named, plural",
+                   ScanSummary.text(clips: 3, keeps: 1, withoutSidecar: 2).contains("2 videos with no XML"))
+        expectTrue("and singular",
+                   ScanSummary.text(clips: 3, keeps: 1, withoutSidecar: 1).contains("1 video with no XML"))
+        expectTrue("even when nothing else was found",
+                   ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 4).contains("4 videos with no XML"))
+    }
+
     private static func welcome() {
         section("The tutorial")
 
@@ -1292,6 +1323,11 @@ enum SelfCheck {
             if Shortcuts.shared.display(key) == "—" { unbound.append(step.title) }
         }
         expect("every key the tour quotes has a binding", unbound, [])
+
+        // The tour is the short version; the guide is the long one, and a tour that ends
+        // without saying where it is leaves people stuck at the edge of what it taught.
+        expect("it ends by pointing at the guide",
+               WelcomeTour.steps.last?.link?.url == AppInfo.guide, true)
 
         // The first step has to be the one that gets you off a blank window. A tour that opens
         // on anything else is a tour for someone who's already started.

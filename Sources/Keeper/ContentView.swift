@@ -493,6 +493,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(state.status)
             }
 
             Spacer()

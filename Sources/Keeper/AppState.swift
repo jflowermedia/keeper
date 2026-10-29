@@ -159,6 +159,8 @@ final class AppState: ObservableObject {
     @Published var filterPlayerID: String? { didSet { if filterPlayerID != oldValue { selection = [] } } }
     @Published var filterCategory: String? { didSet { if filterCategory != oldValue { selection = [] } } }
     @Published var filterPosition: String? { didSet { if filterPosition != oldValue { selection = [] } } }
+    // Neither is remembered between launches, on purpose: every session's export starts
+    // from the defaults rather than from whatever the last card needed.
     @Published var grouping: Grouping = .flat
     @Published var renamePresetID: UUID?
 
@@ -273,6 +275,16 @@ final class AppState: ObservableObject {
     // MARK: - Downloading a roster
 
     @Published var showRosterDownload = false
+    /// Changing league drops the team list and fetches the new one. Disabled in the picker
+    /// while a fetch is running, so a slow answer can't land under the wrong league.
+    @Published var rosterSource: RosterSource = .nhl {
+        didSet {
+            guard rosterSource != oldValue else { return }
+            leagueTeams = []
+            rosterDownloadNote = nil
+            loadLeagueTeams()
+        }
+    }
     @Published var leagueTeams: [LeagueTeam] = []
     @Published var isFetchingRosters = false
     @Published var rosterDownloadNote: String?
@@ -289,10 +301,11 @@ final class AppState: ObservableObject {
 
     private func fetchLeagueTeams() async {
         defer { isFetchingRosters = false }
-        guard let url = URL(string: "\(RosterFeed.api)/standings/now") else { return }
+        let source = rosterSource
+        guard let url = source.teamsURL else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(for: request(url))
-            let teams = RosterFeed.teams(in: data)
+            let data = try await fetch(url)
+            let teams = source.teams(in: data)
             guard !teams.isEmpty else {
                 rosterDownloadNote = "The league list came back empty. Try again later, or "
                     + "import a CSV instead."
@@ -319,14 +332,15 @@ final class AppState: ObservableObject {
         var players = 0
         var failed: [String] = []
 
+        let source = rosterSource
         for team in teams {
-            guard let url = URL(string: "\(RosterFeed.api)/roster/\(team.code)/current") else {
+            guard let url = source.rosterURL(for: team) else {
                 failed.append(team.code)
                 continue
             }
             do {
-                let (data, _) = try await URLSession.shared.data(for: request(url))
-                guard let csv = RosterFeed.csv(from: data, team: team) else {
+                let data = try await fetch(url)
+                guard let csv = source.csv(from: data, team: team) else {
                     failed.append(team.name)
                     continue
                 }
@@ -367,6 +381,18 @@ final class AppState: ObservableObject {
         rosterDownloadNote = note
         status = note
         dropDanglingFilters()
+    }
+
+    /// A GET that treats an error page as an error. Without the status check a 404 or a 503
+    /// body just fails to decode, and the sheet blames the league's data rather than saying
+    /// the league answered with an error.
+    private func fetch(_ url: URL) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: request(url))
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse,
+                           userInfo: [NSLocalizedDescriptionKey: "the league answered \(http.statusCode)"])
+        }
+        return data
     }
 
     /// A plain GET with a name on it, the same shape the update check uses.
@@ -413,7 +439,7 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(true, forKey: "welcomeShown")
     }
 
-    /// Run from the sheet's `onDismiss`, once the sheet has actually gone — both of these open
+    /// Run from the sheet's `onDismiss`, once the sheet has actually gone — most of these open
     /// a modal panel, which can't be put up from inside a sheet that's still on screen.
     /// Clears as it fires, so reopening the tutorial and skipping doesn't repeat the last one.
     func runPendingWelcomeAction() {
@@ -422,6 +448,7 @@ final class AppState: ObservableObject {
         switch action {
         case .chooseFolder: chooseCard()
         case .importRoster: importRoster()
+        case .downloadRoster: showRosterDownload = true
         }
     }
 
@@ -1376,10 +1403,10 @@ final class AppState: ObservableObject {
                 self.videosWithoutXML = result.videosWithoutXML
                 self.appendLog(result.log)
                 self.isScanning = false
-                self.status = result.clips.isEmpty
-                    ? "No clips with XML sidecars were found in there."
-                    : "Found \(result.clips.count) clips, "
-                      + "\(result.clips.filter { self.isKeep($0) }.count) marked KEEP."
+                self.status = ScanSummary.text(
+                    clips: result.clips.count,
+                    keeps: result.clips.filter { self.isKeep($0) }.count,
+                    withoutSidecar: result.videosWithoutXML.count)
             }
         }
     }
