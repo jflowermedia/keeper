@@ -1,12 +1,26 @@
 # Keeper
 
-A macOS app for getting sports footage off a card and into a delivery. It reads the KEEP flag your camera writes into its XML sidecars, lets you tag clips to players and events, and copies them out renamed and sorted.
+**Do your first edit at the game.** When something good happens, press one button on the camera to flag the clip. Keeper reads those flags off the card, so back at the desk you start from the plays you already picked instead of scrubbing through a whole game. Tag who's in each clip and what happened, and it copies them out named and sorted — ready for the edit, or straight to a client.
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
 > **Alpha, version 0.9.3.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
+
+## How it saves time
+
+A game fills a card with clips, and most of them are stoppages, resets and play that went nowhere. The usual way through is to scrub every one back at the desk, deciding all over again what you already knew in the moment — and then to work out who was in each one, and name and file them by hand.
+
+Keeper moves those decisions to the moment you knew the answer:
+
+1. **At the game, flag the good ones.** Put Sony's **Clip Flag KEEP** on a custom button and press it when a clip's worth keeping — a goal, a try, a big save, a celebration. It's the call you'd make anyway; now it's recorded. [Setting it up](#which-cameras) takes a minute.
+2. **Back at the desk, start from those.** Point Keeper at the card and it opens on the clips you flagged. Everything else is still there under **Not kept** for warm-ups and B-roll, but you're not wading through it to find the goal.
+3. **Tag as you watch.** Pick the player and what happened. You're watching each clip anyway, and with keyboard tagging it's a few keystrokes before the next one.
+4. **Export it organised.** Every clip comes out renamed from its tags — `C7531_261003_WHKY_Marchetti_Goal.MP4` — and, if you like, filed into a folder per player or per event. Whoever opens the folder next, you, an editor or a client, can see what's in it without playing anything, and every clip of one player is in one place.
+5. **Check, then format.** **Check Copied** accounts for every clip on the card against your copies, so you know it's safe to wipe.
+
+The time comes off the slow parts: finding the good clips, and working out afterwards who's in them and what happened. Both get done once, while the answer's fresh.
 
 ## What it does
 
@@ -173,7 +187,7 @@ For any league not in the picker, **⌘I** imports a CSV — the format is above
 
 **Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They have a **Subjects** pill of their own, to the right of the team pills, and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Click the pill, or press **← →** past the last team, to reach them. Add your own with **+ Subject** on that pill; right-click one to remove it. Typing a shirt number from the Subjects pill takes you back to the team, since subjects have no number. A subject's tag records whichever team pill you were last on.
 
-**⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams.
+**⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams. Type any position your sport uses; the menu beside the field then offers it on every other player, above the hockey starters.
 
 Two players can't share a number and two teams can't share a name, because that's how Keeper tells them apart. Renumbering a player carries their existing tags across; removing a player leaves their tags behind, so prefer renumbering.
 
@@ -214,7 +228,7 @@ Return     tags it, and moves to the next clip
 
 Space still plays and pauses throughout, and ⌘K still marks KEEP, because the flow only takes the keys it's using at the step it's on.
 
-Categories start as Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview and B-Roll. Add with **+**, remove by right-clicking. Their order decides which tag wins when a clip has several.
+Categories start as a hockey set — Goal, Assist, Save, Hit, Penalty, Faceoff, Shot, Celebration, Interview and B-Roll — because that's what Keeper was first used for. Any sport works: rename them, remove what you don't shoot, and add your own. Add with **+**, remove by right-clicking. Their order decides which tag wins when a clip has several.
 
 The bar under the toolbar filters by team, player, position and category, on top of the KEEP filter.
 

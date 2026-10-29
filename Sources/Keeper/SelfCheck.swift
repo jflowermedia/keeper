@@ -64,6 +64,7 @@ enum SelfCheck {
         benchStops()
         clipRange()
         reimport()
+        positionSuggestions()
         sleepHold()
         addingTeams()
         subjects()
@@ -1298,6 +1299,19 @@ enum SelfCheck {
     //
     // A download used to replace a team outright, hand edits and all. These are the two
     // rules the review is built on: what counts as a change, and that Merge only ever adds.
+
+    private static func positionSuggestions() {
+        section("Position suggestions")
+        let none = TagLibrary.positionSuggestions(inUse: [])
+        expect("with nothing in use, the starters", none.starters, TagLibrary.starterPositions)
+        expect("and nothing above them", none.used, [])
+        let football = TagLibrary.positionSuggestions(inUse: ["Midfield", "Striker", "Midfield", ""])
+        expect("what you use comes first, once each, sorted", football.used, ["Midfield", "Striker"])
+        expect("the starters still follow", football.starters, TagLibrary.starterPositions)
+        let hockey = TagLibrary.positionSuggestions(inUse: ["defence", " Goalie "])
+        expect("a starter you use moves up, as you spelt it", hockey.used, ["defence", "Goalie"])
+        expect("and isn't offered twice", hockey.starters, ["Forward"])
+    }
 
     private static func reimport() {
         section("Re-importing a roster")

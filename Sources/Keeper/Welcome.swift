@@ -60,8 +60,9 @@ struct WelcomeSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Welcome to Keeper").font(.title2.weight(.semibold))
-                Text("Keeper reads the KEEP flag your camera writes, sorts a card by it, and "
-                     + "copies out the clips you're keeping — tagged and renamed.")
+                // The why before the what: the time saved is the reason to use it at all.
+                Text("Flag the good clips at the game, and Keeper starts you from those — then "
+                     + "tags, renames and copies them out, organised.")
                     .fixedSize(horizontal: false, vertical: true)
 
                 // The thing a new user is actually nervous about, said plainly and early.
@@ -219,9 +220,11 @@ enum WelcomeTour {
         // First, because it happens in the camera before there's a card to point at — and
         // without it everything after ends at an empty Kept list with no clue why.
         Step(title: "Mark clips in camera",
-             body: "Keeper sorts by the KEEP flag your camera puts on a clip. On a Sony, assign "
-                 + "Clip Flag KEEP to a custom button with Custom Key Setting, then press it "
-                 + "while recording or playing back. Press it twice to take the flag off.\n\n"
+             body: "Flag the good clips at the game, and back at the desk you start from those "
+                 + "instead of the whole card.\n\n"
+                 + "On a Sony, assign Clip Flag KEEP to a custom button with Custom Key Setting, "
+                 + "then press it while recording or playing back. Press it twice to take the "
+                 + "flag off.\n\n"
                  + "The flag is saved in the XML file the camera writes beside each clip, not "
                  + "in the video. Point Keeper at the card itself, or at a copy that kept the "
                  + "XML files.",

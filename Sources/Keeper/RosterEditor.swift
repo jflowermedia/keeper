@@ -239,7 +239,15 @@ struct RosterEditor: View {
         HStack(spacing: 2) {
             TextField("", text: rowBinding(index, \.position))
             Menu {
-                ForEach(["Forward", "Defence", "Goalie"], id: \.self) { position in
+                // Rows still being edited count too, so a position typed on one player is
+                // offered on the next before anything has been saved.
+                let suggestions = TagLibrary.positionSuggestions(
+                    inUse: library.allPositions + (draft?.rows.map(\.position) ?? []))
+                ForEach(suggestions.used, id: \.self) { position in
+                    Button(position) { draft?.rows[index].position = position }
+                }
+                if !suggestions.used.isEmpty, !suggestions.starters.isEmpty { Divider() }
+                ForEach(suggestions.starters, id: \.self) { position in
                     Button(position) { draft?.rows[index].position = position }
                 }
                 Divider()
@@ -250,7 +258,7 @@ struct RosterEditor: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 18)
-            .help("Pick one of the usual positions, or type your own")
+            .help("Pick a position you've used before, or type your own")
         }
         .frame(width: 130)
     }

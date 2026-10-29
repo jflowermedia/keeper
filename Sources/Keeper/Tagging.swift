@@ -421,6 +421,31 @@ final class TagLibrary: ObservableObject {
         Array(Set(allPlayers.map(\.position).filter { !$0.isEmpty })).sorted()
     }
 
+    /// Where the position menu starts before you've typed any. Hockey's, because that's what
+    /// Keeper was first used for — which is why they go after the positions you use.
+    static let starterPositions = ["Forward", "Defence", "Goalie"]
+
+    /// The roster editor's position menu: what you already use, then any starters you don't.
+    ///
+    /// The menu used to offer the hockey three and nothing else, so someone shooting football
+    /// typed "Midfield" by hand on every player. Matching ignores case and spacing, so
+    /// "defence" typed once doesn't sit beside "Defence" as a second suggestion.
+    static func positionSuggestions(inUse: [String],
+                                    starters: [String] = starterPositions)
+        -> (used: [String], starters: [String]) {
+        var seen: Set<String> = []
+        var used: [String] = []
+        for raw in inUse {
+            let position = raw.trimmingCharacters(in: .whitespaces)
+            let key = position.lowercased()
+            guard !position.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            used.append(position)
+        }
+        used.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+        return (used, starters.filter { !seen.contains($0.lowercased()) })
+    }
+
     // MARK: Editing
 
     /// Returns false when this clip already carries that exact tag. Clicking a category
