@@ -1260,11 +1260,24 @@ final class TagLibrary: ObservableObject {
     enum ImportError: LocalizedError {
         case unreadable
         case noRows
+        case duplicateNumbers(team: String, numbers: [String])
 
         var errorDescription: String? {
             switch self {
             case .unreadable: return "That file couldn't be read as text."
             case .noRows:     return "No players were found in that file."
+            case .duplicateNumbers(let team, let numbers):
+                let blanks = numbers.contains("")
+                let real = numbers.filter { !$0.isEmpty }.sorted()
+                var parts: [String] = []
+                if !real.isEmpty {
+                    parts.append("\(real.count == 1 ? "number" : "numbers") "
+                                 + real.joined(separator: ", "))
+                }
+                if blanks { parts.append("a blank number") }
+                return "\(team) has two players sharing \(parts.joined(separator: ", and more sharing ")). "
+                     + "Keeper tells players apart by their number, so each has to be unique "
+                     + "within the team — a blank one included. Fix the file and import again."
             }
         }
     }
@@ -1274,10 +1287,20 @@ final class TagLibrary: ObservableObject {
     @discardableResult
     func importRoster(from url: URL) throws -> (team: String, players: Int, tagsUpdated: Int) {
         guard let text = CSV.readText(url) else { throw ImportError.unreadable }
+        return try importRoster(csv: text,
+                                fallbackTeam: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// The whole of importing, with the file-reading taken out — the same split `load()` has.
+    ///
+    /// A roster fetched over the network comes in as CSV text and goes through this, so it
+    /// gets the identical column handling, duplicate-number refusal, team matching and tag
+    /// refresh. Two import paths that validated differently would be two sets of bugs.
+    func importRoster(csv text: String,
+                      fallbackTeam: String) throws -> (team: String, players: Int, tagsUpdated: Int) {
         var rows = CSV.parse(text).filter { row in row.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty } }
         guard !rows.isEmpty else { throw ImportError.noRows }
 
-        let fallbackTeam = url.deletingPathExtension().lastPathComponent
         var columns: [String: Int] = [:]
 
         // Header row?
@@ -1335,6 +1358,20 @@ final class TagLibrary: ObservableObject {
         }
 
         guard !grouped.isEmpty else { throw ImportError.noRows }
+
+        // The same rule the roster editor enforces, which the import used to skip. A player's
+        // id is team-and-number, so two players sharing one share an id — and a duplicate id
+        // in a SwiftUI list is the thing that misbehaves rather than merely looking wrong.
+        // Refused whole rather than half-imported: a team missing the player who lost the
+        // clash would be worse than one that didn't arrive.
+        for (id, players) in grouped {
+            var counts: [String: Int] = [:]
+            for player in players { counts[player.number, default: 0] += 1 }
+            let clashes = counts.filter { $0.value > 1 }.map(\.key)
+            if !clashes.isEmpty {
+                throw ImportError.duplicateNumbers(team: teamNames[id] ?? id, numbers: clashes)
+            }
+        }
 
         var imported = 0
         for (id, players) in grouped {

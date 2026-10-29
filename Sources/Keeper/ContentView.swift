@@ -66,6 +66,9 @@ struct ContentView: View {
         .sheet(isPresented: $state.showWelcome, onDismiss: { state.runPendingWelcomeAction() }) {
             WelcomeSheet(state: state)
         }
+        .sheet(isPresented: $state.showRosterDownload) {
+            RosterDownloadSheet(state: state)
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             Playback.shared.startListening()

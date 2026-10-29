@@ -270,6 +270,113 @@ final class AppState: ObservableObject {
     /// Opens by itself on a first launch, and from Help → Welcome & Tutorial after that.
     @Published var showWelcome = false
 
+    // MARK: - Downloading a roster
+
+    @Published var showRosterDownload = false
+    @Published var leagueTeams: [LeagueTeam] = []
+    @Published var isFetchingRosters = false
+    @Published var rosterDownloadNote: String?
+
+    /// Fetches the team list for the picker. Only when it's empty: the list changes once a
+    /// season at most, and re-fetching every time the sheet opens would be a network call
+    /// for nothing.
+    func loadLeagueTeams() {
+        guard leagueTeams.isEmpty, !isFetchingRosters else { return }
+        isFetchingRosters = true
+        rosterDownloadNote = nil
+        Task { await fetchLeagueTeams() }
+    }
+
+    private func fetchLeagueTeams() async {
+        defer { isFetchingRosters = false }
+        guard let url = URL(string: "\(RosterFeed.api)/standings/now") else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request(url))
+            let teams = RosterFeed.teams(in: data)
+            guard !teams.isEmpty else {
+                rosterDownloadNote = "The league list came back empty. Try again later, or "
+                    + "import a CSV instead."
+                return
+            }
+            leagueTeams = teams
+        } catch {
+            rosterDownloadNote = "Couldn't reach the league — \(error.localizedDescription)"
+        }
+    }
+
+    /// Fetches the chosen rosters and imports each one exactly as a CSV would be.
+    func downloadRosters(_ teams: [LeagueTeam]) {
+        guard !teams.isEmpty, !isFetchingRosters else { return }
+        isFetchingRosters = true
+        rosterDownloadNote = nil
+        Task { await fetchRosters(teams) }
+    }
+
+    private func fetchRosters(_ teams: [LeagueTeam]) async {
+        defer { isFetchingRosters = false }
+
+        var imported = 0
+        var players = 0
+        var failed: [String] = []
+
+        for team in teams {
+            guard let url = URL(string: "\(RosterFeed.api)/roster/\(team.code)/current") else {
+                failed.append(team.code)
+                continue
+            }
+            do {
+                let (data, _) = try await URLSession.shared.data(for: request(url))
+                guard let csv = RosterFeed.csv(from: data, team: team) else {
+                    failed.append(team.name)
+                    continue
+                }
+                // Through the file importer, so a downloaded roster gets the same duplicate
+                // refusal and team matching an imported one does.
+                let result = try library.importRoster(csv: csv, fallbackTeam: team.name)
+                imported += 1
+                players += result.players
+                // The id the import actually used, not the slug of the name. A team you had
+                // already made by hand keeps its original id, so the slug can point at
+                // nothing — and the panel would jump nowhere with no sign why.
+                let slug = Team.slug(result.team)
+                lastImportedTeamID = library.team(id: slug) != nil ? slug : library.teams.first?.id
+                addLog("Downloaded \(team.name): \(result.players) players")
+            } catch {
+                // Named rather than counted: one team failing out of thirty-two is worth
+                // knowing which, and the usual reason is a roster the league hasn't filled in.
+                failed.append(team.name)
+                addLog("Couldn't download \(team.name): \(error.localizedDescription)")
+            }
+        }
+
+        reportDownload(imported: imported, players: players, failed: failed)
+    }
+
+    private func reportDownload(imported: Int, players: Int, failed: [String]) {
+        if imported == 0 {
+            rosterDownloadNote = failed.isEmpty
+                ? "Nothing was imported."
+                : "Couldn't import \(failed.joined(separator: ", "))."
+            return
+        }
+        let teamWord = imported == 1 ? "team" : "teams"
+        var note = "Imported \(imported) \(teamWord), \(players) players."
+        if !failed.isEmpty {
+            note += " Couldn't get \(failed.joined(separator: ", "))."
+        }
+        rosterDownloadNote = note
+        status = note
+        dropDanglingFilters()
+    }
+
+    /// A plain GET with a name on it, the same shape the update check uses.
+    private func request(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue("Keeper/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 20
+        return request
+    }
+
     /// What the tutorial offered to do for you, held until the sheet has closed. Deliberately
     /// not `@Published`: it's read once, by `ContentView`'s `onDismiss`, and republishing the
     /// whole state to announce it would be noise.
@@ -793,6 +900,7 @@ final class AppState: ObservableObject {
     var aSheetIsUp: Bool {
         showExportSheet || showVerifySheet || showRosterEditor
             || showPresetEditor || showShortcutsSheet || showWelcome
+            || showRosterDownload
     }
 
     @discardableResult

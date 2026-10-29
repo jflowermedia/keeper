@@ -6,7 +6,8 @@ import SwiftUI
 /// notice about a release shouldn't shove the clip grid down while you're working, which is
 /// why it sits at the bottom rather than the top.
 ///
-/// This is the only thing in Keeper that touches the network, which is why it's one file,
+/// One of only two things in Keeper that touch the network — the other is downloading a
+/// roster, which you ask for by name. That's why this is one file,
 /// why it can be turned off, and why it sends nothing: an unauthenticated GET to a public
 /// endpoint, no identifiers, no version reported back, nothing about your footage. The
 /// version comparison happens here.

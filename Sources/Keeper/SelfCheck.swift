@@ -62,6 +62,7 @@ enum SelfCheck {
         addingTeams()
         subjects()
         oneOffCategories()
+        rosterDownload()
         categorySections()
 
         print("\n\(passes) passed, \(failures.count) failed")
@@ -403,6 +404,150 @@ enum SelfCheck {
             failures.append("the current version's own release didn't parse")
             print("  FAIL the current version's own release didn't parse")
         }
+    }
+
+    // MARK: - Downloading a roster
+    //
+    // The league's field names aren't documented anywhere official, so every one of them is
+    // optional and has alternatives. What must never happen is a roster that looks fine and
+    // isn't: a player with no number can't be imported at all, and a name that lost half of
+    // itself would file footage under the wrong person.
+
+    private static func rosterDownload() {
+        section("Downloading a roster")
+
+        let jets = LeagueTeam(code: "WPG", name: "Winnipeg Jets")
+
+        // The shape the API is expected to return.
+        let nested = """
+        { "forwards": [
+            { "sweaterNumber": 26, "firstName": { "default": "Blake" },
+              "lastName": { "default": "Wheeler" }, "positionCode": "R" }],
+          "defensemen": [
+            { "sweaterNumber": 33, "firstName": { "default": "Dustin" },
+              "lastName": { "default": "Byfuglien" }, "positionCode": "D" }],
+          "goalies": [
+            { "sweaterNumber": 34, "firstName": { "default": "Michael" },
+              "lastName": { "default": "Hutchinson" }, "positionCode": "G" }] }
+        """
+        if let csv = RosterFeed.csv(from: Data(nested.utf8), team: jets) {
+            let lines = csv.split(separator: "\n").map(String.init)
+            expect("a header and three players", lines.count, 4)
+            expect("the header is what the importer reads", lines[0],
+                   "league,team,code,number,name,position")
+            expect("a forward", lines[1], "NHL,Winnipeg Jets,WPG,26,Blake Wheeler,Forward")
+            expect("a defenceman", lines[2], "NHL,Winnipeg Jets,WPG,33,Dustin Byfuglien,Defence")
+            expect("a goalie", lines[3], "NHL,Winnipeg Jets,WPG,34,Michael Hutchinson,Goalie")
+        } else {
+            failures.append("the expected roster shape didn't parse")
+            print("  FAIL the expected roster shape didn't parse")
+        }
+
+        // The flatter shape, in case the league ever sends it.
+        let flat = """
+        { "forwards": [{ "sweaterNumber": "9", "firstName": "Evander",
+                         "lastName": "Kane", "positionCode": "L" }] }
+        """
+        expect("a flat name and a numeric string still read",
+               RosterFeed.csv(from: Data(flat.utf8), team: jets)?
+                   .split(separator: "\n").last.map(String.init) ?? "none",
+               "NHL,Winnipeg Jets,WPG,9,Evander Kane,Forward")
+
+        // A player with no number is dropped, not carried through — an import refuses a
+        // blank number, so one unsigned call-up would otherwise cost the whole team.
+        let missing = """
+        { "forwards": [{ "firstName": { "default": "No" }, "lastName": { "default": "Number" } },
+                       { "sweaterNumber": 55, "firstName": { "default": "Mark" },
+                         "lastName": { "default": "Scheifele" }, "positionCode": "C" }] }
+        """
+        expect("the numberless player is left out",
+               RosterFeed.csv(from: Data(missing.utf8), team: jets)?
+                   .split(separator: "\n").count ?? 0, 2)
+
+        expectTrue("rubbish reads as nothing rather than crashing",
+                   RosterFeed.csv(from: Data("not json".utf8), team: jets) == nil)
+        expectTrue("an empty roster reads as nothing",
+                   RosterFeed.csv(from: Data("{}".utf8), team: jets) == nil)
+        expectTrue("a roster with nobody usable reads as nothing",
+                   RosterFeed.csv(from: Data(#"{"forwards":[{"firstName":"A"}]}"#.utf8),
+                                  team: jets) == nil)
+
+        // A comma in a name or a team would shift every column after it.
+        expect("a plain field isn't quoted", RosterFeed.field("Winnipeg Jets"), "Winnipeg Jets")
+        expect("a comma is quoted", RosterFeed.field("Jets, The"), "\"Jets, The\"")
+        expect("a quote is doubled", RosterFeed.field("Da \"Bus\""), "\"Da \"\"Bus\"\"\"")
+
+        // Positions map to what the roster editor shows, and anything unknown comes back
+        // empty rather than inventing a position.
+        expect("centre", RosterFeed.position("C"), "Forward")
+        expect("left wing", RosterFeed.position("L"), "Forward")
+        expect("right wing", RosterFeed.position("R"), "Forward")
+        expect("defence", RosterFeed.position("D"), "Defence")
+        expect("goalie", RosterFeed.position("G"), "Goalie")
+        expect("lower case still reads", RosterFeed.position("d"), "Defence")
+        expect("an unknown code is left blank", RosterFeed.position("W"), "")
+        expect("a missing code is left blank", RosterFeed.position(nil), "")
+
+        // The team list, discovered rather than written down.
+        let standings = """
+        { "standings": [
+            { "teamAbbrev": { "default": "WPG" }, "teamName": { "default": "Winnipeg Jets" } },
+            { "teamAbbrev": { "default": "MTL" }, "teamName": { "default": "Montreal Canadiens" } },
+            { "teamAbbrev": { "default": "WPG" }, "teamName": { "default": "Winnipeg Jets" } }] }
+        """
+        let teams = RosterFeed.teams(in: Data(standings.utf8))
+        expect("a repeated team is listed once", teams.count, 2)
+        expect("and they're in reading order", teams.first?.name ?? "none", "Montreal Canadiens")
+        expectTrue("each carries its code", teams.allSatisfy { !$0.code.isEmpty })
+        expect("rubbish standings give no teams",
+               RosterFeed.teams(in: Data("not json".utf8)).count, 0)
+        expect("empty standings give no teams",
+               RosterFeed.teams(in: Data(#"{"standings":[]}"#.utf8)).count, 0)
+
+        // Duplicate numbers have to be refused by the *import*, not only by the roster
+        // editor. A player's id is team-and-number, so two players sharing one share an id,
+        // and the import used to accept that silently — which is how a downloaded or pasted
+        // roster could leave a team that misbehaves in every list it appears in.
+        func numbers(_ csv: String) -> [String] {
+            csv.split(separator: "\n").dropFirst().compactMap {
+                let parts = $0.split(separator: ",", omittingEmptySubsequences: false)
+                return parts.count > 3 ? String(parts[3]) : nil
+            }
+        }
+        func hasClash(_ csv: String) -> Bool {
+            let all = numbers(csv)
+            return Set(all).count != all.count
+        }
+
+        let clean = """
+        league,team,code,number,name,position
+        NHL,Jets,WPG,26,Blake Wheeler,Forward
+        NHL,Jets,WPG,33,Dustin Byfuglien,Defence
+        """
+        let clashing = """
+        league,team,code,number,name,position
+        NHL,Jets,WPG,14,Anthony Peluso,Forward
+        NHL,Jets,WPG,14,Tim Stapleton,Forward
+        """
+        let blanks = """
+        league,team,code,number,name,position
+        NHL,Jets,WPG,,One Player,Forward
+        NHL,Jets,WPG,,Another Player,Forward
+        """
+        expectTrue("a clean roster has no clash", !hasClash(clean))
+        expectTrue("a repeated number is a clash", hasClash(clashing))
+        expectTrue("two blanks are a clash too, since a blank is still an id",
+                   hasClash(blanks))
+
+        // And the message has to name the number, or you can't find it in the file.
+        let message = TagLibrary.ImportError
+            .duplicateNumbers(team: "Jets", numbers: ["14"]).errorDescription ?? ""
+        expectTrue("the team is named", message.contains("Jets"))
+        expectTrue("the number is named", message.contains("14"))
+        let blankMessage = TagLibrary.ImportError
+            .duplicateNumbers(team: "Jets", numbers: [""]).errorDescription ?? ""
+        expectTrue("a blank clash is described rather than shown as nothing",
+                   blankMessage.contains("blank"))
     }
 
     // MARK: - Category sections

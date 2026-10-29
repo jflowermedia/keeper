@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.8.1"
+    static let version = "0.8.2"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -105,6 +105,9 @@ struct KeeperApp: App {
                                       modifiers: shortcuts.modifiers(.verify))
                     .disabled(state.clips.isEmpty || state.isScanning)
                 Divider()
+                Button("Download a Roster…") { state.showRosterDownload = true }
+                    .help("Fetches a team's current roster from the league, so the numbers "
+                          + "are today's rather than whenever the file was made.")
                 Button("Import Roster CSV…") { state.importRoster() }
                     .keyboardShortcut(shortcuts.equivalent(.importRoster),
                                       modifiers: shortcuts.modifiers(.importRoster))

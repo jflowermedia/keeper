@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.8.1.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.8.2.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -157,6 +157,10 @@ Team names must be distinct, since importing one replaces any team of the same n
 
 **§** at the bench narrows it to the subjects and hides the players; press it again for everyone. That's the key left of 1 on a British keyboard — a US layout has ` there, so it's rebindable in **Keyboard Shortcuts** under *Keyboard tagging*. It works at the bench and nowhere else. Typing a number turns it off, since subjects have no number. By default it toggles; **View → Hold for Subjects Only** makes it a hold instead, so the subjects show while the key is down and the players come back when you let go.
 
+**To get a roster without typing it in**, use **File → Download a Roster…**. It asks the NHL's own public API — the one behind NHL.com — who's playing, you tick the teams you're shooting, and the rosters import with today's numbers. It goes through exactly the same checks an imported CSV does, including refusing a team where two players share a number.
+
+That covers the NHL. For every other league, **⌘I** imports a CSV — the format is above, and `tools/nhl-rosters.py` is a worked example if you want to script your own.
+
 **Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They sit at the end of every bench and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Add your own with **+ Subject** under the bench; right-click one to remove it. They have no number, so they drop out of the grid the moment you start typing one. A subject's tag records whichever team you're focused on.
 
 **⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams.
@@ -255,7 +259,7 @@ Build your own in **Edit Presets…**: a name, a fallback team code, a separator
 
 Keeper asks GitHub once a day whether there's a newer release, and shows a strip along the bottom of the window if there is. **What's New** opens the release page; **Skip This One** stops it mentioning that version again. **Help → Check for Updates…** asks straight away and always answers, including when you're already on the latest.
 
-It only tells you — nothing is downloaded or installed, and you drag the new app to Applications the same as the first time. This is the only thing in Keeper that touches the network: an unauthenticated request to a public GitHub URL, sending no identifiers, no account, and nothing about your footage. **Help → Check for Updates Automatically** turns it off, and with it off Keeper never reaches the network at all.
+It only tells you — nothing is downloaded or installed, and you drag the new app to Applications the same as the first time. It's an unauthenticated request to a public GitHub URL, sending no identifiers, no account, and nothing about your footage. **Help → Check for Updates Automatically** turns it off. Keeper touches the network in only one other place — downloading a roster, which you ask for by name — and nothing else it does ever goes online.
 
 ---
 
