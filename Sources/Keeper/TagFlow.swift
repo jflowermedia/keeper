@@ -186,13 +186,21 @@ extension AppState {
     /// typed number is hiding. What a hand-made selection is resolved against.
     var allActivePlayers: [Player] { activeTeams.flatMap(\.players) + library.subjectEntries }
 
-    /// The roster on screen, before the number filter, with the subjects on the end.
+    /// The team bench on screen, without the subjects. What a typed number searches.
+    var teamBenchPlayers: [Player] { shownTeams.flatMap(\.players) }
+
+    /// The bench on screen, before the number filter: a team's players, or the subjects when
+    /// their pill is showing.
     ///
-    /// Subjects live in the bench rather than in a section of their own because that's where
-    /// your hand already is — the cursor, Return, and the outline all work on them unchanged.
-    /// They have no number, so the moment you start typing one they drop out of the grid,
-    /// which is what you want: typing a number means you're after a person.
-    var rosterPlayers: [Player] { shownTeams.flatMap(\.players) + library.subjectEntries }
+    /// Subjects used to sit on the end of every bench. They have a pill of their own now,
+    /// beside the teams, so a forty-chip bench isn't made longer by six things nobody's
+    /// numbered — and the cursor, Return and the outline still work on them unchanged.
+    var rosterPlayers: [Player] { subjectsOnly ? library.subjectEntries : teamBenchPlayers }
+
+    /// Who a pick can resolve to, whichever pill is showing. A subject picked at the bench is
+    /// still the pick once the flow has moved on to the categories and the bench has gone
+    /// back to the team — `rosterPlayers` alone would lose it at that step.
+    var pickablePlayers: [Player] { teamBenchPlayers + library.subjectEntries }
 
     /// What the grid shows: the roster narrowed to the number being typed. The cursor
     /// indexes this, so a filtered grid and the cursor can't drift apart.
@@ -200,31 +208,48 @@ extension AppState {
         // Subjects only, when asked for. The two filters are never on together — typing a
         // number means you want a person, and asking for subjects means you don't — so they
         // turn each other off rather than combining into an empty grid.
-        if subjectsOnly { return rosterPlayers.filter(\.isSubject) }
+        if subjectsOnly { return rosterPlayers }
         guard !numberEntry.isEmpty else { return rosterPlayers }
         return rosterPlayers.filter { $0.number.hasPrefix(numberEntry) }
     }
 
-    /// Flips between the benches: all of them, then each in turn. This is what ← → do at
-    /// the player stage, and what the pills in the panel click through.
+    /// The pills in order: each team in play, then the subjects.
+    var benchStops: [BenchStop] {
+        activeTeams.map { .team($0.id) } + [.subjects]
+    }
+
+    var shownStop: BenchStop {
+        subjectsOnly ? .subjects : (shownTeamID.map(BenchStop.team) ?? .subjects)
+    }
+
+    /// What a pill does when clicked, and where ← → land.
+    func show(_ stop: BenchStop) {
+        switch stop {
+        case .subjects:
+            subjectsOnly = true
+            numberEntry = ""
+        case .team(let id):
+            focusedTeamID = id
+            subjectsOnly = false
+        }
+        playerCursor = 0
+    }
+
+    /// Steps between the pills. This is what ← → do at the player stage.
     func cycleFocus(forward: Bool) {
-        let teams = activeTeams
-        guard teams.count > 1 else {
+        let stops = benchStops
+        guard stops.count > 1 else {
             // Said rather than ignored: a key that does nothing with no explanation is how
             // "it doesn't switch between the teams" starts.
-            status = "Only one roster is in play — tick a second one in the roster menu."
+            status = "No roster in play — pick one in the roster menu."
             return
         }
-
-        // Straight between the benches. There's no "all of them" position any more: two
-        // rosters at once was 40-odd chips to read, which is what the switch is for.
-        let ids = teams.map(\.id)
-        let at = shownTeamID.flatMap { ids.firstIndex(of: $0) } ?? 0
-        let next = forward
-            ? (at + 1) % ids.count
-            : (at - 1 + ids.count) % ids.count
-        focusedTeamID = ids[next]
-        status = "Showing \(teams[next].name)."
+        let next = BenchStop.step(stops, from: shownStop, forward: forward)
+        show(next)
+        switch next {
+        case .subjects: status = "Showing the subjects."
+        case .team(let id): status = "Showing \(library.team(id: id)?.name ?? id)."
+        }
     }
 
     /// A short form that fits a pill or a 200pt button: the filename code if there is one,
@@ -318,14 +343,35 @@ extension AppState {
     /// Idempotent on purpose — see the note on `teamChoice`. Anything driving this from a
     /// binding must be able to call it twice without undoing itself.
     func setActiveTeam(_ id: String, on wanted: Bool) {
-        let already = activeTeamIDs.contains(id)
-        guard already != wanted else { return }
-        if wanted {
-            activeTeamIDs.append(id)
-        } else {
-            activeTeamIDs.removeAll { $0 == id }
+        let result = TeamPick.apply(current: activeTeamIDs, id: id, on: wanted,
+                                    bothTeams: bothTeams, league: leagueKey(of:))
+        if let refusal = result.refusal {
+            status = describe(refusal, tapped: id)
+            return
         }
+        guard result.ids != activeTeamIDs else { return }
+        activeTeamIDs = result.ids
         clampFlowCursors()
+    }
+
+    /// Whether a roster can be ticked right now, for the menu to grey out what it would refuse.
+    func canActivateTeam(_ id: String) -> Bool {
+        TeamPick.apply(current: activeTeamIDs, id: id, on: true,
+                       bothTeams: bothTeams, league: leagueKey(of:)).refusal == nil
+    }
+
+    private func leagueKey(of id: String) -> String {
+        library.team(id: id).map(TagLibrary.leagueKey) ?? TagLibrary.ungroupedLeague
+    }
+
+    private func describe(_ refusal: TeamPick.Refusal, tapped: String) -> String {
+        let name = library.team(id: tapped)?.name ?? tapped
+        switch refusal {
+        case .otherLeague(let have):
+            return "\(name) isn't in \(have). Both teams have to be from the same league."
+        case .full:
+            return "Two teams are already in play. Untick one before adding \(name)."
+        }
     }
 
     func setActiveTeams(_ ids: [String]) {
@@ -338,7 +384,13 @@ extension AppState {
     func clampFlowCursors() {
         // Only when it actually changed: the setter persists, and this runs on every
         // library change.
-        let live = activeTeamIDs.filter { library.team(id: $0) != nil }
+        let existing = activeTeamIDs.filter { library.team(id: $0) != nil }
+        // A roster edit can move a team to another league, or a stored list can predate the
+        // rule. Either way the pair stops being a valid one, and the second bench goes.
+        let live = TeamPick.sanitize(existing, bothTeams: bothTeams, league: leagueKey(of:))
+        if bothTeams, live.count < existing.count {
+            status = "Only one roster is in play now: both teams have to be from the same league."
+        }
         if live != activeTeamIDs { activeTeamIDs = live }
 
         // A bench that's been unticked or deleted can't go on being the focused one.
@@ -356,7 +408,7 @@ extension AppState {
         if categories != categoryCursor { categoryCursor = categories }
         // Against the whole bench, not the filtered grid: a player picked a moment ago is
         // still a valid pick while a typed number happens to be hiding them.
-        if let picked = flowPlayerID, !rosterPlayers.contains(where: { $0.id == picked }) {
+        if let picked = flowPlayerID, !pickablePlayers.contains(where: { $0.id == picked }) {
             flowPlayerID = nil
             if tagStage == .categories { tagStage = .players }
         }
@@ -387,7 +439,7 @@ extension AppState {
     /// been cleared, and a pick must not evaporate because of one.
     var flowPlayer: Player? {
         guard let flowPlayerID else { return nil }
-        return rosterPlayers.first { $0.id == flowPlayerID }
+        return pickablePlayers.first { $0.id == flowPlayerID }
     }
 
     func resetFlow() {
@@ -457,12 +509,17 @@ extension AppState {
             numberEntry = ""
             categoryEntry = ""
             subjectsOnly = false
-            guard !rosterPlayers.isEmpty else {
+            guard !rosterPlayers.isEmpty || !library.subjectEntries.isEmpty else {
                 status = library.teams.isEmpty
                     ? "No roster yet — import one with ⌘I."
                     : "Choose this game's teams in the tagging panel first."
                 return
             }
+            // No players to land on but subjects to tag: start there rather than refuse.
+            if rosterPlayers.isEmpty { subjectsOnly = true }
+            // Escape back from the categories with a subject picked returns to the Subjects
+            // pill, not the team — the pick should still be on screen to change your mind about.
+            if flowPlayer?.isSubject == true { subjectsOnly = true }
             playerCursor = min(playerCursor, max(0, rosterPlayers.count - 1))
             tagStage = .players
 
@@ -539,7 +596,9 @@ extension AppState {
             // 1 leaves #1 and #10–#19 on screen, 7 then leaves #17 alone. With twenty-odd
             // chips, seeing the shortlist beats hunting for a ring.
             let attempt = numberEntry + key
-            guard rosterPlayers.contains(where: { $0.number.hasPrefix(attempt) }) else {
+            // The team bench, even from the Subjects pill: typing a number means a person,
+            // and subjects have no numbers to match.
+            guard teamBenchPlayers.contains(where: { $0.number.hasPrefix(attempt) }) else {
                 // Refused rather than applied, so the grid is never filtered to nothing
                 // and the digits already typed survive a fat finger.
                 status = "No #\(attempt) on \(shownTeams.first?.name ?? "this roster")."
@@ -579,7 +638,7 @@ extension AppState {
     private func showSubjectsOnly() {
         guard !subjectsOnly else { return }
         guard !library.subjectEntries.isEmpty else {
-            status = "No subjects yet — add one under the bench."
+            status = "No subjects yet — click the Subjects pill to add one."
             return
         }
         subjectsOnly = true
@@ -595,7 +654,7 @@ extension AppState {
             return
         }
         guard !library.subjectEntries.isEmpty else {
-            status = "No subjects yet — add one under the bench."
+            status = "No subjects yet — click the Subjects pill to add one."
             return
         }
         // Said rather than silently ignored, the same rule as the rest of the flow.
@@ -749,5 +808,56 @@ extension AppState {
             let who = flowPlayer.map { $0.label } ?? "this clip, no player"
             return "↑ ↓ or first letter · Return tags \(who) · ⇧Return keeps this clip"
         }
+    }
+}
+
+/// Which rosters are in play after a tick or an untick.
+///
+/// Pure, so the self-check can run it. The two limits are the whole of the both-teams
+/// rule: two benches at most, and from one league — a game is two teams who play each
+/// other, and a pair across leagues is almost always a mis-click in a long menu.
+enum TeamPick {
+    enum Refusal: Equatable {
+        /// The league the roster already in play is in.
+        case otherLeague(have: String)
+        case full
+    }
+
+    static func apply(current: [String], id: String, on wanted: Bool, bothTeams: Bool,
+                      league: (String) -> String) -> (ids: [String], refusal: Refusal?) {
+        if !wanted {
+            return (current.filter { $0 != id }, nil)
+        }
+        if current.contains(id) { return (current, nil) }
+        // One bench: a tick swaps, so there's nothing to refuse.
+        guard bothTeams, let first = current.first else { return ([id], nil) }
+        if current.count >= 2 { return (current, .full) }
+        let have = league(first)
+        if league(id) != have { return (current, .otherLeague(have: have)) }
+        return (current + [id], nil)
+    }
+
+    /// The list made to obey the rule, keeping as much of it as it can, first one first.
+    static func sanitize(_ ids: [String], bothTeams: Bool,
+                         league: (String) -> String) -> [String] {
+        guard let first = ids.first else { return [] }
+        guard bothTeams else { return [first] }
+        let second = ids.dropFirst().first { league($0) == league(first) }
+        return [first] + (second.map { [$0] } ?? [])
+    }
+}
+
+/// One pill above the bench: a team in play, or the subjects.
+enum BenchStop: Equatable {
+    case team(String)
+    case subjects
+
+    /// The next pill along, wrapping. A stop that isn't in the list — a team unticked since —
+    /// counts as the first, so the step still lands somewhere real.
+    static func step(_ stops: [BenchStop], from current: BenchStop, forward: Bool) -> BenchStop {
+        guard !stops.isEmpty else { return current }
+        let at = stops.firstIndex(of: current) ?? 0
+        let next = forward ? (at + 1) % stops.count : (at - 1 + stops.count) % stops.count
+        return stops[next]
     }
 }

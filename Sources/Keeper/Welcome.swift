@@ -241,7 +241,8 @@ enum WelcomeTour {
              doIt: [.downloadRoster, .importRoster]),
 
         Step(title: "Tag your clips",
-             body: "Pick a clip, then a player and a category in the panel on the right.\n\n"
+             body: "Pick a clip, then a player and a category in the panel on the right. "
+                 + "Shooting a game? Tick Both teams and add the other bench.\n\n"
                  + "To skip the mouse: Tab moves between the list, the bench and the "
                  + "categories, and typing a shirt number jumps to that player.",
              key: .keyboardFlow),

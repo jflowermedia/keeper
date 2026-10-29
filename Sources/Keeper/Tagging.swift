@@ -210,7 +210,7 @@ final class TagLibrary: ObservableObject {
     /// treats the list as flat — filename priority, the preset editor, the filter menu —
     /// carries on unchanged and there is only one order to keep straight.
     var categories: [String] { categorySections.flatMap(\.items) }
-    /// Non-roster subjects, shown at the end of every bench. See `Subjects`.
+    /// Non-roster subjects, on a pill of their own beside the teams. See `Subjects`.
     @Published var subjects: [String] = Subjects.defaults
     /// One-off categories, newest first and capped. See `noteRecent`.
     @Published private(set) var recentCategories: [String] = []
@@ -712,13 +712,20 @@ final class TagLibrary: ObservableObject {
     /// The heading for rosters that haven't been filed under anything.
     static let ungroupedLeague = "Other"
 
+    /// Which league a team counts as being in. The menu headings and the both-teams rule both
+    /// read this, so a team can't sit under one heading and be paired as if it were under
+    /// another. Unfiled teams count as one league together, the same as they share a heading.
+    static func leagueKey(_ team: Team) -> String {
+        let trimmed = (team.league ?? "").trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? ungroupedLeague : trimmed
+    }
+
     /// Teams under their league headings, alphabetically, with the unfiled ones last so a
     /// roster missing a league doesn't push the real groups down the menu.
     var teamsByLeague: [LeagueGroup] {
         var groups: [String: [Team]] = [:]
         for team in teams {
-            let trimmed = (team.league ?? "").trimmingCharacters(in: .whitespaces)
-            groups[trimmed.isEmpty ? Self.ungroupedLeague : trimmed, default: []].append(team)
+            groups[Self.leagueKey(team), default: []].append(team)
         }
         return groups
             .map { heading, members in

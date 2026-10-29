@@ -77,7 +77,7 @@ struct TagPanel: View {
             } else {
                 teamPicker
                 focusPills
-                subjectField
+                if state.subjectsOnly { subjectField }
                 playerGrid
                     .flowSection(.players, current: state.tagStage, active: state.keyboardFlow)
                 Divider()
@@ -262,7 +262,15 @@ struct TagPanel: View {
                 Text(state.activeTeamsLabel)
             }
             .frame(maxWidth: 200)
-            .help("Tick the rosters you're shooting — both teams for a game")
+            .help(state.bothTeams
+                  ? "Tick both teams for a game — two at most, from the same league"
+                  : "Pick the roster you're shooting. Turn on Both teams for a game.")
+
+            Toggle("Both teams", isOn: $state.bothTeams)
+                .toggleStyle(.checkbox)
+                .fixedSize()
+                .help("Two benches in play at once, from the same league. Off, picking a "
+                      + "roster swaps it in.")
 
             if !selectedPlayerIDs.isEmpty {
                 Button("Clear \(selectedPlayerIDs.count)") { selectedPlayerIDs = [] }
@@ -277,56 +285,63 @@ struct TagPanel: View {
     /// what's on screen, which is the point. ← → do the same thing from the keyboard.
     @ViewBuilder
     private var focusPills: some View {
-        let teams = state.activeTeams
-        // Shown for the pills, but also whenever there's a filter to report — with one
-        // roster in play there are no pills, and the typed number had nowhere to appear.
-        if teams.count > 1 || !state.numberEntry.isEmpty || state.subjectsOnly {
-            HStack(spacing: 4) {
-                if teams.count > 1 {
-                    ForEach(teams) { focusPill(for: $0) }
-                }
+        // Always shown now, even with one roster: the Subjects pill is the only way to
+        // the subjects with the mouse, and it sits to the right of the teams the way a
+        // second team's does.
+        HStack(spacing: 4) {
+            ForEach(state.activeTeams) { focusPill(for: $0) }
+            subjectsPill
 
-                Spacer(minLength: 0)
+            Spacer(minLength: 0)
 
-                if state.subjectsOnly {
-                    Text("Subjects")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.16))
-                        .clipShape(Capsule())
-                        .help("Players hidden · \(Shortcuts.shared.display(.subjectsOnly)) "
-                              + "to show them again")
-                }
-
-                // The typed number lives here, beside the bench it's filtering, because
-                // this is where you're looking while you type it.
-                if !state.numberEntry.isEmpty {
-                    Text("#\(state.numberEntry)")
-                        .font(.caption2.weight(.bold).monospacedDigit())
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.16))
-                        .clipShape(Capsule())
-                        .help("Showing numbers starting \(state.numberEntry) · ⌫ to go back")
-                } else if state.keyboardFlow {
-                    Text("← →")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .help("Switch bench from the keyboard")
-                }
+            // The typed number lives here, beside the bench it's filtering, because
+            // this is where you're looking while you type it.
+            if !state.numberEntry.isEmpty {
+                Text("#\(state.numberEntry)")
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.16))
+                    .clipShape(Capsule())
+                    .help("Showing numbers starting \(state.numberEntry) · ⌫ to go back")
+            } else if state.keyboardFlow {
+                Text("← →")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .help("Switch bench from the keyboard")
             }
         }
+    }
+
+    private var subjectsPill: some View {
+        let on = state.subjectsOnly
+        return Button {
+            state.show(.subjects)
+        } label: {
+            Text("Subjects")
+                .font(.caption2.weight(on ? .bold : .regular))
+                .italic()
+                .foregroundStyle(on ? Color.accentColor : .secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(on ? Color.accentColor.opacity(0.16)
+                               : Color.secondary.opacity(0.1))
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("The mascot, the crowd, the anthem — things you shoot that aren't on a roster · "
+              + "\(Shortcuts.shared.display(.subjectsOnly)) at the bench")
     }
 
     private func focusPill(for team: Team) -> some View {
         // Reads the bench actually on screen rather than `focusedTeamID`, which is nil
         // until something is picked even though a roster is showing.
-        let on = state.shownTeamID == team.id
+        let on = !state.subjectsOnly && state.shownTeamID == team.id
         return Button {
-            state.focusedTeamID = team.id
+            state.show(.team(team.id))
         } label: {
             Text(state.focusLabel(for: team))
                 .font(.caption2.weight(on ? .bold : .regular))
@@ -361,6 +376,10 @@ struct TagPanel: View {
         )) {
             Text(item.name)
         }
+        // Greyed rather than hidden: a team vanishing from the menu reads as it having been
+        // deleted. The league headings say why it's grey. `setActiveTeam` refuses with a
+        // reason either way, for any path that isn't this menu.
+        .disabled(!state.isActiveTeam(item.id) && !state.canActivateTeam(item.id))
     }
 
     /// A player with its place in the flattened grid. The identity comes from `GridID`,
@@ -378,7 +397,7 @@ struct TagPanel: View {
     /// headers, and the grid went on showing rosters that had left the data. There's only
     /// ever one bench on screen now, so none of that is needed: the pills say which, and
     /// `flowPlayers` is the same list the cursor indexes.
-    /// Adding a subject — the mascot, the crowd, the anthem. Tucked under the bench it
+    /// Adding a subject — the mascot, the crowd, the anthem. Shown on the Subjects pill it
     /// appends to, and hidden until asked for, because it's a once-a-season job rather than
     /// something to step past on every clip.
     @ViewBuilder
@@ -396,8 +415,8 @@ struct TagPanel: View {
             }
             .buttonStyle(.plain)
             .help("Something you shoot that isn't on a roster — the mascot, the crowd, the "
-                  + "anthem. They sit at the end of every bench and tag like a player, so "
-                  + "the category is still free to say what happened.")
+                  + "anthem. They tag like a player, so the category is still free to say "
+                  + "what happened.")
 
             if showingSubjectField {
                 TextField("Mascot", text: $newSubject)
@@ -439,7 +458,9 @@ struct TagPanel: View {
                     // with nobody in it. The first can't normally happen — a digit that
                     // would empty the grid is refused — but a roster edit underneath can
                     // do it, and "wears #." would be nonsense for the second.
-                    Text(state.numberEntry.isEmpty
+                    Text(state.subjectsOnly
+                         ? "No subjects yet. + Subject adds one."
+                         : state.numberEntry.isEmpty
                          ? "This roster has no players yet. ⌘⇧R to add some."
                          : "Nobody on this bench wears #\(state.numberEntry).")
                         .font(.caption)

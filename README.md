@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.8.3.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.9.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -14,7 +14,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 **Previews without leaving the app.** Space plays and pauses, 1 and 3 shuttle back and forward through 2x, 4x and 8x, and the arrow keys walk the list — so a review pass never needs the mouse. ⌘F fills the screen. Every one of those keys can be changed.
 
-**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Tick both benches for a game and the grid shows both rosters. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
+**Tags clips to players and events.** Import a roster as a CSV, or type one in. Click a player, then a category — Goal, Save, Hit, or your own. Turn on **Both teams** for a game and switch benches with one key. Several players can be tagged on one clip with different categories, so one gets the goal and another the assist.
 
 **Or tag without the mouse.** Turn on keyboard tagging and a clip is arrow, Tab, jersey number, Return, Return — through the clips, into the roster, onto the category and on to the next clip.
 
@@ -113,7 +113,7 @@ On a first launch Keeper offers a short walkthrough of the basics: card, KEEPs, 
 | ⌘⇧V | Check the card copied |
 | ⌘D | Debug log |
 | / | Clear the tags on the selected clips |
-| § | At the bench, show subjects only (see Rosters) |
+| § | At the bench, switch to the Subjects pill and back (see Rosters) |
 | ⌘, | Keyboard Shortcuts — change any of these |
 
 **⌘,** opens **Keyboard Shortcuts…**. Click a key, press the one you want. The review keys — play, shuttle, previous and next — are single presses with no modifier so they work one-handed; the menu commands need ⌘. Take a key that's already in use and the two swap, so nothing is ever left without one. **Reset All** puts them back.
@@ -159,13 +159,13 @@ Team names must be distinct, since importing one replaces any team of the same n
 
 **One-off tags.** Click **+** by the categories, type a word and press **Tag**: the clip is tagged and the word is kept to hand as a one-off without joining your permanent list. One-offs gather in their own **Recent** section at the end, in italics, the last twelve are kept and the oldest falls off by itself, so a word you used once on one card doesn't silt up the list forever. Right-click one to **Keep** it permanently or **Forget** it. A real category always outranks a one-off in filenames, so a goal with dancing in it is still named for the goal. **Add** puts a word straight in the permanent list instead.
 
-**§** at the bench narrows it to the subjects and hides the players; press it again for everyone. That's the key left of 1 on a British keyboard — a US layout has ` there, so it's rebindable in **Keyboard Shortcuts** under *Keyboard tagging*. It works at the bench and nowhere else. Typing a number turns it off, since subjects have no number. By default it toggles; **View → Hold for Subjects Only** makes it a hold instead, so the subjects show while the key is down and the players come back when you let go.
+**§** at the bench jumps to the Subjects pill; press it again to go back to the team. That's the key left of 1 on a British keyboard — a US layout has ` there, so it's rebindable in **Keyboard Shortcuts** under *Keyboard tagging*. It works at the bench and nowhere else. Typing a number goes back to the team, since subjects have no number. By default it toggles; **View → Hold for Subjects Only** makes it a hold instead, so the subjects show while the key is down and the team comes back when you let go.
 
-**To get a roster without typing it in**, use **File → Download a Roster…**. Pick a league at the top of the sheet — the NHL is the only one so far — and it asks that league's own public API who's playing. You tick the teams you're shooting, and the rosters import with today's numbers. It goes through exactly the same checks an imported CSV does, including refusing a team where two players share a number.
+**To get a roster without typing it in**, use **File → Download a Roster…**. Pick a league at the top of the sheet — the NHL is the only one so far — and it asks that league's own public API who's playing. Click a team's name to see its players before you import; a number two players share is flagged there, since that team won't import. Tick the teams you want, or **Select All** for the whole league, and they import with today's numbers. A whole league takes a moment, and the sheet counts through it. It goes through exactly the same checks an imported CSV does, including refusing a team where two players share a number.
 
 For any league not in the picker, **⌘I** imports a CSV — the format is above, and `tools/nhl-rosters.py` is a worked example if you want to script your own.
 
-**Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They sit at the end of every bench and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Add your own with **+ Subject** under the bench; right-click one to remove it. They have no number, so they drop out of the grid the moment you start typing one. A subject's tag records whichever team you're focused on.
+**Subjects** are the things you shoot that aren't on a roster — the mascot, the crowd, the anthem, the arena. They have a **Subjects** pill of their own, to the right of the team pills, and tag exactly like a player, so a mascot shot during a goal celebration can be the subject *Mascot* and the category *Celebration* rather than spending the category on saying who's in it. Click the pill, or press **← →** past the last team, to reach them. Add your own with **+ Subject** on that pill; right-click one to remove it. Typing a shirt number from the Subjects pill takes you back to the team, since subjects have no number. A subject's tag records whichever team pill you were last on.
 
 **⌘⇧R** edits rosters in the app: names, numbers, positions, team code and league, adding and removing players and teams.
 
@@ -181,9 +181,9 @@ An accent ring means **picked**. A green tick means **already on this clip**.
 
 ### Both teams at once
 
-The roster button takes ticks, not one choice: tick both benches and the grid shows both, headed by team name. A tag takes the team from the player, so it doesn't matter which block they're in. One roster for a practice, two for a game.
+Tick **Both teams** beside the roster menu for a game. Off, picking a roster swaps it in. On, a second roster can join the first, up to two, and only from the same league: teams in another league are greyed out in the menu. Turning it off keeps whichever bench is on screen. A tag takes the team from the player, so it doesn't matter which bench they're on.
 
-Only one bench shows at a time — forty chips is too many to read at once. A row of pills appears with each team's code; click one, or press **← →**, to switch. A typed jersey number only reaches the bench on screen, so 9 always means *this* team's #9.
+Only one bench shows at a time — forty chips is too many to read at once. A row of pills shows each team's code, then **Subjects**; click one, or press **← →**, to switch. A typed jersey number only reaches the bench on screen, so 9 always means *this* team's #9.
 
 ### Keyboard tagging
 
@@ -246,10 +246,11 @@ Everything adjustable, and where it lives. None of it touches a card. Defaults a
 | Setting | Where | Default | What it does |
 |---|---|---|---|
 | **Flag word** | Toolbar | `KEEP` | The word in the XML that marks a clip. Press Return to rescan. Change it if your camera writes something else. |
+| **Both teams** | Tagging panel, beside the roster menu | Off | Two rosters in play for a game, from the same league. |
 | **Move On After Marking** | Mark menu | On | ⌘K goes to the next clip. A badge click never moves the preview either way. |
 | **Move On After Tagging** | View menu, tagging panel ⋯ | Off | Goes to the next clip as soon as a tag lands. Leave it off if a clip usually takes two tags. |
 | **Warn Before Clearing Tags** | View menu | On | Whether `/` and the Remove Tags button ask first. ⌘Z restores them either way. |
-| **Hold for Subjects Only** | View menu | Off | Makes `§` a hold instead of a toggle. |
+| **Hold for Subjects Only** | View menu | Off | Makes `§` a hold instead of a toggle: the Subjects pill shows while it's down. |
 | **Include XML Sidecars** | View menu, Export sheet | On | Whether a clip's sidecar travels with it. This is the setting that applies when you drag a row to Finder. |
 | **Keep the Mac Awake While Transferring** | View menu | On | Stops idle sleep during a copy or a check. Takes effect immediately, even mid-copy. |
 | **Debug Log** | View menu, toolbar, ⌘D | Off | Shows which sidecar paired with which video and the result of every copy. |

@@ -214,7 +214,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .keyboardFlow:    return "Keyboard tagging"
         case .debugLog:        return "Debug log"
         case .clearTags:       return "Clear tags on selected clips"
-        case .subjectsOnly:    return "Subjects only"
+        case .subjectsOnly:    return "Subjects pill"
         }
     }
 

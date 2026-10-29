@@ -171,6 +171,17 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(activeTeamIDs, forKey: "activeTeamIDs") }
     }
 
+    /// Two benches in play for a game, or one. Off, ticking a roster swaps it in; on, a
+    /// second can join the first — from the same league only. See `TeamPick`.
+    @Published var bothTeams = false {
+        didSet {
+            UserDefaults.standard.set(bothTeams, forKey: "bothTeams")
+            guard bothTeams != oldValue, !bothTeams else { return }
+            // Back to one: keep the bench that's on screen, not whichever was ticked first.
+            if let shown = shownTeamID, activeTeamIDs.count > 1 { setActiveTeams([shown]) }
+        }
+    }
+
     /// Which of the rosters in play is showing on its own, or nil for all of them. Both
     /// benches at once is a long grid to read; this narrows it without taking the other
     /// team out of play.
@@ -225,8 +236,10 @@ final class AppState: ObservableObject {
     /// Digits typed at the category stage, narrowing the grid by position the way
     /// `numberEntry` narrows the bench by shirt number.
     @Published var categoryEntry = ""
-    /// Narrows the bench to the subjects — mascot, crowd, anthem and the rest — leaving the
-    /// players out. Toggled by the key bound to `.subjectsOnly`, and only at the bench.
+    /// The Subjects pill is the one showing — mascot, crowd, anthem and the rest, as a bench
+    /// of their own beside the teams. Reached by the pill, by ← → past the last team, or by
+    /// the key bound to `.subjectsOnly`. The team pills stay as they were underneath, which is
+    /// what a subject's tag records as its team.
     @Published var subjectsOnly = false
 
     /// Whether the subjects key is held down rather than pressed to toggle. Off by default:
@@ -282,10 +295,54 @@ final class AppState: ObservableObject {
             guard rosterSource != oldValue else { return }
             leagueTeams = []
             rosterDownloadNote = nil
+            previewCache = [:]
+            previewTeam = nil
             loadLeagueTeams()
         }
     }
     @Published var leagueTeams: [LeagueTeam] = []
+
+    /// The team whose players the download sheet is showing, and what it found.
+    @Published var previewTeam: LeagueTeam?
+    @Published var previewRows: [RosterFeed.Row] = []
+    @Published var previewNote: String?
+    @Published var isPreviewing = false
+    /// Per league session, so clicking back and forth between two teams doesn't ask the
+    /// league twice. The import still fetches fresh — a preview from ten minutes ago isn't
+    /// what "today's numbers" promises.
+    private var previewCache: [String: [RosterFeed.Row]] = [:]
+
+    func previewRoster(_ team: LeagueTeam) {
+        previewTeam = team
+        previewNote = nil
+        if let cached = previewCache[team.code] {
+            previewRows = cached
+            isPreviewing = false
+            return
+        }
+        previewRows = []
+        isPreviewing = true
+        let source = rosterSource
+        Task {
+            var rows: [RosterFeed.Row]? = nil
+            var note: String? = nil
+            do {
+                if let url = source.rosterURL(for: team) {
+                    rows = source.rows(from: try await fetch(url))
+                }
+                if rows == nil { note = "The league didn't list anyone for \(team.name)." }
+            } catch {
+                note = "Couldn't reach the league — \(error.localizedDescription)"
+            }
+            if let rows, source == rosterSource { previewCache[team.code] = rows }
+            // Clicking on through the list sends several of these at once, and they can
+            // land in any order. Only the one for the team still selected gets to draw.
+            guard previewTeam == team, source == rosterSource else { return }
+            previewRows = rows ?? []
+            previewNote = note
+            isPreviewing = false
+        }
+    }
     @Published var isFetchingRosters = false
     @Published var rosterDownloadNote: String?
 
@@ -333,7 +390,12 @@ final class AppState: ObservableObject {
         var failed: [String] = []
 
         let source = rosterSource
-        for team in teams {
+        for (index, team) in teams.enumerated() {
+            // A whole league is thirty-odd requests in a row. Without a count the sheet sits
+            // on a spinner long enough to look stuck.
+            if teams.count > 1 {
+                rosterDownloadNote = "Importing \(index + 1) of \(teams.count) — \(team.name)…"
+            }
             guard let url = source.rosterURL(for: team) else {
                 failed.append(team.code)
                 continue
@@ -836,6 +898,13 @@ final class AppState: ObservableObject {
             advanceAfterMark = UserDefaults.standard.bool(forKey: "advanceAfterMark")
         }
         activeTeamIDs = UserDefaults.standard.stringArray(forKey: "activeTeamIDs") ?? []
+        // Before this was a setting, two ticked rosters *was* both-teams mode — so a library
+        // that has never stored it starts in whichever state it was already in.
+        if UserDefaults.standard.object(forKey: "bothTeams") != nil {
+            bothTeams = UserDefaults.standard.bool(forKey: "bothTeams")
+        } else {
+            bothTeams = activeTeamIDs.count > 1
+        }
         focusedTeamID = UserDefaults.standard.string(forKey: "focusedTeamID")
         keyboardFlow = UserDefaults.standard.bool(forKey: "keyboardFlow")
         subjectsKeyIsHold = UserDefaults.standard.bool(forKey: "subjectsKeyIsHold")

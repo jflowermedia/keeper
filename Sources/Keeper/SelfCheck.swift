@@ -59,6 +59,8 @@ enum SelfCheck {
         updates()
         welcome()
         scanSummary()
+        teamPick()
+        benchStops()
         sleepHold()
         addingTeams()
         subjects()
@@ -482,6 +484,18 @@ enum SelfCheck {
                                   team: jets) == nil)
 
         // A comma in a name or a team would shift every column after it.
+        let rows = [RosterFeed.Row(number: "9", name: "A", position: ""),
+                    RosterFeed.Row(number: "12", name: "B", position: ""),
+                    RosterFeed.Row(number: "9", name: "C", position: ""),
+                    RosterFeed.Row(number: "12", name: "D", position: ""),
+                    RosterFeed.Row(number: "33", name: "E", position: "")]
+        expect("shared numbers are found, in order", RosterFeed.sharedNumbers(rows), ["9", "12"])
+        expect("a clean roster shares none", RosterFeed.sharedNumbers(Array(rows.suffix(3))), [])
+        expect("the preview and the import read the same players",
+               RosterFeed.rows(from: Data(nested.utf8))?.count,
+               RosterFeed.csv(from: Data(nested.utf8), team: jets)
+                   .map { $0.split(separator: "\n").count - 1 })
+
         expect("a plain field isn't quoted", RosterFeed.field("Winnipeg Jets"), "Winnipeg Jets")
         expect("a comma is quoted", RosterFeed.field("Jets, The"), "\"Jets, The\"")
         expect("a quote is doubled", RosterFeed.field("Da \"Bus\""), "\"Da \"\"Bus\"\"\"")
@@ -1271,6 +1285,59 @@ enum SelfCheck {
     // an empty string still draws, as a blank page with a Next button. And every key it quotes
     // comes from `Shortcuts`, so a binding dropped from the defaults would have the tutorial
     // confidently teaching "—".
+
+    // MARK: - Both teams
+    //
+    // Two at most, one league. A pair across leagues is a mis-click in a long menu, and
+    // three benches was never something the panel could show.
+
+    private static func benchStops() {
+        section("The bench pills")
+        let stops: [BenchStop] = [.team("a"), .team("b"), .subjects]
+        expect("→ from the first team", BenchStop.step(stops, from: .team("a"), forward: true), .team("b"))
+        expect("→ from the last team reaches the subjects",
+               BenchStop.step(stops, from: .team("b"), forward: true), .subjects)
+        expect("→ from the subjects wraps to the first team",
+               BenchStop.step(stops, from: .subjects, forward: true), .team("a"))
+        expect("← from the first team wraps to the subjects",
+               BenchStop.step(stops, from: .team("a"), forward: false), .subjects)
+        let one: [BenchStop] = [.team("a"), .subjects]
+        expect("one roster still has somewhere to go",
+               BenchStop.step(one, from: .team("a"), forward: true), .subjects)
+        expect("and back", BenchStop.step(one, from: .subjects, forward: true), .team("a"))
+        expect("a stop that's gone counts as the first",
+               BenchStop.step(stops, from: .team("gone"), forward: true), .team("b"))
+    }
+
+    private static func teamPick() {
+        section("Both teams")
+        let leagues = ["a": "NHL", "b": "NHL", "c": "NHL", "x": "MJHL"]
+        let league: (String) -> String = { leagues[$0] ?? TagLibrary.ungroupedLeague }
+        func pick(_ current: [String], _ id: String, on: Bool = true, both: Bool = true)
+            -> (ids: [String], refusal: TeamPick.Refusal?) {
+            TeamPick.apply(current: current, id: id, on: on, bothTeams: both, league: league)
+        }
+
+        expect("off: a tick swaps", pick(["a"], "b", both: false).ids, ["b"])
+        expect("off: across leagues is fine, it's a swap", pick(["a"], "x", both: false).ids, ["x"])
+        expect("on: a second joins", pick(["a"], "b").ids, ["a", "b"])
+        expect("on: the first is just picked", pick([], "x").ids, ["x"])
+        expect("on: another league is refused", pick(["a"], "x").refusal, .otherLeague(have: "NHL"))
+        expect("and changes nothing", pick(["a"], "x").ids, ["a"])
+        expect("on: a third is refused", pick(["a", "b"], "c").refusal, .full)
+        expect("ticking one already in is harmless", pick(["a", "b"], "a").ids, ["a", "b"])
+        expect("unticking takes it out", pick(["a", "b"], "a", on: false).ids, ["b"])
+        expect("unticking makes room again", pick(["b"], "c").ids, ["b", "c"])
+        expect("unfiled teams pair with each other", pick(["u1"], "u2").ids, ["u1", "u2"])
+        expect("but not with a filed one", pick(["u1"], "a").refusal,
+               .otherLeague(have: TagLibrary.ungroupedLeague))
+
+        expect("sanitize off keeps the first", TeamPick.sanitize(["a", "b"], bothTeams: false, league: league), ["a"])
+        expect("sanitize drops a cross-league pair", TeamPick.sanitize(["a", "x"], bothTeams: true, league: league), ["a"])
+        expect("sanitize keeps a good pair", TeamPick.sanitize(["a", "b"], bothTeams: true, league: league), ["a", "b"])
+        expect("sanitize trims three to two", TeamPick.sanitize(["a", "x", "b", "c"], bothTeams: true, league: league), ["a", "b"])
+        expect("sanitize on nothing", TeamPick.sanitize([], bothTeams: true, league: league), [])
+    }
 
     private static func scanSummary() {
         section("The scan summary")
