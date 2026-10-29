@@ -8,6 +8,10 @@ struct ContentView: View {
     @ObservedObject private var library = TagLibrary.shared
     @ObservedObject private var shortcuts = Shortcuts.shared
     @State private var inspecting: Clip?
+    /// Handed back to the clip list whenever a selection key moves it, so the selection is
+    /// drawn in the accent colour rather than the grey of a list that doesn't have focus —
+    /// which read as the arrows moving without selecting anything.
+    @FocusState private var listFocused: Bool
     @AppStorage("showTagging") private var showTagging = true
 
     var body: some View {
@@ -101,7 +105,9 @@ struct ContentView: View {
             else { return }
             // Every window's view hears this, and they share one `AppState`, so without the
             // token a second window would move the selection twice for one key press.
-            state.moveSelection(delta, token: token)
+            listFocused = true
+            state.moveSelection(delta, token: token,
+                                extend: note.userInfo?["extend"] as? Bool ?? false)
         }
         // Same hop, same reason: the monitor can't put an alert up from outside the main
         // actor, and the token stops a second window asking twice for one key press.
@@ -370,6 +376,7 @@ struct ContentView: View {
                     }
                 }
         }
+        .focused($listFocused)
     }
 
     // MARK: Welcome
@@ -882,7 +889,18 @@ final class Playback: ObservableObject {
             // flow uses ⇧Return and ⇧Tab; the review keys below still insist on no
             // modifier at all.
             let held = event.modifierFlags.intersection([.command, .option, .control, .shift])
-            guard held.isSubset(of: .shift), let key = KeyCombo.name(for: event) else {
+            // ⌘A is the one ⌘ key taken here, and only while nothing else is bound to it. The
+            // list's own ⌘A needs the list to have keyboard focus, and it loses that the
+            // moment you click the preview or the tagging panel — after which the arrows
+            // went on moving through clips (they're ours) while ⌘A and ⇧↑↓ quietly did
+            // nothing, with the selection drawn in the grey that means "not focused".
+            let isSelectAll = held == .command
+                && event.charactersIgnoringModifiers?.lowercased() == "a"
+                && !ShortcutAction.allCases.contains {
+                    Shortcuts.shared.combos($0).contains(KeyCombo(key: "a", command: true))
+                }
+            guard held.isSubset(of: .shift) || isSelectAll,
+                  let key = KeyCombo.name(for: event) else {
                 return event
             }
             let shift = held.contains(.shift)
@@ -913,6 +931,10 @@ final class Playback: ObservableObject {
                 return event
             }
 
+            if isSelectAll {
+                return Playback.shared.selectClips(extending: 0) ? nil : event
+            }
+
             // The keyboard flow gets first refusal on the keys it uses at the stage it's
             // at. Everything else falls through, which is what keeps Space playing the clip
             // while you tag.
@@ -922,7 +944,12 @@ final class Playback: ObservableObject {
                 return nil
             }
 
-            guard !shift else { return event }
+            // ⇧↑ ⇧↓ extend the clip selection, for the same reason ⌘A is here: the list only
+            // does it itself while it has focus. The flow leaves these alone — see `claims`.
+            if shift {
+                guard key == "up" || key == "down" else { return event }
+                return Playback.shared.selectClips(extending: key == "up" ? -1 : 1) ? nil : event
+            }
 
             let playback = Playback.shared
 
@@ -1005,6 +1032,17 @@ final class Playback: ObservableObject {
         NotificationCenter.default.post(name: .keeperClearTags,
                                         object: nil,
                                         userInfo: ["token": moveToken])
+        return true
+    }
+
+    /// ⇧↑ (-1), ⇧↓ (1) and ⌘A (0). Unlike the plain arrows these don't need a clip loaded:
+    /// picking a range is how you start, not something you do mid-review.
+    func selectClips(extending delta: Int) -> Bool {
+        moveToken += 1
+        NotificationCenter.default.post(name: .keeperMoveSelection,
+                                        object: nil,
+                                        userInfo: ["delta": delta, "token": moveToken,
+                                                   "extend": true])
         return true
     }
 

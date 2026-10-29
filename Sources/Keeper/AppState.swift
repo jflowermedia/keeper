@@ -125,6 +125,7 @@ final class AppState: ObservableObject {
     }
     @Published var selection = Set<URL>() {
         didSet {
+            if selection.count == 1 { selectionAnchor = selection.first }
             if let added = selection.subtracting(oldValue).first {
                 lastSelected = added
             } else if let last = lastSelected, !selection.contains(last) {
@@ -985,10 +986,37 @@ final class AppState: ObservableObject {
         }
     }
 
-    func moveSelection(_ delta: Int, token: Int) {
+    func moveSelection(_ delta: Int, token: Int, extend: Bool = false) {
         guard token != lastMoveToken else { return }
         lastMoveToken = token
-        selectRelative(delta)
+        if extend {
+            extendSelection(delta)
+        } else {
+            selectRelative(delta)
+        }
+    }
+
+    /// Where a ⇧-arrow range started. Set whenever the selection comes down to one clip —
+    /// a click, a plain arrow — which is where a range begins in every Mac list.
+    private var selectionAnchor: URL?
+
+    /// ⇧↑ ⇧↓ grow or shrink a range from the anchor; a delta of 0 selects everything in view.
+    func extendSelection(_ delta: Int) {
+        guard !aSheetIsUp else { return }
+        let ids = visible.map(\.id)
+        guard !ids.isEmpty else { return }
+        if delta == 0 {
+            selection = Set(ids)
+            status = "Selected all \(ids.count) clip\(ids.count == 1 ? "" : "s") in view."
+            return
+        }
+        guard let range = ClipRange.extend(ids, anchor: selectionAnchor,
+                                           cursor: lastSelected, delta: delta) else { return }
+        selection = Set(range.selection)
+        // Set outright: the didSet can only guess which of several added clips is the newest,
+        // and the preview should follow the end of the range that's moving.
+        lastSelected = range.cursor
+        selectionAnchor = range.anchor
     }
 
     /// Anything of ours that's taken over the window. The export and verify sheets both
@@ -1995,5 +2023,25 @@ final class AppState: ObservableObject {
                 self.status = message + "."
             }
         }
+    }
+}
+
+/// A ⇧-arrow range over the clip list, as every Mac list does it: one end fixed where the
+/// range started, the other moving. Pure, so the self-check can run it.
+enum ClipRange {
+    static func extend<ID: Hashable>(_ ids: [ID], anchor: ID?, cursor: ID?,
+                                     delta: Int) -> (selection: [ID], anchor: ID, cursor: ID)? {
+        guard !ids.isEmpty, delta != 0 else { return nil }
+        guard let at = cursor.flatMap({ ids.firstIndex(of: $0) }) else {
+            // Nothing to extend from yet: start at whichever end you were heading for.
+            let start = ids[delta > 0 ? 0 : ids.count - 1]
+            return ([start], start, start)
+        }
+        let next = at + delta
+        guard ids.indices.contains(next) else { return nil }        // already at the end
+        // An anchor that's left the filter falls back to where the cursor was.
+        let from = anchor.flatMap { ids.firstIndex(of: $0) } ?? at
+        let range = Array(ids[min(from, next)...max(from, next)])
+        return (range, ids[from], ids[next])
     }
 }

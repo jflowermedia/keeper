@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.9"
+    static let version = "0.9.1"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 

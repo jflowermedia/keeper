@@ -61,6 +61,7 @@ enum SelfCheck {
         scanSummary()
         teamPick()
         benchStops()
+        clipRange()
         sleepHold()
         addingTeams()
         subjects()
@@ -1290,6 +1291,27 @@ enum SelfCheck {
     //
     // Two at most, one league. A pair across leagues is a mis-click in a long menu, and
     // three benches was never something the panel could show.
+
+    private static func clipRange() {
+        section("Shift-arrow ranges")
+        let ids = ["a", "b", "c", "d", "e"]
+        func ext(_ anchor: String?, _ cursor: String?, _ delta: Int) -> [String]? {
+            ClipRange.extend(ids, anchor: anchor, cursor: cursor, delta: delta)?.selection
+        }
+        expect("⇧↓ from one clip takes the next", ext("b", "b", 1), ["b", "c"])
+        expect("again grows it", ext("b", "c", 1), ["b", "c", "d"])
+        expect("⇧↑ shrinks it back toward the anchor", ext("b", "d", -1), ["b", "c"])
+        expect("and past the anchor grows the other way", ext("b", "b", -1), ["a", "b"])
+        expect("at the bottom it stops", ext("b", "e", 1) == nil, true)
+        expect("at the top it stops", ext("a", "a", -1) == nil, true)
+        expect("with nothing selected ⇧↓ starts at the top", ext(nil, nil, 1), ["a"])
+        expect("and ⇧↑ at the bottom", ext(nil, nil, -1), ["e"])
+        expect("an anchor gone from the filter starts from the cursor", ext("zz", "c", 1), ["c", "d"])
+        expect("the cursor moves with it",
+               ClipRange.extend(ids, anchor: "b", cursor: "c", delta: 1)?.cursor, "d")
+        expect("the anchor stays put",
+               ClipRange.extend(ids, anchor: "b", cursor: "c", delta: 1)?.anchor, "b")
+    }
 
     private static func benchStops() {
         section("The bench pills")

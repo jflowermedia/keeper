@@ -4,7 +4,7 @@ A macOS app for getting sports footage off a card and into a delivery. It reads 
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.9.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.9.1.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
