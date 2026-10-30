@@ -71,6 +71,8 @@ enum SelfCheck {
         oneOffCategories()
         rosterDownload()
         categorySections()
+        keepSplit()
+        formerPlayers()
 
         print("\n\(passes) passed, \(failures.count) failed")
         if !failures.isEmpty {
@@ -1224,6 +1226,49 @@ enum SelfCheck {
     // that returns early without releasing, and two overlapping jobs where the first to
     // finish releases the hold the second still needs. Deriving the answer from both flags
     // rules both out, which is what's checked here.
+
+    private static func formerPlayers() {
+        section("Tags for players no longer on a roster")
+
+        let teams = [Team(id: "virden", name: "Virden Oil Capitals", code: nil, league: nil,
+                          players: [Player(teamID: "virden", number: "27", name: "Ryan Marchetti")])]
+        func tag(team: String?, number: String?, name: String? = "Someone") -> Tag {
+            Tag(umid: "060A2B34", clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                teamID: team, teamName: nil, playerNumber: number, playerName: name,
+                playerPosition: nil, category: "Goal")
+        }
+
+        expect("a player still on the roster isn't flagged",
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: "27"), in: teams), false)
+        expect("a number no longer on the roster is",
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: "99"), in: teams), true)
+        expect("so is a player whose whole roster was deleted",
+               TagLibrary.isFormerPlayer(tag(team: "brandon", number: "27"), in: teams), true)
+        // Subjects and clip-only tags carry no number. Flagging them would badge every crowd shot.
+        expect("a subject never counts",
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: nil, name: "Crowd"), in: teams), false)
+        expect("nor a tag on the clip with no one against it",
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: nil, name: nil), in: teams), false)
+    }
+
+    private static func keepSplit() {
+        section("Splitting an export by flag")
+
+        let kept = URL(fileURLWithPath: "/Volumes/SSD/Kept")
+        let notKept = URL(fileURLWithPath: "/Volumes/SSD/Rest")
+
+        expect("not split, a kept clip goes to the folder",
+               KeepSplit.folder(keep: true, split: false, kept: kept, notKept: notKept), kept)
+        // The case that matters: turning the split off must not leave the second folder in use.
+        expect("not split, a not-kept clip still goes to the one folder",
+               KeepSplit.folder(keep: false, split: false, kept: kept, notKept: notKept), kept)
+        expect("split, a kept clip goes to the kept folder",
+               KeepSplit.folder(keep: true, split: true, kept: kept, notKept: notKept), kept)
+        expect("split, a not-kept clip goes to the other folder",
+               KeepSplit.folder(keep: false, split: true, kept: kept, notKept: notKept), notKept)
+        expect("split with no second folder chosen, nowhere to go",
+               KeepSplit.folder(keep: false, split: true, kept: kept, notKept: nil), nil)
+    }
 
     private static func sleepHold() {
         section("Keeping the Mac awake")

@@ -416,6 +416,24 @@ final class TagLibrary: ObservableObject {
     /// Every player that appears in any tag or roster, for the filter menu.
     var allPlayers: [Player] { teams.flatMap(\.players) }
 
+    /// A tag naming a player who's no longer on their roster, or whose roster is gone.
+    ///
+    /// Such a tag is kept on purpose: a traded or graduated player is still in the clip, and
+    /// removing someone from a roster mustn't strip their name from a season of footage. But
+    /// it looks identical to one made against a name that was never meant to stay — a test
+    /// entry, a typo since fixed by deleting the row — and the first sign of that used to be
+    /// the exported filename. So it's shown rather than changed.
+    ///
+    /// Subjects aren't roster players and never count. Keyed on team and number, the same
+    /// way `refreshTagsFromRoster` matches a tag to its player.
+    static func isFormerPlayer(_ tag: Tag, in teams: [Team]) -> Bool {
+        guard let number = tag.playerNumber, let teamID = tag.teamID else { return false }
+        guard let team = teams.first(where: { $0.id == teamID }) else { return true }
+        return !team.players.contains { $0.number == number }
+    }
+
+    func isFormerPlayer(_ tag: Tag) -> Bool { Self.isFormerPlayer(tag, in: teams) }
+
     /// Positions in use across every roster, for the filter menu.
     var allPositions: [String] {
         Array(Set(allPlayers.map(\.position).filter { !$0.isEmpty })).sorted()

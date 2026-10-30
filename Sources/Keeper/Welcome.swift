@@ -266,6 +266,8 @@ enum WelcomeTour {
              body: "Export copies the clips you're keeping to your drive. Pick a filename "
                  + "preset in the sheet and each one is named from its tags; leave it and they "
                  + "keep the camera's names.\n\n"
+                 + "Want the rest as well? Tick “Send kept and not-kept clips to separate "
+                 + "folders” and both go out in one copy.\n\n"
                  + "Run it again and anything already copied is skipped.",
              key: .export),
 

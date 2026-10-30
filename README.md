@@ -4,7 +4,7 @@
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 0.9.3.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 0.9.4.** Tested against one camera on one Mac. It never writes to your cards, but don't let it be the only copy of footage you care about. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window: a scanned card listed down the left with KEEP badges and player tags on each clip, the selected clip playing in the middle, and the tagging panel open on the right showing a roster and the event categories](docs/keeper.png)
 
@@ -46,7 +46,7 @@ C7531_261003_WHKY_Marchetti_Goal.MP4
 
 **Checks the card copied before you format it.** Point it at the folders you copied to — however many — and it accounts for every clip on the card. It matches on the camera's clip ID rather than the filename, so it still works after you've renamed everything, which no general file-compare tool can do.
 
-**Exports in one sheet.** It shows which clips are included, the names it will produce, where they're going and how much data that is, before anything moves. Copy them out into one folder, a folder per player, or a folder per event — or rename footage you already offloaded where it sits, so you don't end up holding the same game twice. Clips can also be dragged straight into Finder.
+**Exports in one sheet.** It shows which clips are included, the names it will produce, where they're going and how much data that is, before anything moves. Copy them out into one folder, a folder per player, or a folder per event — with the clips you didn't keep going to a second folder in the same pass, if you want those too — or rename footage you already offloaded where it sits, so you don't end up holding the same game twice. Clips can also be dragged straight into Finder.
 
 ![The Export sheet: radio buttons choosing between the selected clip and all 18 the filter is showing, a naming preset, a choice between copying to another folder and renaming in place, and a checkbox for the XML sidecar. The footer totals the clips, files and data, and the action button is disabled with a line saying to choose where the copies should go](docs/export.png)
 
@@ -191,6 +191,8 @@ For any league not in the picker, **⌘I** imports a CSV — the format is above
 
 Two players can't share a number and two teams can't share a name, because that's how Keeper tells them apart. Renumbering a player carries their existing tags across; removing a player leaves their tags behind, so prefer renumbering.
 
+Leaving tags behind is deliberate: a traded or graduated player is still in the clip, and their name should stay on it. Those tags get an orange **Not on roster** badge in the tagging panel, and the Export sheet lists any clips carrying one, because the name still goes into filenames and player folders. If it's a name that was never meant to stay — a test entry, a duplicate you deleted — remove the tag with its ✕ before you export.
+
 ## Tagging
 
 ⌘E for the panel. Click a player, then a category. The selection clears straight after, so one player gets the goal and the next gets the assist. Select several players first when they genuinely share a category.
@@ -238,16 +240,18 @@ The bar under the toolbar filters by team, player, position and category, on top
 
 - **Which clips** — your selection, or everything the filter is showing
 - **Naming** — a preset or the camera's names, with a before-and-after
-- **Where they go** — copy to another folder, or rename them in place
+- **Where they go** — copy to another folder (or two, kept and not kept apart), or rename them in place
 - **Along with the video** — whether the sidecar travels, and what happens to changed flags
 
-The button names what it's about to do, and the line beside it totals the files and the data.
+The button names what it's about to do, and the line beside it totals the files and the data. If a clip is tagged with a player who's since been removed from their roster, and the preset or layout will put that player's name on it, the Naming section names the clips and the player, so it's caught before it's in a filename.
 
 **Layout**, when copying:
 
 - *One folder* — everything together
 - *Folder per category* — one copy of each clip, in its top tag's folder
 - *Folder per player* — a copy in each tagged player's folder, so every player's folder is complete
+
+**Send kept and not-kept clips to separate folders**, when copying, does both halves in one go: kept clips to one folder, the rest to another, each laid out the same way. With it on, "everything the filter is showing" means kept *and* not kept, whichever way the KEEP filter is set — the team, player, position and category filters still apply. A half with no clips in it doesn't need a folder. The two can be on different drives; the free-space check adds up what each drive has to hold. Check Copied opens with both folders added, because neither one alone accounts for the card.
 
 **Rename them where they already are** is for footage you've offloaded already: it renames in place so you don't end up holding the same game twice. It's refused on a card, and it breaks the media links in any edit already built on those files.
 
@@ -279,7 +283,7 @@ Everything adjustable, and where it lives. None of it touches a card. Defaults a
 | **Edit Filename Presets…** | File menu | | Build a naming convention per client. |
 | **Restore Tags** | File menu | | Roll the library back to a backup. |
 
-The Export sheet starts from its defaults each time you open Keeper — camera names, one folder, copying — so pick your preset and layout per session.
+The Export sheet starts from its defaults each time you open Keeper — camera names, one folder, copying, not split by flag — so pick your preset and layout per session.
 
 ## If something's wrong
 

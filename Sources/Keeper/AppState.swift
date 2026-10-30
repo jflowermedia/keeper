@@ -158,9 +158,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// The folder a copy just finished into, offered to Check Copied. Cleared by a rescan and
+    /// The folders a copy just finished into, offered to Check Copied — two when it was split
+    /// by flag, since neither half on its own accounts for the card. Cleared by a rescan and
     /// once it's been used, so it only ever points at the copy of the card in front of you.
-    @Published var verifySuggestion: URL?
+    @Published var verifySuggestions: [URL] = []
 
     // Tag filtering and export layout
     /// Narrows the clip list and, more usefully, the player menu — one roster at a time
@@ -293,6 +294,11 @@ final class AppState: ObservableObject {
     @Published var exportScope: ExportScope = .shown
     @Published var exportDestination: ExportDestination = .copy
     @Published var exportFolder: URL?
+    /// Copy the kept clips to `exportFolder` and the not-kept ones to `notKeptFolder`, in one
+    /// pass, rather than exporting twice with the filter flipped in between. Like the layout,
+    /// not remembered between launches.
+    @Published var splitByKeep = false
+    @Published var notKeptFolder: URL?
     /// Drive the sheets. They live here rather than in the view so the menus can open them.
     @Published var showExportSheet = false
     @Published var showPresetEditor = false
@@ -476,12 +482,19 @@ final class AppState: ObservableObject {
     }
 
     var visible: [Clip] {
-        var list: [Clip]
+        let list: [Clip]
         switch filter {
         case .isKeep:    list = clips.filter { isKeep($0) }
         case .isNotKeep: list = clips.filter { !isKeep($0) }
         case .all:       list = clips
         }
+        return matchingTagFilters(list)
+    }
+
+    /// The tag half of `visible`, without the KEEP filter. Splitting an export by flag needs
+    /// both halves of whatever the tag filters show, whichever flag the list is set to.
+    func matchingTagFilters(_ clips: [Clip]) -> [Clip] {
+        var list = clips
         if let filterTeamID {
             list = list.filter { clip in
                 library.tags(forUMID: clip.umid).contains { $0.teamID == filterTeamID }
@@ -1036,7 +1049,7 @@ final class AppState: ObservableObject {
         lastSelected = nil
         log = []
         verifyReport = nil        // it belonged to whatever was scanned before
-        verifySuggestion = nil
+        verifySuggestions = []
         status = "Scanning \(root.lastPathComponent)…"
         addLog("Scan started")
         let word = keepWord

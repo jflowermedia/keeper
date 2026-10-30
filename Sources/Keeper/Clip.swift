@@ -47,6 +47,12 @@ enum FileUtil {
                 values.volumeAvailableCapacity.map(Int64.init))
     }
 
+    /// The volume a folder lives on, so two folders on one drive can be counted together.
+    /// Falls back to the folder itself, which checks that folder on its own.
+    static func volume(of url: URL) -> URL {
+        (try? url.resourceValues(forKeys: [.volumeURLKey]).volume) ?? url
+    }
+
     /// Free space at a folder, or nil when neither reading is usable.
     ///
     /// Takes the larger of the two. Apple's own documentation warns that "a zero or

@@ -4,13 +4,13 @@ import AppKit
 
 extension AppState {
 
-    /// Opens Check Copied, with the folder a copy just went to already in the list.
+    /// Opens Check Copied, with the folders a copy just went to already in the list.
     func openVerify() {
-        if let folder = verifySuggestion, !verifyDestinations.contains(folder),
-           !(root.map { overlaps(folder, $0) } ?? false) {
+        for folder in verifySuggestions where !verifyDestinations.contains(folder)
+            && !(root.map { overlaps(folder, $0) } ?? false) {
             verifyDestinations.append(folder)
         }
-        verifySuggestion = nil
+        verifySuggestions = []
         showVerifySheet = true
     }
 

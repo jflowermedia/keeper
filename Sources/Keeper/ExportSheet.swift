@@ -64,6 +64,11 @@ struct ExportSheet: View {
     }
 
     private var shownLabel: String {
+        // Split, the KEEP filter stops applying: the point is to take both halves at once.
+        if state.splitsByKeep {
+            let n = state.matchingTagFilters(state.clips).count
+            return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing, kept and not kept"
+        }
         let n = state.visible.count
         return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing"
     }
@@ -102,7 +107,28 @@ struct ExportSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if let note = formerPlayersNote {
+                Label(note, systemImage: "person.crop.circle.badge.questionmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private var formerPlayersNote: String? {
+        let former = state.exportFormerPlayers
+        guard !former.clips.isEmpty else { return nil }
+        let n = former.clips.count
+        let shown = former.clips.prefix(3).joined(separator: ", ")
+            + (n > 3 ? " and \(n - 3) more" : "")
+        let who = former.players.joined(separator: ", ")
+        return "\(n) clip\(n == 1 ? " is" : "s are") tagged with "
+             + (former.players.count == 1 ? "a player" : "players")
+             + " no longer on a roster (\(who)): \(shown). Their names still go into "
+             + "these files' names or folders. Right for someone traded; if not, remove the "
+             + "tag before copying."
     }
 
     // MARK: Where they go
@@ -126,13 +152,29 @@ struct ExportSheet: View {
 
     private var copyOptions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button("Choose Folder…") { state.chooseExportFolder() }
-                Text(state.exportFolder?.path ?? "No folder chosen yet")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+            Toggle("Send kept and not-kept clips to separate folders", isOn: $state.splitByKeep)
+                .toggleStyle(.checkbox)
+
+            if state.splitByKeep {
+                let counts = state.exportSplitCounts
+                folderRow(state.exportFolder, title: "Kept", count: counts.kept, notKept: false)
+                folderRow(state.notKeptFolder, title: "Not kept", count: counts.notKept, notKept: true)
+                if state.exportScope == .selection {
+                    Text("Only the clips you've selected. Choose “All clips the filter is "
+                         + "showing” above to take every kept and not-kept clip at once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Button("Choose Folder…") { state.chooseExportFolder() }
+                    Text(state.exportFolder?.path ?? "No folder chosen yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
             }
 
             HStack(spacing: 8) {
@@ -156,6 +198,21 @@ struct ExportSheet: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func folderRow(_ folder: URL?, title: String, count: Int, notKept: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text("\(title) (\(count))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+            Button("Choose Folder…") { state.chooseExportFolder(notKept: notKept) }
+            Text(folder?.path ?? (count == 0 ? "Not needed — none in this export" : "No folder chosen yet"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
         }
     }
 
@@ -302,7 +359,9 @@ struct ExportSheet: View {
 
         if state.exportDestination == .copy {
             let files = state.exportFileCount
-            return "\(clips) clip\(clips == 1 ? "" : "s") · \(files) file\(files == 1 ? "" : "s")"
+            let split = state.splitsByKeep
+                ? " (\(state.exportSplitCounts.kept) kept, \(state.exportSplitCounts.notKept) not)" : ""
+            return "\(clips) clip\(clips == 1 ? "" : "s")\(split) · \(files) file\(files == 1 ? "" : "s")"
                  + " · \(FileUtil.sizeText(state.exportSize))"
         }
 

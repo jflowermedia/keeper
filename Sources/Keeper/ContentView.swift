@@ -544,11 +544,11 @@ struct ContentView: View {
             // you end up in.
             // Offered the moment a copy finishes, because this is the step that decides
             // whether the card is safe to format and it was the one easiest to skip.
-            if state.verifySuggestion != nil, !state.isCopying {
+            if !state.verifySuggestions.isEmpty, !state.isCopying {
                 Button("Check this copy before you format →") { state.openVerify() }
                     .buttonStyle(.link)
                     .font(.caption)
-                    .help("Opens Check Copied with the folder you just copied to")
+                    .help("Opens Check Copied with the folder you just copied to — both of them, if the copy was split by flag")
             }
 
             Button {
@@ -563,7 +563,7 @@ struct ContentView: View {
             Button(exportLabel) { state.requestExport() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(state.visible.isEmpty || state.isCopying || state.isScanning)
+                .disabled(state.exportButtonCount == 0 || state.isCopying || state.isScanning)
                 .help("Copy the clips somewhere else, or rename them where they already are")
         }
     }
@@ -572,7 +572,7 @@ struct ContentView: View {
     private var exportLabel: String {
         // The same rule the sheet opens on, so the button doesn't promise a different
         // number from the one you then see.
-        let n = state.selectedCount > 0 ? state.selectedCount : state.visible.count
+        let n = state.exportButtonCount
         guard n > 0 else { return "Export…" }
         return "Export \(n) Clip\(n == 1 ? "" : "s")…"
     }

@@ -913,6 +913,9 @@ struct TagPanel: View {
                     if let position = tag.playerPosition {
                         Text(position).font(.caption2).foregroundStyle(.tertiary)
                     }
+                    if library.isFormerPlayer(tag) {
+                        formerPlayerBadge(tag)
+                    }
                     Spacer(minLength: 0)
                     Button {
                         library.remove(tag, undoLabel: "Remove \(tag.category) "
@@ -928,6 +931,22 @@ struct TagPanel: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
+    }
+
+    private func formerPlayerBadge(_ tag: Tag) -> some View {
+        let roster = tag.teamName ?? "their roster"
+        let why = "This player has been removed from \(roster). The tag is kept, so a traded "
+            + "or graduated player stays named on the clip — and their name still goes into "
+            + "filenames on export. If they were never meant to be here, remove the tag."
+        return Text("Not on roster")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color.orange.opacity(0.15))
+            .clipShape(Capsule())
+            .lineLimit(1)
+            .help(why)
     }
 
     // MARK: Actions
