@@ -22,3 +22,5 @@ __pycache__/
 
 # Personal notes for Claude Code, kept off GitHub
 CLAUDE.local.md
+
+.claude/settings.local.json
