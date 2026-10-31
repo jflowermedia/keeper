@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "0.9.4"
+    static let version = "1.0.0"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -69,24 +69,36 @@ struct KeeperApp: App {
             }
 
             CommandMenu("Mark") {
-                Button("Toggle KEEP on Previewed Clip") { state.toggleKeepOnPreview() }
+                Button("Toggle KEEP on Previewed Clip") { state.toggleOnPreview(.keep) }
                     .keyboardShortcut(shortcuts.equivalent(.toggleKeep),
                                       modifiers: shortcuts.modifiers(.toggleKeep))
                     .disabled(state.previewClip == nil)
+                // No key equivalent on the item: OK's key is a bare press, and a menu item
+                // with one would fire while you typed an O into a roster. The key monitor
+                // handles it; the title says what it is.
+                Button("Toggle OK on Previewed Clip (\(shortcuts.display(.toggleOK)))") {
+                    state.toggleOnPreview(.ok)
+                }
+                .disabled(state.previewClip == nil)
                 Toggle("Move On After Marking", isOn: $state.advanceAfterMark)
-                    .help("Go to the next clip after ⌘K. The badge on a row never moves the "
+                    .help("Go to the next clip after \(shortcuts.display(.toggleKeep)) or "
+                          + "\(shortcuts.display(.toggleOK)). The badge on a row never moves the "
                           + "preview, whichever way this is set.")
 
                 Divider()
-                Button("Mark Selection KEEP") { state.setKeepInScope(true) }
+                Button("Mark Selection KEEP") { state.setFlagInScope(.keep) }
                     .keyboardShortcut(shortcuts.equivalent(.markKeep),
                                       modifiers: shortcuts.modifiers(.markKeep))
                     .disabled(state.dragClips.isEmpty)
-                Button("Mark Selection NOT KEEP") { state.setKeepInScope(false) }
+                Button("Mark Selection OK") { state.setFlagInScope(.ok) }
+                    .disabled(state.dragClips.isEmpty)
+                Button("Mark Selection NG") { state.setFlagInScope(.ng) }
+                    .disabled(state.dragClips.isEmpty)
+                Button("Clear Flags on Selection") { state.setFlagInScope(nil) }
                     .keyboardShortcut(shortcuts.equivalent(.markNotKeep),
                                       modifiers: shortcuts.modifiers(.markNotKeep))
                     .disabled(state.dragClips.isEmpty)
-                Button("Revert Selection to Camera Flags") { state.revertKeepInScope() }
+                Button("Revert Selection to Camera Flags") { state.revertFlagsInScope() }
                     .disabled(state.dragClips.isEmpty)
             }
 

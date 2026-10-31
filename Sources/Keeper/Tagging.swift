@@ -217,20 +217,20 @@ final class TagLibrary: ObservableObject {
     @Published private(set) var tags: [Tag] = []
     @Published var presets: [RenamePreset] = [.standard()]
 
-    /// Clips you've marked or unmarked yourself, by UMID. The card is never touched: the
-    /// override is applied to the sidecar at the destination when the clip is copied out.
-    @Published private(set) var keepOverrides: [String: Bool] = [:]
+    /// Clips you've flagged yourself, by UMID. The card is never touched: the override is
+    /// applied to the sidecar at the destination when the clip is copied out.
+    @Published private(set) var flagOverrides: [String: FlagMark] = [:]
 
     private init() { load() }
 
     // MARK: - Undo
 
-    /// What one clip's KEEP flag was before a change. `override` is nil for "no override at
+    /// What one clip's flag was before a change. `override` is nil for "no override at
     /// all", which is a state in its own right — the clip takes the camera's flag — and not
     /// the same as an override that happens to agree with it.
     struct KeepState {
         let umid: String
-        let override: Bool?
+        let override: FlagMark?
     }
 
     /// One reversible change, stored as what it takes to put things back rather than as the
@@ -271,10 +271,10 @@ final class TagLibrary: ObservableObject {
         var inverse = Edit(label: edit.label)
 
         for state in edit.keeps {
-            inverse.keeps.append(KeepState(umid: state.umid, override: keepOverrides[state.umid]))
+            inverse.keeps.append(KeepState(umid: state.umid, override: flagOverrides[state.umid]))
             // Assigning nil to a dictionary subscript removes the key, which is exactly
             // what "no override" has to mean here.
-            keepOverrides[state.umid] = state.override
+            flagOverrides[state.umid] = state.override
         }
 
         if !edit.tagIDsToRemove.isEmpty {
@@ -318,11 +318,12 @@ final class TagLibrary: ObservableObject {
         redoStack = []
     }
 
-    // MARK: Keep overrides
+    // MARK: Flag overrides
 
-    func keepOverride(for umid: String?) -> Bool? {
+    /// nil when you haven't changed it. A mark whose `flag` is nil is you clearing the flag.
+    func flagOverride(for umid: String?) -> FlagMark? {
         guard let umid else { return nil }
-        return keepOverrides[umid]
+        return flagOverrides[umid]
     }
 
     /// Setting it back to the camera's own flag clears the override rather than storing it,
@@ -331,22 +332,15 @@ final class TagLibrary: ObservableObject {
     /// `undoLabel` names the change for the Undo menu. Pass nil only where the change is
     /// bookkeeping that follows something already written to disk — undoing that would put
     /// the library back into disagreement with the file.
-    func setKeep(_ keep: Bool, umid: String, cameraFlag: Bool, undoLabel: String?) {
-        let wanted: Bool? = keep == cameraFlag ? nil : keep
-        guard keepOverrides[umid] != wanted else { return }
-        if let undoLabel {
-            push(Edit(label: undoLabel,
-                      keeps: [KeepState(umid: umid, override: keepOverrides[umid])]))
-        }
-        keepOverrides[umid] = wanted
-        save()
+    func setFlag(_ flag: ClipFlag?, umid: String, cameraFlag: ClipFlag?, undoLabel: String?) {
+        setFlag(flag, for: [(umid, cameraFlag)], undoLabel: undoLabel)
     }
 
     /// Bulk version: one write of the library rather than one per clip. Marking a hundred
     /// clips individually rewrote every tag a hundred times.
     @discardableResult
-    func setKeep(_ keep: Bool,
-                 for clips: [(umid: String, cameraFlag: Bool)],
+    func setFlag(_ flag: ClipFlag?,
+                 for clips: [(umid: String, cameraFlag: ClipFlag?)],
                  undoLabel: String?) -> Int {
         guard !clips.isEmpty else { return 0 }
 
@@ -354,40 +348,34 @@ final class TagLibrary: ObservableObject {
         // doesn't write the library or leave a dead step in the undo stack.
         var changing: [KeepState] = []
         for clip in clips {
-            let wanted: Bool? = keep == clip.cameraFlag ? nil : keep
-            if keepOverrides[clip.umid] != wanted {
-                changing.append(KeepState(umid: clip.umid, override: keepOverrides[clip.umid]))
+            let wanted: FlagMark? = flag == clip.cameraFlag ? nil : FlagMark(flag: flag)
+            if flagOverrides[clip.umid] != wanted {
+                changing.append(KeepState(umid: clip.umid, override: flagOverrides[clip.umid]))
             }
         }
         guard !changing.isEmpty else { return 0 }
 
         if let undoLabel { push(Edit(label: undoLabel, keeps: changing)) }
         for clip in clips {
-            keepOverrides[clip.umid] = keep == clip.cameraFlag ? nil : keep
+            flagOverrides[clip.umid] = flag == clip.cameraFlag ? nil : FlagMark(flag: flag)
         }
         save()
         return changing.count
     }
 
-    func clearKeepOverride(umid: String, undoLabel: String?) {
-        guard keepOverrides[umid] != nil else { return }
-        if let undoLabel {
-            push(Edit(label: undoLabel,
-                      keeps: [KeepState(umid: umid, override: keepOverrides[umid])]))
-        }
-        keepOverrides[umid] = nil
-        save()
+    func clearFlagOverride(umid: String, undoLabel: String?) {
+        clearFlagOverrides(umids: [umid], undoLabel: undoLabel)
     }
 
     @discardableResult
-    func clearKeepOverrides(umids: [String], undoLabel: String?) -> Int {
-        let hits = umids.filter { keepOverrides[$0] != nil }
+    func clearFlagOverrides(umids: [String], undoLabel: String?) -> Int {
+        let hits = umids.filter { flagOverrides[$0] != nil }
         guard !hits.isEmpty else { return 0 }
         if let undoLabel {
             push(Edit(label: undoLabel,
-                      keeps: hits.map { KeepState(umid: $0, override: keepOverrides[$0]) }))
+                      keeps: hits.map { KeepState(umid: $0, override: flagOverrides[$0]) }))
         }
-        for umid in hits { keepOverrides[umid] = nil }
+        for umid in hits { flagOverrides[umid] = nil }
         save()
         return hits.count
     }
@@ -1048,7 +1036,24 @@ final class TagLibrary: ObservableObject {
         var recentCategories: [String]?
         var tags: [Tag]
         var presets: [RenamePreset]?
+        /// Superseded by `flagOverrides`, and still written beside it so 0.9.4 and earlier
+        /// open the file: they read a KEEP you set as true, anything else as false.
         var keepOverrides: [String: Bool]?
+        /// The flag you set, by UMID: KEEP, OK, NG, or "" for one you cleared.
+        var flagOverrides: [String: String]?
+    }
+
+    /// The overrides as `load()` reads them. A library from before OK and NG has only the
+    /// yes/no ones, which were KEEP and cleared.
+    static func flagOverrides(from archive: Archive) -> [String: FlagMark] {
+        if let stored = archive.flagOverrides {
+            // An unknown word is dropped rather than guessed at — a later version's flag
+            // read as "cleared" would be written onto a copy as exactly that.
+            return stored.compactMapValues { raw in
+                raw.isEmpty ? FlagMark(flag: nil) : ClipFlag(rawValue: raw).map { FlagMark(flag: $0) }
+            }
+        }
+        return (archive.keepOverrides ?? [:]).mapValues { FlagMark(flag: $0 ? .keep : nil) }
     }
 
     /// The whole of reading a library, with the file-handling taken out. `load()` is this
@@ -1117,7 +1122,7 @@ final class TagLibrary: ObservableObject {
         recentCategories = archive.recentCategories ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
-        keepOverrides = archive.keepOverrides ?? [:]
+        flagOverrides = Self.flagOverrides(from: archive)
         rebuildIndex()
         clearHistory()
     }
@@ -1136,7 +1141,8 @@ final class TagLibrary: ObservableObject {
                               recentCategories: recentCategories,
                               tags: tags,
                               presets: presets,
-                              keepOverrides: keepOverrides)
+                              keepOverrides: flagOverrides.mapValues { $0.flag == .keep },
+                              flagOverrides: flagOverrides.mapValues { $0.flag?.rawValue ?? "" })
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -1286,7 +1292,7 @@ final class TagLibrary: ObservableObject {
         recentCategories = archive.recentCategories ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
-        keepOverrides = archive.keepOverrides ?? [:]
+        flagOverrides = Self.flagOverrides(from: archive)
         rebuildIndex()
         // Those edits describe the library this one just replaced, so they'd put back
         // fragments of a version nobody asked for. The restore itself is reversible by

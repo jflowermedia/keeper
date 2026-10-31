@@ -64,10 +64,10 @@ struct ExportSheet: View {
     }
 
     private var shownLabel: String {
-        // Split, the KEEP filter stops applying: the point is to take both halves at once.
+        // Split, the Picks filter stops applying: the point is to take both halves at once.
         if state.splitsByKeep {
             let n = state.matchingTagFilters(state.clips).count
-            return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing, kept and not kept"
+            return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing, picks and unpicked"
         }
         let n = state.visible.count
         return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing"
@@ -152,16 +152,16 @@ struct ExportSheet: View {
 
     private var copyOptions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Send kept and not-kept clips to separate folders", isOn: $state.splitByKeep)
+            Toggle("Send picks and unpicked clips to separate folders", isOn: $state.splitByKeep)
                 .toggleStyle(.checkbox)
 
             if state.splitByKeep {
                 let counts = state.exportSplitCounts
-                folderRow(state.exportFolder, title: "Kept", count: counts.kept, notKept: false)
-                folderRow(state.notKeptFolder, title: "Not kept", count: counts.notKept, notKept: true)
+                folderRow(state.exportFolder, title: "Picks", count: counts.kept, notKept: false)
+                folderRow(state.notKeptFolder, title: "Unpicked", count: counts.notKept, notKept: true)
                 if state.exportScope == .selection {
                     Text("Only the clips you've selected. Choose “All clips the filter is "
-                         + "showing” above to take every kept and not-kept clip at once.")
+                         + "showing” above to take every pick and unpicked clip at once.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -286,7 +286,7 @@ struct ExportSheet: View {
             return "The video and its sidecar have to share a name to stay paired, so they "
                  + "are always renamed together."
         }
-        return "The sidecar carries the KEEP flag, the shoot date and the clip's ID. Leaving "
+        return "The sidecar carries the clip's flag, the shoot date and the clip's ID. Leaving "
              + "it behind means a later scan of that folder can't see these clips."
     }
 
@@ -297,7 +297,7 @@ struct ExportSheet: View {
 
     private var flagNote: String {
         let n = state.exportFlagChanges
-        let count = "\(n) clip\(n == 1 ? " has" : "s have") a KEEP flag you changed. "
+        let count = "\(n) clip\(n == 1 ? " has" : "s have") a flag you changed. "
         if !flagsWillTravel {
             return count + "Turn the sidecar back on, or the change won't go anywhere — "
                  + "your card still has what you flagged in camera."
@@ -360,7 +360,8 @@ struct ExportSheet: View {
         if state.exportDestination == .copy {
             let files = state.exportFileCount
             let split = state.splitsByKeep
-                ? " (\(state.exportSplitCounts.kept) kept, \(state.exportSplitCounts.notKept) not)" : ""
+                ? " (\(state.exportSplitCounts.kept) pick\(state.exportSplitCounts.kept == 1 ? "" : "s"), "
+                  + "\(state.exportSplitCounts.notKept) unpicked)" : ""
             return "\(clips) clip\(clips == 1 ? "" : "s")\(split) · \(files) file\(files == 1 ? "" : "s")"
                  + " · \(FileUtil.sizeText(state.exportSize))"
         }

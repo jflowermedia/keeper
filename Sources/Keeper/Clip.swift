@@ -4,7 +4,8 @@ struct Clip: Identifiable, Hashable {
     let id: URL            // the video file's URL
     let videoURL: URL
     let xmlURL: URL
-    let isKeep: Bool
+    /// What the camera flagged it, or nil for no flag.
+    let flag: ClipFlag?
     let videoSize: Int64
     let xmlSize: Int64
 
@@ -226,7 +227,7 @@ enum ClipScanner {
             clips.append(Clip(id: claim.video,
                               videoURL: claim.video,
                               xmlURL: claim.xml,
-                              isKeep: claim.parsed.isKeep,
+                              flag: claim.parsed.flag,
                               videoSize: sizes[claim.video] ?? 0,
                               xmlSize: sizes[claim.xml] ?? 0,
                               umid: claim.parsed.umid,
@@ -247,15 +248,17 @@ enum ClipScanner {
         // Logged after sorting, so the list reads in clip order rather than the order claims
         // happened to be settled in.
         for clip in clips {
-            let verdict = clip.isKeep ? "KEEP    " : "NOT KEEP"
+            let verdict = (clip.flag?.rawValue ?? "—").padding(toLength: 5, withPad: " ", startingAt: 0)
             let why = reasons[clip.xmlURL].map { "  [\($0)]" } ?? ""
             log.append("\(verdict) \(clip.name) ← \(clip.xmlURL.lastPathComponent)\(why)")
         }
 
-        let keepCount = clips.filter { $0.isKeep }.count
+        let counts = ClipFlag.allCases.map { flag in
+            "\(clips.filter { $0.flag == flag }.count) \(flag.rawValue)"
+        }.joined(separator: ", ")
         let total = clips.reduce(Int64(0)) { $0 + $1.totalSize }
         log.append("Done in \(String(format: "%.2f", Date().timeIntervalSince(started)))s: "
-                   + "\(clips.count) clips (\(keepCount) KEEP, \(clips.count - keepCount) NOT KEEP), "
+                   + "\(clips.count) clips (\(counts)), "
                    + "\(FileUtil.sizeText(total)) total, \(unmatched.count) XML unmatched, \(orphans.count) video(s) without XML")
         return Result(clips: clips, unmatchedXML: unmatched, videosWithoutXML: orphans, log: log)
     }
@@ -323,9 +326,9 @@ enum ClipScanner {
 /// element names, attribute names, attribute values and text, and checks it isn't set to false/0/off.
 final class XMLFlags: NSObject, XMLParserDelegate {
     struct Parsed {
-        var isKeep: Bool
+        var flag: ClipFlag?
         var referencedNames: [String]
-        var reason: String?      // what in the XML triggered KEEP (shown in debug mode)
+        var reason: String?      // what in the XML set the flag (shown in debug mode)
         var umid: String?        // the clip's permanent identity, which tags are keyed to
         var creationDate: Date?  // when the camera recorded it
     }
@@ -345,6 +348,10 @@ final class XMLFlags: NSObject, XMLParserDelegate {
 
     private let word: String
     private var reason: String?
+    /// Sony's OK or NG, read off `<TargetMaterial status>` alone. KEEP has the loose search
+    /// below; these two can't, because "OK" turns up as a value all over XML and searching
+    /// for it the same way would mark clips OK that the camera never flagged.
+    private var sonyStatus: (flag: ClipFlag, reason: String)?
     private var umid: String?
     private var created: Date?
     private var refs: [String] = []
@@ -363,9 +370,11 @@ final class XMLFlags: NSObject, XMLParserDelegate {
         let parser = XMLParser(data: data)
         parser.delegate = handler
         _ = parser.parse()   // a partial parse still yields usable results
-        return Parsed(isKeep: handler.reason != nil,
+        // The flag word wins over OK and NG: it's what you told Keeper to look for.
+        let flag: ClipFlag? = handler.reason != nil ? .keep : handler.sonyStatus?.flag
+        return Parsed(flag: flag,
                       referencedNames: handler.refs,
-                      reason: handler.reason,
+                      reason: handler.reason ?? handler.sonyStatus?.reason,
                       umid: handler.umid,
                       creationDate: handler.created)
     }
@@ -373,6 +382,11 @@ final class XMLFlags: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
                 qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
         stack.append((elementName, attributeDict, ""))
+        if sonyStatus == nil, elementName.lowercased() == "targetmaterial",
+           let raw = attributeDict.first(where: { $0.key.lowercased() == "status" })?.value,
+           let flag = ClipFlag(sonyStatus: raw), flag != .keep {
+            sonyStatus = (flag, "<\(elementName)> status=\"\(raw)\"")
+        }
         for (key, value) in attributeDict {
             noteReference(value)
             // Sony writes it as umidRef on <TargetMaterial>; other makers vary the spelling.
@@ -453,7 +467,7 @@ final class XMLFlags: NSObject, XMLParserDelegate {
 /// two quiet failures — a camera whose flag word isn't KEEP, and clips with no sidecar — both
 /// used to end in a list that simply looked short, with the reason only in the log.
 enum ScanSummary {
-    static func text(clips: Int, keeps: Int, withoutSidecar: Int) -> String {
+    static func text(clips: Int, keeps: Int, oks: Int, withoutSidecar: Int) -> String {
         // Short, because the footer shows this on one line and truncates the middle — a long
         // hint loses exactly the part that says what to do. The full text is on hover.
         let skipped = withoutSidecar == 0 ? "" :
@@ -463,13 +477,52 @@ enum ScanSummary {
             return "No clips with XML sidecars were found in there." + skipped
         }
         // Zero KEEPs on a card that has clips is the signature of a different flag word, far
-        // more often than of a shoot where nothing was marked.
-        if keeps == 0 {
+        // more often than of a shoot where nothing was marked. Not when there are OKs, though:
+        // those prove the camera's flags are being read, and a card you only marked OK on
+        // would otherwise be told to check Camera on every scan. The count still shows 0 KEEP.
+        if keeps == 0 && oks == 0 {
             return "Found \(clips) clip\(clips == 1 ? "" : "s"), none marked KEEP — check Camera."
                 + skipped
         }
-        return "Found \(clips) clip\(clips == 1 ? "" : "s"), \(keeps) marked KEEP." + skipped
+        let ok = oks == 0 ? "" : ", \(oks) OK"
+        return "Found \(clips) clip\(clips == 1 ? "" : "s"), \(keeps) marked KEEP\(ok)." + skipped
     }
+}
+
+/// The flag a clip carries. Sony writes one of these into `status` on `<TargetMaterial>`.
+/// No flag is nil rather than a case, so "unflagged" can only be spelled one way.
+enum ClipFlag: String, CaseIterable {
+    case keep = "KEEP"
+    case ok = "OK"
+    case ng = "NG"
+
+    /// KEEP and OK are both worth keeping; NG is the camera's word for a bad take. This is
+    /// the one definition of a pick, so the list, the counts and the export split agree.
+    var isPick: Bool { self != .ng }
+
+    /// What goes into the sidecar. KEEP is whatever word the scanner is set to look for, so
+    /// a copy flagged here reads back as KEEP; OK and NG are Sony's own and don't vary.
+    func word(keepWord: String) -> String {
+        self == .keep ? keepWord : rawValue
+    }
+
+    init?(sonyStatus raw: String) {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let flag = ClipFlag(rawValue: clean) else { return nil }
+        self = flag
+    }
+}
+
+/// A flag you set in Keeper. Wrapping the optional keeps "you cleared it" apart from "you
+/// haven't touched it", which a bare `ClipFlag??` blurs the moment anything chains through it.
+struct FlagMark: Equatable {
+    var flag: ClipFlag?
+}
+
+extension Optional where Wrapped == ClipFlag {
+    var isPick: Bool { self?.isPick ?? false }
+    /// For the log, the badges and the status line.
+    var label: String { self?.rawValue ?? "no flag" }
 }
 
 /// A camera whose KEEP flag Keeper knows how to find, or Other for one it doesn't.

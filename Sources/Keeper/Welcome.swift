@@ -218,13 +218,14 @@ enum WelcomeTour {
     /// is one job and a couple of lines; anything longer belongs in the README.
     static let steps: [Step] = [
         // First, because it happens in the camera before there's a card to point at — and
-        // without it everything after ends at an empty Kept list with no clue why.
+        // without it everything after ends at an empty Picks list with no clue why.
         Step(title: "Mark clips in camera",
              body: "Flag the good clips at the game, and back at the desk you start from those "
                  + "instead of the whole card.\n\n"
                  + "On a Sony, assign Clip Flag KEEP to a custom button with Custom Key Setting, "
                  + "then press it while recording or playing back. Press it twice to take the "
-                 + "flag off.\n\n"
+                 + "flag off. Clip Flag OK works the same way for clips that are worth keeping "
+                 + "but aren't the best.\n\n"
                  + "The flag is saved in the XML file the camera writes beside each clip, not "
                  + "in the video. Point Keeper at the card itself, or at a copy that kept the "
                  + "XML files.",
@@ -237,13 +238,15 @@ enum WelcomeTour {
              key: .chooseFolder,
              doIt: [.chooseFolder]),
 
-        Step(title: "Review your KEEPs",
-             body: "The filter bar along the top splits the card into Kept and Not kept, using "
-                 + "the flag your camera wrote. Nothing under Kept? Check the Camera menu in the "
+        Step(title: "Review your picks",
+             body: "The filter bar along the top splits the card into Picks and Unpicked, using "
+                 + "the flag your camera wrote. Picks are your KEEP and OK clips, in shooting "
+                 + "order, with KEEP in green. Nothing under Picks? Check the Camera menu in the "
                  + "toolbar — Other… takes whatever word your camera uses.\n\n"
-                 + "Arrow keys move between clips and Space plays. Changed your mind? The Mark "
-                 + "menu flips the flag, and ⌘Z undoes it. A flag you change is applied to "
-                 + "your copy, never to the card.",
+                 + "Arrow keys move between clips and Space plays. Changed your mind? "
+                 + "\(Shortcuts.shared.display(.toggleKeep)) toggles KEEP, "
+                 + "\(Shortcuts.shared.display(.toggleOK)) toggles OK, and ⌘Z undoes either. A "
+                 + "flag you change is applied to your copy, never to the card.",
              key: .toggleKeep),
 
         Step(title: "Load your roster",
@@ -263,10 +266,10 @@ enum WelcomeTour {
              key: .keyboardFlow),
 
         Step(title: "Export",
-             body: "Export copies the clips you're keeping to your drive. Pick a filename "
+             body: "Export copies your picks to your drive. Pick a filename "
                  + "preset in the sheet and each one is named from its tags; leave it and they "
                  + "keep the camera's names.\n\n"
-                 + "Want the rest as well? Tick “Send kept and not-kept clips to separate "
+                 + "Want the rest as well? Tick “Send picks and unpicked clips to separate "
                  + "folders” and both go out in one copy.\n\n"
                  + "Run it again and anything already copied is skipped.",
              key: .export),

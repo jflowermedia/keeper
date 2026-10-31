@@ -81,7 +81,14 @@ final class FlowKeyState {
                 // rebinding it works — a US keyboard wants ` where a British one has §.
                 // Claimed at the bench and nowhere else, which is what was asked for and
                 // also what stops it swallowing a key you've bound elsewhere.
-                return character.isNumber || Shortcuts.shared.isBound(key, to: .subjectsOnly)
+                //
+                // The OK key is claimed too, though the bench has no use for it. Left out, it
+                // fell through to the review keys and marked the clip OK while you were
+                // picking a player. Only that key: a play key you've moved onto a letter
+                // still works here, the way Space does.
+                return character.isNumber
+                    || Shortcuts.shared.isBound(key, to: .subjectsOnly)
+                    || Shortcuts.shared.isBound(key, to: .toggleOK)
             case .categories: return character.isLetter || character.isNumber
             case .clips:      return false
             }
@@ -591,7 +598,16 @@ extension AppState {
                 pressSubjectsKey()
                 return
             }
-            guard let character = key.first, character.isNumber else { return }
+            guard let character = key.first else { return }
+            guard character.isNumber else {
+                // The OK key, claimed only to keep it from marking the clip — see `claims`.
+                // Said rather than swallowed, because it works everywhere but here.
+                if Shortcuts.shared.isBound(key, to: .toggleOK) {
+                    status = "\(key.uppercased()) marks OK at the Clips step. "
+                        + "At the bench, type a shirt number."
+                }
+                return
+            }
             // A typed number narrows the grid rather than moving a cursor through it:
             // 1 leaves #1 and #10–#19 on screen, 7 then leaves #17 alone. With twenty-odd
             // chips, seeing the shortlist beats hunting for a ring.

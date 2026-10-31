@@ -9,6 +9,9 @@ extension Notification.Name {
     /// `userInfo["delta"]` is -1 or 1.
     static let keeperMoveSelection = Notification.Name("keeperMoveSelection")
     static let keeperClearTags = Notification.Name("keeperClearTags")
+    /// The OK key. KEEP is a menu command and doesn't need this; OK is a bare press, so it
+    /// comes through the key monitor like the other review keys.
+    static let keeperToggleOK = Notification.Name("keeperToggleOK")
 
     /// Posted by `TagLibrary` when it has just written a rolling backup, so the Restore
     /// menu's cached list picks it up without the menus listing the folder on every rebuild.
@@ -19,8 +22,8 @@ extension Notification.Name {
 final class AppState: ObservableObject {
     enum Filter: String, CaseIterable, Identifiable {
         // The labels on the segmented control. Never stored, so renaming them is safe.
-        case isKeep = "Kept"
-        case isNotKeep = "Not kept"
+        case picks = "Picks"
+        case unpicked = "Unpicked"
         case all = "All"
         var id: String { rawValue }
     }
@@ -104,12 +107,12 @@ final class AppState: ObservableObject {
 
     /// Switching filter clears the selection, so the drag set never silently means
     /// "everything in the new filter" while stale rows are still ticked.
-    @Published var filter: Filter = .isKeep {
+    @Published var filter: Filter = .picks {
         didSet {
             guard filter != oldValue else { return }
             selection = []
             // Also the preview: keeping it would show a clip from the filter you just left.
-            // A KEEP toggle deliberately doesn't do this — see `previewClip`.
+            // A flag toggle deliberately doesn't do this — see `previewClip`.
             lastSelected = nil
         }
     }
@@ -217,7 +220,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Whether ⌘K on the previewed clip moves to the next one afterwards. On by default:
+    /// Whether marking the previewed clip KEEP or OK moves to the next one afterwards. On by default:
     /// marking is a pass down the card, and stopping on each clip you just dealt with means
     /// a second keystroke every time. ⌘Z takes a mark back either way.
     @Published var advanceAfterMark: Bool = true {
@@ -294,7 +297,7 @@ final class AppState: ObservableObject {
     @Published var exportScope: ExportScope = .shown
     @Published var exportDestination: ExportDestination = .copy
     @Published var exportFolder: URL?
-    /// Copy the kept clips to `exportFolder` and the not-kept ones to `notKeptFolder`, in one
+    /// Copy the picks to `exportFolder` and the unpicked to `notKeptFolder`, in one
     /// pass, rather than exporting twice with the filter flipped in between. Like the layout,
     /// not remembered between launches.
     @Published var splitByKeep = false
@@ -471,27 +474,33 @@ final class AppState: ObservableObject {
 
     // MARK: - Derived state
 
-    /// What the app treats as KEEP: your own mark if you've set one, otherwise the camera's.
-    func isKeep(_ clip: Clip) -> Bool {
-        library.keepOverride(for: clip.umid) ?? clip.isKeep
+    /// The flag the app goes by: your own if you've set one, otherwise the camera's.
+    func flag(_ clip: Clip) -> ClipFlag? {
+        // Unwrapped by hand: `?.flag ?? clip.flag` would flatten a flag you cleared into
+        // "not changed" and hand back the camera's.
+        if let mark = library.flagOverride(for: clip.umid) { return mark.flag }
+        return clip.flag
     }
 
+    /// KEEP or OK, by the flag the app goes by.
+    func isPick(_ clip: Clip) -> Bool { flag(clip).isPick }
+
     /// True when you've changed it from what the card says.
-    func isKeepChanged(_ clip: Clip) -> Bool {
-        library.keepOverride(for: clip.umid) != nil
+    func isFlagChanged(_ clip: Clip) -> Bool {
+        library.flagOverride(for: clip.umid) != nil
     }
 
     var visible: [Clip] {
         let list: [Clip]
         switch filter {
-        case .isKeep:    list = clips.filter { isKeep($0) }
-        case .isNotKeep: list = clips.filter { !isKeep($0) }
-        case .all:       list = clips
+        case .picks:    list = clips.filter { isPick($0) }
+        case .unpicked: list = clips.filter { !isPick($0) }
+        case .all:      list = clips
         }
         return matchingTagFilters(list)
     }
 
-    /// The tag half of `visible`, without the KEEP filter. Splitting an export by flag needs
+    /// The tag half of `visible`, without the Picks filter. Splitting an export by flag needs
     /// both halves of whatever the tag filters show, whichever flag the list is set to.
     func matchingTagFilters(_ clips: [Clip]) -> [Clip] {
         var list = clips
@@ -528,6 +537,7 @@ final class AppState: ObservableObject {
     /// about it. The token comes from the key monitor, which counts the presses.
     private var lastMoveToken = 0
     private var lastClearToken = 0
+    private var lastOKToken = 0
 
     /// Whether clearing tags asks first. On unless you've turned it off, because the one
     /// press that wipes tags off a whole card is worth a question the first few times.
@@ -597,8 +607,8 @@ final class AppState: ObservableObject {
             guard target >= 0, target < list.count else { return false }   // already at the end
             lastVisibleIndex = index
         } else if let anchor = lastVisibleIndex {
-            // The previewed clip has left the filter, which is exactly what marking it KEEP
-            // while filtering by KEEP does. Carry on from where it was sitting: the clip
+            // The previewed clip has left the filter, which is exactly what clearing a flag
+            // while looking at Picks does. Carry on from where it was sitting: the clip
             // that was after it has slid into its place, so the anchor *is* the next one.
             // Without this the lookup fails, the "nothing selected yet" case below takes
             // over, and marking a clip sends you back to the top of the card.
@@ -622,15 +632,26 @@ final class AppState: ObservableObject {
     /// carry on from there after it has dropped out of the filter. See `selectRelative`.
     private var lastVisibleIndex: Int?
 
-    /// ⌘K on the previewed clip: flip the flag and move on. That's the review pass — watch,
-    /// mark, next — and it's why this exists rather than the menu calling `toggleKeep`
-    /// directly. Clicking a row's badge deliberately doesn't advance: that click is aimed at
-    /// one clip, and moving the preview off it would be a surprise.
-    func toggleKeepOnPreview() {
-        guard let clip = previewClip else { return }
+    /// ⌘Return (KEEP) or O (OK) on the previewed clip: flip the flag and move on. That's the
+    /// review pass — watch, mark, next — and it's why this exists rather than calling
+    /// `toggle` directly. Clicking a row's badge deliberately doesn't advance: that click is
+    /// aimed at one clip, and moving the preview off it would be a surprise.
+    /// From the OK key. The token stops a second window marking the clip twice — which,
+    /// since it's a toggle, would undo the first.
+    func toggleOKOnPreview(token: Int) {
+        guard token != lastOKToken else { return }
+        lastOKToken = token
+        toggleOnPreview(.ok)
+    }
+
+    func toggleOnPreview(_ flag: ClipFlag) {
+        guard let clip = previewClip else {
+            status = "Select a clip to mark it \(flag.rawValue)."
+            return
+        }
         // Only moves on if the flag actually changed. A clip with no UMID can't be marked,
         // and advancing anyway would walk silently past it.
-        guard toggleKeep(clip) else { return }
+        guard toggle(flag, on: clip) else { return }
         if advanceAfterMark { advanceAfterAction() }
     }
 
@@ -663,10 +684,11 @@ final class AppState: ObservableObject {
         return [team]
     }
 
-    var keepCount: Int { clips.filter { isKeep($0) }.count }
-    var notKeepCount: Int { clips.count - keepCount }
+    func count(_ flag: ClipFlag) -> Int { clips.filter { self.flag($0) == flag }.count }
+    var pickCount: Int { clips.filter { isPick($0) }.count }
+    var unpickedCount: Int { clips.count - pickCount }
     var taggedCount: Int { clips.filter { library.isTagged($0.umid) }.count }
-    var changedKeepCount: Int { clips.filter { isKeepChanged($0) }.count }
+    var changedFlagCount: Int { clips.filter { isFlagChanged($0) }.count }
 
     // MARK: Sizes
     //
@@ -677,8 +699,8 @@ final class AppState: ObservableObject {
         list.reduce(Int64(0)) { $0 + $1.totalSize }
     }
 
-    var keepBytes: Int64 { bytes(of: clips.filter { isKeep($0) }) }
-    var notKeepBytes: Int64 { bytes(of: clips.filter { !isKeep($0) }) }
+    var pickBytes: Int64 { bytes(of: clips.filter { isPick($0) }) }
+    var unpickedBytes: Int64 { bytes(of: clips.filter { !isPick($0) }) }
     var allBytes: Int64 { bytes(of: clips) }
     /// What the filter is showing, tag filters included.
     var visibleBytes: Int64 { bytes(of: visible) }
@@ -687,23 +709,29 @@ final class AppState: ObservableObject {
     /// that's easier to answer with the other two in front of you.
     var sizeBreakdown: String {
         """
-        KEEP: \(FileUtil.sizeText(keepBytes)) over \(keepCount) clip(s)
-        NOT KEEP: \(FileUtil.sizeText(notKeepBytes)) over \(notKeepCount) clip(s)
+        Picks: \(FileUtil.sizeText(pickBytes)) over \(pickCount) clip(s)
+        Unpicked: \(FileUtil.sizeText(unpickedBytes)) over \(unpickedCount) clip(s)
         Everything: \(FileUtil.sizeText(allBytes)) over \(clips.count) clip(s)
 
         The figure beside this is what the filter is showing.
         """
     }
 
-    // MARK: - Marking KEEP
+    // MARK: - Marking flags
 
-    /// Flips one clip. Nothing is written to the card — the change lives in the library
-    /// until the clip is copied out, and then only the copied sidecar is edited.
+    /// Sets one clip's flag, or takes it off if it already has that one. Nothing is written
+    /// to the card — the change lives in the library until the clip is copied out, and then
+    /// only the copied sidecar is edited.
     ///
-    /// Returns false when there was nothing to flip, so a caller that moves on afterwards
+    /// Returns false when there was nothing to change, so a caller that moves on afterwards
     /// doesn't walk past a clip it never marked.
     @discardableResult
-    func toggleKeep(_ clip: Clip) -> Bool {
+    func toggle(_ flag: ClipFlag, on clip: Clip) -> Bool {
+        set(self.flag(clip) == flag ? nil : flag, on: clip)
+    }
+
+    @discardableResult
+    func set(_ next: ClipFlag?, on clip: Clip) -> Bool {
         guard let umid = clip.umid else {
             status = "\(clip.name) has no UMID in its XML, so its flag can't be changed."
             return false
@@ -717,40 +745,97 @@ final class AppState: ObservableObject {
             lastVisibleIndex = index
         }
 
-        let next = !isKeep(clip)
-        library.setKeep(next, umid: umid, cameraFlag: clip.isKeep,
-                        undoLabel: "Mark \(clip.name) \(next ? "KEEP" : "NOT KEEP")")
-        status = "\(clip.name) marked \(next ? "KEEP" : "NOT KEEP")"
-            + (next == clip.isKeep ? " (back to the camera's flag)." : ", applied when you copy it.")
+        let word = next?.rawValue ?? "unflagged"
+        library.setFlag(next, umid: umid, cameraFlag: clip.flag,
+                        undoLabel: next == nil ? "Clear the Flag on \(clip.name)" : "Mark \(clip.name) \(word)")
+        status = "\(clip.name) \(next == nil ? "unflagged" : "marked \(word)")"
+            + (next == clip.flag ? " (back to the camera's flag)." : ", applied when you copy it.")
             + undoHint
         return true
     }
 
-    /// Sets every clip in scope the same way, rather than flipping each individually.
-    func setKeepInScope(_ keep: Bool) {
-        let targets = dragClips.compactMap { clip -> (umid: String, cameraFlag: Bool)? in
-            guard let umid = clip.umid else { return nil }
-            return (umid, clip.isKeep)
-        }
-        guard !targets.isEmpty else { return }
-        let word = keep ? "KEEP" : "NOT KEEP"
-        let changed = library.setKeep(keep, for: targets,
-                                      undoLabel: "Mark \(targets.count) Clip(s) \(word)")
-        guard changed > 0 else {
-            status = "Those \(targets.count) clip(s) are already \(word)."
-            return
-        }
-        let scope = hasExplicitSelection ? "selected" : "shown"
-        status = "Marked \(targets.count) \(scope) clip(s) \(word)." + undoHint
+    /// Sets every clip in scope the same way, rather than flipping each individually. nil
+    /// clears the flag.
+    func setFlagInScope(_ flag: ClipFlag?) {
+        setFlag(flag, on: dragClips, scope: hasExplicitSelection ? "selected" : "shown")
     }
 
-    func revertKeepInScope() {
-        let umids = dragClips.compactMap(\.umid)
-        let reverted = library.clearKeepOverrides(
-            umids: umids,
-            undoLabel: "Revert \(umids.count) Clip(s) to the Camera's Flags")
-        guard reverted > 0 else { return }
+    /// The clips a right-click acts on. See `ContextTargets`.
+    func contextTargets(for clip: Clip) -> [Clip] {
+        ContextTargets.clips(clicked: clip, selection: selection,
+                             selected: ContextTargets.selected(selection, in: visible))
+    }
+
+    /// The right-click menu's marks. One clip goes through `set`, which keeps the arrows'
+    /// place if the clip drops out of the list; several go through the bulk path the Mark
+    /// menu uses, so a selection is one write and one undo step.
+    func setFlag(_ flag: ClipFlag?, onContextOf clip: Clip) {
+        let targets = contextTargets(for: clip)
+        if targets.count == 1, let only = targets.first {
+            set(flag, on: only)
+        } else {
+            setFlag(flag, on: targets, scope: "selected")
+        }
+    }
+
+    func revertFlags(onContextOf clip: Clip) {
+        revertFlags(on: contextTargets(for: clip))
+    }
+
+    private func setFlag(_ flag: ClipFlag?, on clips: [Clip], scope: String) {
+        let targets = clips.compactMap { clip -> (umid: String, cameraFlag: ClipFlag?)? in
+            guard let umid = clip.umid else { return nil }
+            return (umid, clip.flag)
+        }
+        guard !targets.isEmpty else {
+            status = clips.isEmpty
+                ? "No clips to mark."
+                : "None of those clips has a UMID in its XML, so their flags can't be changed."
+            return
+        }
+        let doing = flag.map { "Mark \(targets.count) Clip(s) \($0.rawValue)" }
+            ?? "Clear the Flags on \(targets.count) Clip(s)"
+        var changed = 0
+        keepingPlace { changed = library.setFlag(flag, for: targets, undoLabel: doing) }
+        guard changed > 0 else {
+            status = "Those \(targets.count) clip(s) are already \(flag.map(\.rawValue) ?? "unflagged")."
+            return
+        }
+        status = (flag.map { "Marked \(targets.count) \(scope) clip(s) \($0.rawValue)." }
+                  ?? "Cleared the flags on \(targets.count) \(scope) clip(s).") + undoHint
+    }
+
+    func revertFlagsInScope() {
+        revertFlags(on: dragClips)
+    }
+
+    private func revertFlags(on clips: [Clip]) {
+        let umids = clips.compactMap(\.umid)
+        var reverted = 0
+        keepingPlace {
+            reverted = library.clearFlagOverrides(
+                umids: umids,
+                undoLabel: "Revert \(umids.count) Clip(s) to the Camera's Flags")
+        }
+        guard reverted > 0 else {
+            status = "Those clips already have the camera's flags."
+            return
+        }
         status = "Reverted \(reverted) clip(s) to the camera's own flag." + undoHint
+    }
+
+    /// The bulk version of what `set` does before a mark: keep the arrows' place when the
+    /// previewed clip leaves the list. Several clips can go at once, some above it, so the
+    /// place is found afterwards — the first clip that was after the preview and is still
+    /// listed — rather than taken as an index beforehand, which would be off by however
+    /// many left above it.
+    private func keepingPlace(_ change: () -> Void) {
+        let before = visible
+        let at = lastSelected.flatMap { id in before.firstIndex { $0.id == id } }
+        change()
+        guard let at else { return }
+        lastVisibleIndex = ContextTargets.place(of: at, before: before.map(\.id),
+                                                after: visible.map(\.id))
     }
 
     // MARK: - Undo
@@ -1063,7 +1148,8 @@ final class AppState: ObservableObject {
                 self.isScanning = false
                 self.status = ScanSummary.text(
                     clips: result.clips.count,
-                    keeps: result.clips.filter { self.isKeep($0) }.count,
+                    keeps: result.clips.filter { self.flag($0) == .keep }.count,
+                    oks: result.clips.filter { self.flag($0) == .ok }.count,
                     withoutSidecar: result.videosWithoutXML.count)
             }
         }
@@ -1088,5 +1174,34 @@ enum ClipRange {
         let from = anchor.flatMap { ids.firstIndex(of: $0) } ?? at
         let range = Array(ids[min(from, next)...max(from, next)])
         return (range, ids[from], ids[next])
+    }
+}
+
+/// Which clips a right-click acts on: the whole selection when you click inside it, as
+/// Finder does, or just the clip you clicked when it's outside. Without this, right-clicking
+/// one of six selected clips marked one, and the other five looked marked until you checked.
+/// Pure and apart from `AppState` so the rule can be checked.
+///
+/// `selected` is passed in rather than worked out here because the list builds every row's
+/// menu each time it redraws: worked out per row, a whole card selected meant filtering the
+/// card once per selected clip, on every redraw.
+enum ContextTargets {
+    /// The selection as it stands on screen. A selected clip a filter has since hidden
+    /// mustn't be marked unseen.
+    static func selected(_ selection: Set<URL>, in visible: [Clip]) -> [Clip] {
+        selection.isEmpty ? [] : visible.filter { selection.contains($0.id) }
+    }
+
+    /// Where the arrows carry on from once a mark has taken clips out of the list: the first
+    /// clip that was at or after `at` and is still listed. Past the end when none is left,
+    /// which `selectRelative` clamps.
+    static func place(of at: Int, before: [URL], after: [URL]) -> Int {
+        let index = Dictionary(after.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        return before[at...].lazy.compactMap { index[$0] }.first ?? after.count
+    }
+
+    static func clips(clicked: Clip, selection: Set<URL>, selected: [Clip]) -> [Clip] {
+        guard selection.contains(clicked.id), selected.count > 1 else { return [clicked] }
+        return selected
     }
 }

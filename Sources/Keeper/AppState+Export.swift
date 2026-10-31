@@ -10,8 +10,8 @@ extension AppState {
     var exportClips: [Clip] {
         switch exportScope {
         case .selection: return visible.filter { selection.contains($0.id) }
-        // Split by flag, everything shown means both flags of what the tag filters show. The
-        // list sitting on Kept, as it does by default, is exactly when you'd reach for this.
+        // Split, everything shown means picks and unpicked of what the tag filters show. The
+        // list sitting on Picks, as it does by default, is exactly when you'd reach for this.
         case .shown:     return splitsByKeep ? matchingTagFilters(clips) : visible
         }
     }
@@ -22,13 +22,13 @@ extension AppState {
     /// Where one clip's copy goes. Copying, the counts and the warnings all ask this, so they
     /// can't disagree about which folder a clip is headed for.
     func copyFolder(for clip: Clip) -> URL? {
-        KeepSplit.folder(keep: isKeep(clip), split: splitsByKeep,
+        KeepSplit.folder(pick: isPick(clip), split: splitsByKeep,
                          kept: exportFolder, notKept: notKeptFolder)
     }
 
     /// How the export divides up when it's split, for the sheet to show beside each folder.
     var exportSplitCounts: (kept: Int, notKept: Int) {
-        let kept = exportClips.filter { isKeep($0) }.count
+        let kept = exportClips.filter { isPick($0) }.count
         return (kept, exportClips.count - kept)
     }
 
@@ -36,16 +36,16 @@ extension AppState {
 
     /// How many clips the sheet would open on. The Export button's label, whether it's
     /// enabled, and `requestExport` all use this, so a button can't offer thirty clips and
-    /// then refuse to open — which a Kept list with nothing in it, split by flag, did.
+    /// then refuse to open — which a Picks list with nothing in it, split by flag, did.
     var exportButtonCount: Int {
         if selectedCount > 0 { return selectedCount }
         return splitsByKeep ? matchingTagFilters(clips).count : visible.count
     }
 
     /// Plain-English description of what the export sheet's scope is drawn from. Split by
-    /// flag, the KEEP filter is set aside — see `exportClips`.
+    /// flag, the Picks filter is set aside — see `exportClips`.
     var filterSummary: String {
-        var parts = [splitsByKeep && exportScope == .shown ? "Kept and not kept" : filter.rawValue]
+        var parts = [splitsByKeep && exportScope == .shown ? "Picks and unpicked" : filter.rawValue]
         if let id = filterTeamID, let team = library.team(id: id) { parts.append(team.name) }
         if let id = filterPlayerID,
            let player = library.allPlayers.first(where: { $0.id == id }) { parts.append(player.label) }
@@ -132,7 +132,7 @@ extension AppState {
         }
     }
 
-    var exportFlagChanges: Int { exportClips.filter { isKeepChanged($0) }.count }
+    var exportFlagChanges: Int { exportClips.filter { isFlagChanged($0) }.count }
 
     /// How many clips would actually get a new name. Anything already named correctly is
     /// left alone, so the button can say the real number rather than the scope's.
@@ -223,8 +223,8 @@ extension AppState {
             // out to be all kept shouldn't hold the copy up over a folder it will never use.
             let counts = exportSplitCounts
             let halves: [(folder: URL?, needed: Bool, name: String)] = splitsByKeep
-                ? [(exportFolder, counts.kept > 0, "kept clips"),
-                   (notKeptFolder, counts.notKept > 0, "not-kept clips")]
+                ? [(exportFolder, counts.kept > 0, "picks"),
+                   (notKeptFolder, counts.notKept > 0, "unpicked clips")]
                 : [(exportFolder, true, "copies")]
             for half in halves where half.needed {
                 guard let folder = half.folder else {
@@ -244,7 +244,7 @@ extension AppState {
             }
             if splitsByKeep, counts.kept > 0, counts.notKept > 0,
                let kept = exportFolder, let notKept = notKeptFolder, FileUtil.sameFile(kept, notKept) {
-                return "Kept and not-kept clips are both set to go to the same folder. Choose a "
+                return "Picks and unpicked clips are both set to go to the same folder. Choose a "
                      + "different one for either, or turn off sending them to separate folders."
             }
         }
@@ -288,7 +288,7 @@ extension AppState {
         let subfolder: String
         let baseName: String?      // nil keeps each file's own name
         /// Set when you've changed this clip's flag: the copied sidecar gets it written in.
-        let writeKeep: Bool?
+        let writeFlag: FlagMark?
     }
 
     /// nil means "keep original names".
@@ -335,13 +335,13 @@ extension AppState {
             }
 
             let sources = includeXML ? [clip.videoURL, clip.xmlURL] : [clip.videoURL]
-            let override = isKeepChanged(clip) ? isKeep(clip) : nil
+            let override = isFlagChanged(clip) ? FlagMark(flag: flag(clip)) : nil
             for folder in folders {
                 jobs.append(CopyJob(sources: sources,
                                     destination: destination,
                                     subfolder: folder,
                                     baseName: base,
-                                    writeKeep: override))
+                                    writeFlag: override))
             }
         }
         return jobs
@@ -400,7 +400,7 @@ extension AppState {
             }
         }
 
-        let flagChanges = scope.filter { isKeepChanged($0) }.count
+        let flagChanges = scope.filter { isFlagChanged($0) }.count
         guard !plan.isEmpty || flagChanges > 0 else {
             status = "Everything in view is already named correctly."
             return
@@ -445,16 +445,16 @@ extension AppState {
                 handled.insert(clip.id)
 
                 // While we're editing this folder, make the sidecar say what the app says.
-                if isKeepChanged(clip), let umid = clip.umid {
+                if isFlagChanged(clip), let umid = clip.umid {
                     let xml = folder.appendingPathComponent("\(base).\(clip.xmlURL.pathExtension)")
                     do {
-                        if try KeepWriter.apply(keep: isKeep(clip), word: flagWord, toXMLAt: xml) {
+                        if try KeepWriter.apply(flag(clip), keepWord: flagWord, toXMLAt: xml) {
                             flagged += 1
                         }
                         // No undo label on purpose: the flag is now written into the
                         // file on disk, so putting the override back would only make the
                         // library disagree with it.
-                        library.clearKeepOverride(umid: umid, undoLabel: nil)
+                        library.clearFlagOverride(umid: umid, undoLabel: nil)
                     } catch {
                         lines.append("✗ \(base): flag couldn't be written — \(error.localizedDescription)")
                     }
@@ -463,15 +463,15 @@ extension AppState {
         }
 
         // Clips that only needed a flag change, with no rename.
-        for clip in exportClips where !handled.contains(clip.id) && isKeepChanged(clip) {
+        for clip in exportClips where !handled.contains(clip.id) && isFlagChanged(clip) {
             guard let umid = clip.umid else { continue }
             do {
-                if try KeepWriter.apply(keep: isKeep(clip), word: flagWord, toXMLAt: clip.xmlURL) {
+                if try KeepWriter.apply(flag(clip), keepWord: flagWord, toXMLAt: clip.xmlURL) {
                     flagged += 1
-                    lines.append("✎ \(clip.xmlURL.lastPathComponent): flag set to "
-                                 + (isKeep(clip) ? flagWord : "not \(flagWord)"))
+                    lines.append("✎ \(clip.xmlURL.lastPathComponent): "
+                                 + KeepWriter.describe(flag(clip), keepWord: flagWord))
                 }
-                library.clearKeepOverride(umid: umid, undoLabel: nil)   // written to the file
+                library.clearFlagOverride(umid: umid, undoLabel: nil)   // written to the file
             } catch {
                 lines.append("✗ \(clip.xmlURL.lastPathComponent): flag couldn't be written — "
                              + error.localizedDescription)
@@ -496,8 +496,8 @@ extension AppState {
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
         panel.message = !splitsByKeep ? "Where should the copies go?"
-            : notKept ? "Where should the not-kept clips go?"
-            : "Where should the kept clips go?"
+            : notKept ? "Where should the unpicked clips go?"
+            : "Where should the picks go?"
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         if notKept { notKeptFolder = url } else { exportFolder = url }
         return url
@@ -571,10 +571,10 @@ extension AppState {
             let counts = exportSplitCounts
             var halves: [String] = []
             if counts.kept > 0, let kept = exportFolder {
-                halves.append("\(counts.kept) kept clip(s) to \(kept.path)")
+                halves.append("\(counts.kept) pick(s) to \(kept.path)")
             }
             if counts.notKept > 0, let notKept = notKeptFolder {
-                halves.append("\(counts.notKept) not kept to \(notKept.path)")
+                halves.append("\(counts.notKept) unpicked to \(notKept.path)")
             }
             whereTo = "— " + halves.joined(separator: ", ")
         } else {
@@ -587,7 +587,7 @@ extension AppState {
             addLog("Renaming with \"\(preset.name)\" — e.g. \(video.lastPathComponent) → \(base).\(video.pathExtension)")
         }
 
-        let changedInBatch = jobs.filter { $0.writeKeep != nil }.count
+        let changedInBatch = jobs.filter { $0.writeFlag != nil }.count
         if changedInBatch > 0 {
             addLog(includeXML
                    ? "\(changedInBatch) clip(s) have a changed flag, written into the copied XML"
@@ -695,17 +695,17 @@ extension AppState {
                         // edit the original — and on a card, that would break the one promise
                         // Keeper makes. The sheet blocks a card destination; this makes sure
                         // the originals are never touched wherever they are.
-                        if isSidecar, let wanted = job.writeKeep, fm.fileExists(atPath: target.path),
+                        if isSidecar, let wanted = job.writeFlag, fm.fileExists(atPath: target.path),
                            !FileUtil.sameFile(target, src) {
                             shouldCopy = false
                             do {
-                                let edited = try KeepWriter.apply(keep: wanted,
-                                                                  word: flagWord,
+                                let edited = try KeepWriter.apply(wanted.flag,
+                                                                  keepWord: flagWord,
                                                                   toXMLAt: target)
                                 skipped += 1
                                 lines.append(edited
-                                    ? "✎ \(name): already there, flag set to "
-                                      + (wanted ? flagWord : "not \(flagWord)")
+                                    ? "✎ \(name): already there, "
+                                      + KeepWriter.describe(wanted.flag, keepWord: flagWord)
                                     : "– \(name): already there with the right flag, skipped")
                             } catch {
                                 failed += 1
@@ -742,14 +742,15 @@ extension AppState {
                                     // The flag you changed in the app goes into the copy, never
                                     // the card. Done after the size check so a bad copy is still
                                     // reported as a bad copy.
-                                    if isSidecar, let wanted = job.writeKeep {
+                                    if isSidecar, let wanted = job.writeFlag {
                                         do {
-                                            let edited = try KeepWriter.apply(keep: wanted,
-                                                                              word: flagWord,
+                                            let edited = try KeepWriter.apply(wanted.flag,
+                                                                              keepWord: flagWord,
                                                                               toXMLAt: target)
                                             if edited {
-                                                lines.append("✎ \(name): flag set to "
-                                                             + (wanted ? flagWord : "not \(flagWord)"))
+                                                lines.append("✎ \(name): "
+                                                             + KeepWriter.describe(wanted.flag,
+                                                                                   keepWord: flagWord))
                                             }
                                         } catch {
                                             failed += 1
@@ -834,10 +835,10 @@ extension AppState {
     }
 }
 
-/// Which folder a clip goes to when an export is split by its KEEP flag. Kept apart from the
-/// app's state so the rule can be checked on its own.
+/// Which folder a clip goes to when an export is split into picks and unpicked. Kept apart
+/// from the app's state so the rule can be checked on its own.
 enum KeepSplit {
-    static func folder(keep: Bool, split: Bool, kept: URL?, notKept: URL?) -> URL? {
-        split && !keep ? notKept : kept
+    static func folder(pick: Bool, split: Bool, kept: URL?, notKept: URL?) -> URL? {
+        split && !pick ? notKept : kept
     }
 }

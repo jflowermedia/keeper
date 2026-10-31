@@ -168,7 +168,7 @@ extension KeyCombo {
 
 enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
     // Reviewing: one press, no modifiers, caught by the event monitor in `Playback`.
-    case playPause, shuttleBack, shuttleForward, previousClip, nextClip, clearTags
+    case playPause, shuttleBack, shuttleForward, previousClip, nextClip, clearTags, toggleOK
     // Menu commands: always with ⌘, set on the menu item itself.
     case chooseFolder, rescan, export, verify, importRoster, editRosters
     case toggleKeep, markKeep, markNotKeep
@@ -184,7 +184,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
 
     var group: Group {
         switch self {
-        case .playPause, .shuttleBack, .shuttleForward, .previousClip, .nextClip, .clearTags:
+        case .playPause, .shuttleBack, .shuttleForward, .previousClip, .nextClip, .clearTags,
+             .toggleOK:
             return .review
         case .subjectsOnly:
             return .flow
@@ -207,8 +208,10 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .importRoster:    return "Import Roster CSV…"
         case .editRosters:     return "Edit Rosters…"
         case .toggleKeep:      return "Toggle KEEP on previewed clip"
+        case .toggleOK:        return "Toggle OK on previewed clip"
         case .markKeep:        return "Mark selection KEEP"
-        case .markNotKeep:     return "Mark selection NOT KEEP"
+        // The case keeps its old name because it's the key bindings are stored under.
+        case .markNotKeep:     return "Clear flags on selection"
         case .fullScreen:      return "Full screen preview"
         case .taggingPanel:    return "Tagging panel"
         case .keyboardFlow:    return "Keyboard tagging"
@@ -250,6 +253,7 @@ final class Shortcuts: ObservableObject {
         .nextClip:       [KeyCombo(key: "down")],
         // Destructive, but it asks before it does anything, so a bare key is fine.
         .clearTags:      [KeyCombo(key: "/")],
+        .toggleOK:       [KeyCombo(key: "o")],
 
         .chooseFolder:   [KeyCombo(key: "o", command: true)],
         .rescan:         [KeyCombo(key: "r", command: true)],
@@ -257,9 +261,9 @@ final class Shortcuts: ObservableObject {
         .verify:         [KeyCombo(key: "v", command: true, shift: true)],
         .importRoster:   [KeyCombo(key: "i", command: true)],
         .editRosters:    [KeyCombo(key: "r", command: true, shift: true)],
-        .toggleKeep:     [KeyCombo(key: "k", command: true)],
-        .markKeep:       [KeyCombo(key: "k", command: true, shift: true)],
-        .markNotKeep:    [KeyCombo(key: "k", command: true, option: true)],
+        .toggleKeep:     [KeyCombo(key: "return", command: true)],
+        .markKeep:       [KeyCombo(key: "return", command: true, shift: true)],
+        .markNotKeep:    [KeyCombo(key: "return", command: true, option: true)],
         .fullScreen:     [KeyCombo(key: "f", command: true)],
         .taggingPanel:   [KeyCombo(key: "e", command: true)],
         .keyboardFlow:   [KeyCombo(key: "t", command: true, shift: true)],
@@ -269,6 +273,17 @@ final class Shortcuts: ObservableObject {
         // is why this one is worth rebinding rather than assuming — and why it's bindable
         // at all rather than hard-coded.
         .subjectsOnly:   [KeyCombo(key: "§")]
+    ]
+
+    /// Defaults a later version moved. Up to 0.9.4 every binding was saved, changed or not,
+    /// so these sit in the file looking like choices; read back as one, they'd keep the old
+    /// key for good on any Mac where a shortcut had ever been touched. Ignoring them hands
+    /// back the current default. Someone who had deliberately picked ⌘K loses it once — the
+    /// price of not being able to tell the two apart.
+    static let retiredDefaults: [ShortcutAction: [KeyCombo]] = [
+        .toggleKeep:  [KeyCombo(key: "k", command: true)],
+        .markKeep:    [KeyCombo(key: "k", command: true, shift: true)],
+        .markNotKeep: [KeyCombo(key: "k", command: true, option: true)]
     ]
 
     private init() {
@@ -489,9 +504,14 @@ final class Shortcuts: ObservableObject {
     /// key encodes as a flat array of alternating keys and values, and one unrecognised name in
     /// it — an action a later version added — throws the whole file away. Strings let the
     /// unknown ones be skipped instead.
+    ///
+    /// Only what differs from the default is written, so a default that moves in a later
+    /// version reaches everyone who never changed it. See `retiredDefaults`.
     private func persist() {
         var flat: [String: [KeyCombo]] = [:]
-        for (action, list) in bindings { flat[action.rawValue] = list }
+        for (action, list) in bindings where list != (Self.defaults[action] ?? []) {
+            flat[action.rawValue] = list
+        }
         guard let data = try? JSONEncoder().encode(flat) else { return }
         UserDefaults.standard.set(data, forKey: Self.storeKey)
     }
@@ -508,6 +528,7 @@ final class Shortcuts: ObservableObject {
             // a later version tightened — is dropped rather than left bound to a key that
             // can never match. `filled` then puts the default back.
             stored[action] = list.filter { Self.refusal(for: $0, group: action.group) == nil }
+            if stored[action] == Self.retiredDefaults[action] { stored[action] = nil }
         }
         // Nothing here is worth protecting the way the tag library is: a set of shortcuts
         // that won't decode is replaced by the defaults rather than reported.

@@ -72,6 +72,7 @@ enum SelfCheck {
         rosterDownload()
         categorySections()
         keepSplit()
+        flags()
         formerPlayers()
 
         print("\n\(passes) passed, \(failures.count) failed")
@@ -216,6 +217,23 @@ enum SelfCheck {
             print("  FAIL the oldest archive threw: \(error)")
         }
 
+        // OK and NG came in 0.9.5. A library from before has only yes/no overrides, which
+        // were KEEP and cleared; one from after has both fields, and the new one wins.
+        let yesNo = TagLibrary.Archive(teams: [], categories: [], tags: [], presets: nil,
+                                       keepOverrides: ["A": true, "B": false])
+        let migrated = TagLibrary.flagOverrides(from: yesNo)
+        expect("an old true override reads as KEEP", migrated["A"], FlagMark(flag: .keep))
+        expect("an old false one as a cleared flag", migrated["B"], FlagMark(flag: nil))
+        let both = TagLibrary.Archive(teams: [], categories: [], tags: [], presets: nil,
+                                      keepOverrides: ["A": false, "B": false, "C": false],
+                                      flagOverrides: ["A": "OK", "B": "", "C": "STARRED"])
+        let read = TagLibrary.flagOverrides(from: both)
+        expect("the new field wins over the old", read["A"], FlagMark(flag: .ok))
+        expect("an empty word is a cleared flag", read["B"], FlagMark(flag: nil))
+        // A flag from some later version must not turn into "cleared" and be written onto
+        // a copy as exactly that.
+        expectTrue("an unknown word is dropped, not guessed at", read["C"] == nil)
+
         // `code` and `league` came later. Neither may ever become non-optional.
         let bare = """
         { "teams": [ { "id": "virden", "name": "Virden Oil Capitals", "players": [] } ],
@@ -287,12 +305,14 @@ enum SelfCheck {
         encoder.dateEncodingStrategy = .iso8601
         let archive = TagLibrary.Archive(teams: [roundTripTeam], categories: ["Goal"],
                                          tags: [roundTripTag], presets: nil,
-                                         keepOverrides: ["060A2B34": true])
+                                         keepOverrides: ["060A2B34": true],
+                                         flagOverrides: ["060A2B34": "OK"])
         if let data = try? encoder.encode(archive),
            let back = try? TagLibrary.decodeArchive(data) {
             expect("a round trip keeps the team", back.teams, [roundTripTeam])
             expect("and the tag's player", back.tags.first?.playerID ?? "", "virden/27")
             expect("and the keep override", back.keepOverrides?["060A2B34"] ?? false, true)
+            expect("and the flag override", back.flagOverrides?["060A2B34"], "OK")
         } else {
             failures.append("the round trip failed")
             print("  FAIL the round trip failed")
@@ -1258,16 +1278,22 @@ enum SelfCheck {
         let notKept = URL(fileURLWithPath: "/Volumes/SSD/Rest")
 
         expect("not split, a kept clip goes to the folder",
-               KeepSplit.folder(keep: true, split: false, kept: kept, notKept: notKept), kept)
+               KeepSplit.folder(pick: true, split: false, kept: kept, notKept: notKept), kept)
         // The case that matters: turning the split off must not leave the second folder in use.
         expect("not split, a not-kept clip still goes to the one folder",
-               KeepSplit.folder(keep: false, split: false, kept: kept, notKept: notKept), kept)
+               KeepSplit.folder(pick: false, split: false, kept: kept, notKept: notKept), kept)
         expect("split, a kept clip goes to the kept folder",
-               KeepSplit.folder(keep: true, split: true, kept: kept, notKept: notKept), kept)
+               KeepSplit.folder(pick: true, split: true, kept: kept, notKept: notKept), kept)
         expect("split, a not-kept clip goes to the other folder",
-               KeepSplit.folder(keep: false, split: true, kept: kept, notKept: notKept), notKept)
+               KeepSplit.folder(pick: false, split: true, kept: kept, notKept: notKept), notKept)
         expect("split with no second folder chosen, nowhere to go",
-               KeepSplit.folder(keep: false, split: true, kept: kept, notKept: nil), nil)
+               KeepSplit.folder(pick: false, split: true, kept: kept, notKept: nil), nil)
+
+        // What a pick is, decided in one place: OK goes with KEEP, NG with no flag.
+        expect("KEEP is a pick", ClipFlag.keep.isPick, true)
+        expect("so is OK", ClipFlag.ok.isPick, true)
+        expect("NG isn't", ClipFlag.ng.isPick, false)
+        expect("and nor is no flag", Optional<ClipFlag>.none.isPick, false)
     }
 
     private static func sleepHold() {
@@ -1488,24 +1514,32 @@ enum SelfCheck {
 
     private static func scanSummary() {
         section("The scan summary")
-        expect("normal", ScanSummary.text(clips: 12, keeps: 4, withoutSidecar: 0),
+        expect("normal", ScanSummary.text(clips: 12, keeps: 4, oks: 0, withoutSidecar: 0),
                "Found 12 clips, 4 marked KEEP.")
-        expect("one clip", ScanSummary.text(clips: 1, keeps: 1, withoutSidecar: 0),
+        expect("one clip", ScanSummary.text(clips: 1, keeps: 1, oks: 0, withoutSidecar: 0),
                "Found 1 clip, 1 marked KEEP.")
+        expect("OKs are counted beside the KEEPs",
+               ScanSummary.text(clips: 12, keeps: 4, oks: 3, withoutSidecar: 0),
+               "Found 12 clips, 4 marked KEEP, 3 OK.")
+        // A card marked only OK is a card whose flags are being read; nagging about the
+        // Camera menu on every scan of one would teach you to ignore the nag.
+        expect("OKs and no KEEPs says so, without the Camera nudge",
+               ScanSummary.text(clips: 5, keeps: 0, oks: 5, withoutSidecar: 0),
+               "Found 5 clips, 0 marked KEEP, 5 OK.")
         expectTrue("no KEEPs points at the flag word",
-                   ScanSummary.text(clips: 5, keeps: 0, withoutSidecar: 0).contains("Camera"))
+                   ScanSummary.text(clips: 5, keeps: 0, oks: 0, withoutSidecar: 0).contains("Camera"))
         // The worst case of the lot, measured rather than guessed at: if this outgrows the
         // footer, the truncation eats the middle and the hint goes with it.
         expectTrue("the longest summary stays short",
-                   ScanSummary.text(clips: 999, keeps: 0, withoutSidecar: 999).count <= 90)
+                   ScanSummary.text(clips: 999, keeps: 0, oks: 0, withoutSidecar: 999).count <= 90)
         expectTrue("no clips at all doesn't blame the flag word",
-                   !ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 0).contains("Camera"))
+                   !ScanSummary.text(clips: 0, keeps: 0, oks: 0, withoutSidecar: 0).contains("Camera"))
         expectTrue("videos without sidecars are named, plural",
-                   ScanSummary.text(clips: 3, keeps: 1, withoutSidecar: 2).contains("2 videos with no XML"))
+                   ScanSummary.text(clips: 3, keeps: 1, oks: 0, withoutSidecar: 2).contains("2 videos with no XML"))
         expectTrue("and singular",
-                   ScanSummary.text(clips: 3, keeps: 1, withoutSidecar: 1).contains("1 video with no XML"))
+                   ScanSummary.text(clips: 3, keeps: 1, oks: 0, withoutSidecar: 1).contains("1 video with no XML"))
         expectTrue("even when nothing else was found",
-                   ScanSummary.text(clips: 0, keeps: 0, withoutSidecar: 4).contains("4 videos with no XML"))
+                   ScanSummary.text(clips: 0, keeps: 0, oks: 0, withoutSidecar: 4).contains("4 videos with no XML"))
     }
 
     private static func welcome() {
@@ -1566,10 +1600,15 @@ enum SelfCheck {
 
     private static func sidecar(umid: String, keep: Bool,
                                 created: String = "2026-10-03T11:31:12-06:00") -> String {
+        sidecar(umid: umid, status: keep ? "KEEP" : nil, created: created)
+    }
+
+    private static func sidecar(umid: String, status: String?,
+                                created: String = "2026-10-03T11:31:12-06:00") -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>
         <NonRealTimeMeta>
-          <TargetMaterial umidRef="\(umid)"\(keep ? " status=\"KEEP\"" : "")/>
+          <TargetMaterial umidRef="\(umid)"\(status.map { " status=\"\($0)\"" } ?? "")/>
           <CreationDate value="\(created)"/>
         </NonRealTimeMeta>
         """
@@ -1621,8 +1660,8 @@ enum SelfCheck {
                clipTwo?.xmlURL.lastPathComponent ?? "", "C0002M01.XML")
         expectTrue("the card index never became a clip's sidecar",
                    !result.clips.contains { $0.xmlURL.lastPathComponent == "MEDIAPRO.XML" })
-        expect("the first clip is KEEP", clipOne?.isKeep ?? false, true)
-        expect("the second is not, whatever the index says", clipTwo?.isKeep ?? true, false)
+        expect("the first clip is KEEP", clipOne?.flag, .keep)
+        expect("the second is not, whatever the index says", clipTwo?.flag, nil)
         expect("the first clip's UMID", clipOne?.umid ?? "", umidA)
         expect("the second clip's UMID", clipTwo?.umid ?? "", umidB)
 
@@ -1641,7 +1680,7 @@ enum SelfCheck {
         expect("one clip", sorted.clips.count, 1)
         expect("named after beats mentioned by, whatever the file order",
                sorted.clips.first?.xmlURL.lastPathComponent ?? "", "C0001M01.XML")
-        expect("so it keeps its own flag", sorted.clips.first?.isKeep ?? true, false)
+        expect("so it keeps its own flag", sorted.clips.first?.flag, nil)
 
         // Footage already offloaded and renamed: the video carries the new name, the
         // sidecar still carries the camera's.
@@ -1683,12 +1722,12 @@ enum SelfCheck {
         """, named: "A001M01.XML", in: cardE)
 
         expect("another flag word is honoured",
-               ClipScanner.scan(root: cardE, keepWord: "PICK").clips.first?.isKeep ?? false, true)
+               ClipScanner.scan(root: cardE, keepWord: "PICK").clips.first?.flag, .keep)
         expect("and the wrong word doesn't match",
-               ClipScanner.scan(root: cardE, keepWord: "KEEP").clips.first?.isKeep ?? true, false)
+               ClipScanner.scan(root: cardE, keepWord: "KEEP").clips.first?.flag, nil)
 
         let empty = ClipScanner.scan(root: cardE, keepWord: "")
-        expect("an empty flag word marks nothing", empty.clips.first?.isKeep ?? true, false)
+        expect("an empty flag word marks nothing", empty.clips.first?.flag, nil)
         expectTrue("and says so in the log",
                    empty.log.contains { $0.contains("flag word is empty") })
 
@@ -1710,5 +1749,129 @@ enum SelfCheck {
             failures.append("no shoot date was read")
             print("  FAIL no shoot date was read")
         }
+    }
+
+    // MARK: - KEEP, OK and NG
+    //
+    // Sony writes all three into `status` on `<TargetMaterial>`. KEEP has always been found
+    // by a loose search for the flag word; OK can't be, because "OK" is an ordinary value
+    // all over XML, so a clip would be marked OK by whatever else in its sidecar said so.
+
+    private static func flags() {
+        section("KEEP, OK and NG")
+
+        guard let card = tempFolder() else {
+            failures.append("couldn't make a temporary folder for the flag checks")
+            print("  FAIL couldn't make a temporary folder")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: card) }
+
+        let names = ["C0001", "C0002", "C0003", "C0004", "C0005"]
+        for name in names {
+            _ = write(Array(repeating: 0x42, count: 2048), named: "\(name).MP4", in: card)
+        }
+        _ = write(sidecar(umid: umidA, status: "OK"), named: "C0001M01.XML", in: card)
+        _ = write(sidecar(umid: umidB, status: "NG"), named: "C0002M01.XML", in: card)
+        _ = write(sidecar(umid: umidA + "3", status: "KEEP"), named: "C0003M01.XML", in: card)
+        _ = write(sidecar(umid: umidA + "4", status: nil), named: "C0004M01.XML", in: card)
+        // Unflagged, with an OK somewhere that isn't the clip's flag.
+        _ = write("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <NonRealTimeMeta>
+          <TargetMaterial umidRef="\(umidA)5"/>
+          <Group name="Check"><Item name="Status" value="OK"/></Group>
+          <Note>OK</Note>
+        </NonRealTimeMeta>
+        """, named: "C0005M01.XML", in: card)
+
+        let flags = Dictionary(uniqueKeysWithValues: ClipScanner.scan(root: card, keepWord: "KEEP")
+            .clips.map { ($0.name, $0.flag) })
+        expect("status OK reads as OK", flags["C0001.MP4"] ?? nil, .ok)
+        expect("status NG reads as NG", flags["C0002.MP4"] ?? nil, .ng)
+        expect("KEEP is still KEEP", flags["C0003.MP4"] ?? nil, .keep)
+        expect("no status is no flag", flags["C0004.MP4"] ?? .keep, nil)
+        expect("an OK anywhere else is not the clip's flag", flags["C0005.MP4"] ?? .keep, nil)
+
+        // Writing a flag onto a copy, which is the only place one is ever written.
+        func written(_ start: String?, _ flag: ClipFlag?, keepWord: String = "KEEP") -> String? {
+            guard let url = write(sidecar(umid: umidA, status: start), named: "W.XML", in: card),
+                  (try? KeepWriter.apply(flag, keepWord: keepWord, toXMLAt: url)) != nil,
+                  let text = try? String(contentsOf: url, encoding: .utf8),
+                  let line = text.split(separator: "\n").first(where: { $0.contains("TargetMaterial") })
+            else { return "unreadable" }
+            let parts = line.components(separatedBy: "status=\"")
+            return parts.count > 1 ? parts[1].components(separatedBy: "\"").first : nil
+        }
+        expect("OK is written as OK", written(nil, .ok), "OK")
+        expect("KEEP replaces NG", written("NG", .keep), "KEEP")
+        expect("KEEP is written as the configured word", written(nil, .keep, keepWord: "PICK"), "PICK")
+        expect("clearing takes OK off", written("OK", nil), nil)
+        expect("clearing takes NG off", written("NG", nil), nil)
+        // Not a flag Keeper knows, so not one Keeper may remove.
+        expect("clearing leaves any other status alone", written("REVIEWED", nil), "REVIEWED")
+
+        // The old ⌘K defaults are what the shortcuts file holds on any Mac where a shortcut
+        // was ever changed. They have to be recognised as stale, or the move to ⌘Return
+        // never reaches anyone who customised anything.
+        expect("the retired KEEP shortcut isn't the current one",
+               Shortcuts.retiredDefaults[.toggleKeep] == Shortcuts.defaults[.toggleKeep], false)
+        expect("toggle KEEP is ⌘Return", Shortcuts.defaults[.toggleKeep],
+               [KeyCombo(key: "return", command: true)])
+        // Right-click inside a selection marks all of it; outside, only the clip clicked.
+        func clip(_ name: String) -> Clip {
+            let url = URL(fileURLWithPath: "/Volumes/CARD/\(name).MP4")
+            return Clip(id: url, videoURL: url, xmlURL: url, flag: nil,
+                        videoSize: 0, xmlSize: 0, umid: name, shotDate: nil)
+        }
+        let list = ["C1", "C2", "C3", "C4"].map(clip)
+        let picked: Set<URL> = [list[0].id, list[2].id]
+        func umids(_ clips: [Clip]) -> [String] { clips.compactMap(\.umid) }
+        expect("inside a selection, the whole selection",
+               umids(ContextTargets.clips(clicked: list[2], selection: picked, selected: ContextTargets.selected(picked, in: list))),
+               ["C1", "C3"])
+        expect("outside it, just the clip clicked",
+               umids(ContextTargets.clips(clicked: list[1], selection: picked, selected: ContextTargets.selected(picked, in: list))),
+               ["C2"])
+        expect("a selection of one is just that clip",
+               umids(ContextTargets.clips(clicked: list[0], selection: [list[0].id], selected: ContextTargets.selected([list[0].id], in: list))),
+               ["C1"])
+        // A selected clip a tag filter has since hidden mustn't be marked unseen.
+        expect("only what's on screen counts",
+               umids(ContextTargets.clips(clicked: list[0], selection: picked,
+                                          selected: ContextTargets.selected(picked, in: [list[0], list[1]]))),
+               ["C1"])
+
+        // Marking the previewed clip and two above it out of the list: the arrows have to
+        // carry on from the clip that was after it, not from where it used to sit.
+        let ids = list.map(\.id)
+        expect("after a bulk mark, the next clip still listed",
+               ContextTargets.place(of: 2, before: ids, after: [ids[3]]), 0)
+        expect("nothing moved, the same place",
+               ContextTargets.place(of: 1, before: ids, after: ids), 1)
+        expect("nothing left after it, past the end",
+               ContextTargets.place(of: 2, before: ids, after: [ids[0]]), 1)
+
+        // Every default has to pass its own group's rules — `load` quietly drops one that
+        // doesn't — and no key can be the default for two things.
+        var badDefaults: [String] = []
+        var seen: [KeyCombo: ShortcutAction] = [:]
+        for action in ShortcutAction.allCases {
+            for combo in Shortcuts.defaults[action] ?? [] {
+                if Shortcuts.refusal(for: combo, group: action.group) != nil {
+                    badDefaults.append("\(action.rawValue) breaks its rules")
+                }
+                if let other = seen[combo] { badDefaults.append("\(action.rawValue) and \(other.rawValue) share a key") }
+                seen[combo] = action
+            }
+            if (Shortcuts.defaults[action] ?? []).isEmpty { badDefaults.append("\(action.rawValue) has no default") }
+        }
+        expect("every default shortcut is valid and unique", badDefaults, [])
+
+        // O marks OK at the clip step and nowhere else in the flow. At the bench it marked
+        // the clip OK while you were picking a player; at the categories it jumps.
+        expect("O is free at the clip step", FlowKeyState.claims("o", stage: .clips, shift: false), false)
+        expect("but claimed at the bench", FlowKeyState.claims("o", stage: .players, shift: false), true)
+        expect("and at the categories", FlowKeyState.claims("o", stage: .categories, shift: false), true)
     }
 }

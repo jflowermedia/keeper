@@ -131,6 +131,10 @@ struct ContentView: View {
             // second one is already a repeat by the time it gets there.
             DispatchQueue.main.async { state.removeTagsInScope(token: token) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .keeperToggleOK)) { note in
+            guard let token = note.userInfo?["token"] as? Int else { return }
+            state.toggleOKOnPreview(token: token)
+        }
     }
 
     // MARK: Toolbar
@@ -170,8 +174,9 @@ struct ContentView: View {
                 // Changing it rescans, and a rescan under a running copy would empty the list
                 // the copy was started from.
                 .disabled(state.isScanning || state.isCopying)
-                .help("Which camera made these clips, so Keeper knows how it marks a clip you "
-                      + "kept. Other lets you type the word yourself.")
+                .help("Which camera made these clips, so Keeper knows how it marks a KEEP. "
+                      + "Other lets you type the word yourself. OK and NG are read from Sony's "
+                      + "flag either way.")
                 if state.camera == .other {
                     TextField("KEEP", text: $state.keepWord)
                         .textFieldStyle(.roundedBorder)
@@ -201,7 +206,7 @@ struct ContentView: View {
                 Label("Debug", systemImage: "ladybug")
             }
             .toggleStyle(.button)
-            .help("Show the debug log: which XML pairs with which video, and why each clip is KEEP or not")
+            .help("Show the debug log: which XML pairs with which video, and why each clip has the flag it has")
 
             if state.isScanning || state.isCopying { ProgressView().controlSize(.small) }
         }
@@ -361,28 +366,49 @@ struct ContentView: View {
     }
 
     private var clipRows: some View {
-        List(state.visible, selection: $state.selection) { clip in
+        let shown = state.visible
+        // Once per redraw, not once per row: see `ContextTargets`.
+        let selected = ContextTargets.selected(state.selection, in: shown)
+        let selectedFlags = Set(selected.filter { $0.umid != nil }.map { state.flag($0) })
+        let selectedChanged = selected.contains { state.isFlagChanged($0) }
+        return List(shown, selection: $state.selection) { clip in
             ClipRow(clip: clip,
                     urls: state.urls(for: clip),
                     includeXML: state.includeXML,
                     tags: state.library.tags(forUMID: clip.umid),
-                    isKeep: state.isKeep(clip),
-                    isChanged: state.isKeepChanged(clip),
-                    onToggleKeep: { state.toggleKeep(clip) })
+                    flag: state.flag(clip),
+                    isChanged: state.isFlagChanged(clip),
+                    onToggleKeep: { state.toggle(.keep, on: clip) })
                 .contextMenu {
                     Button("Show XML…") { inspecting = clip }
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([clip.videoURL])
                     }
                     Divider()
-                    Button(state.isKeep(clip) ? "Mark NOT KEEP" : "Mark KEEP") {
-                        state.toggleKeep(clip)
+                    // Every flag here, NG included: it's the one place to set NG by hand, and
+                    // the one place to clear a flag outright rather than toggling it off.
+                    // Inside a selection these act on all of it — see `ContextTargets` — and
+                    // the titles say how many, so it's never a surprise which.
+                    let targets = ContextTargets.clips(clicked: clip, selection: state.selection,
+                                                       selected: selected)
+                    let whole = targets.count > 1
+                    // What the targets are flagged now. Empty when none can be marked, which
+                    // greys every item out.
+                    let flags: Set<ClipFlag?> = whole ? selectedFlags
+                        : clip.umid == nil ? [] : [state.flag(clip)]
+                    let many = whole ? " \(targets.count) Clips" : ""
+                    ForEach(ClipFlag.allCases, id: \.self) { flag in
+                        Button("Mark\(many) \(flag.rawValue)") { state.setFlag(flag, onContextOf: clip) }
+                            .disabled(flags.subtracting([flag]).isEmpty)
                     }
-                    if state.isKeepChanged(clip), let umid = clip.umid {
-                        Button("Revert to the camera's flag") {
-                            state.library.clearKeepOverride(
-                                umid: umid,
-                                undoLabel: "Revert \(clip.name) to the Camera's Flag")
+                    Button(whole ? "Clear Flags on\(many)" : "Clear Flag") {
+                        state.setFlag(nil, onContextOf: clip)
+                    }
+                    .disabled(flags.subtracting([nil]).isEmpty)
+                    if whole ? selectedChanged : state.isFlagChanged(clip) {
+                        Button(targets.count > 1 ? "Revert\(many) to the Camera's Flags"
+                                                 : "Revert to the camera's flag") {
+                            state.revertFlags(onContextOf: clip)
                         }
                     }
                     if let umid = clip.umid, state.library.isTagged(umid) {
@@ -491,10 +517,10 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("\(state.keepCount) KEEP · \(state.notKeepCount) NOT KEEP")
+                    Text("\(state.count(.keep)) KEEP · \(state.count(.ok)) OK · \(state.unpickedCount) unpicked")
                         .font(.callout)
                     if !state.clips.isEmpty {
-                        // Follows the filter, so Kept / Not kept / All answers "how
+                        // Follows the filter, so Picks / Unpicked / All answers "how
                         // much is that" without a second control. The tooltip has all three.
                         Text(FileUtil.sizeText(state.visibleBytes))
                             .font(.callout.weight(.medium).monospacedDigit())
@@ -504,8 +530,8 @@ struct ContentView: View {
                             .clipShape(Capsule())
                             .help(state.sizeBreakdown)
                     }
-                    if state.changedKeepCount > 0 {
-                        Text("\(state.changedKeepCount) changed")
+                    if state.changedFlagCount > 0 {
+                        Text("\(state.changedFlagCount) changed")
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -586,7 +612,7 @@ struct ClipRow: View {
     let urls: [URL]
     let includeXML: Bool
     let tags: [Tag]
-    let isKeep: Bool
+    let flag: ClipFlag?
     let isChanged: Bool
     let onToggleKeep: () -> Void
 
@@ -616,7 +642,7 @@ struct ClipRow: View {
                         Image(systemName: "pencil")
                             .font(.caption2)
                     }
-                    Text(isKeep ? "KEEP" : "—")
+                    Text(flag?.rawValue ?? "—")
                         .font(.caption.weight(.bold))
                 }
                 .padding(.horizontal, 8)
@@ -636,18 +662,28 @@ struct ClipRow: View {
         .padding(.vertical, 2)
     }
 
+    /// Traffic lights, so each flag reads at a glance and the best clips stand out in a
+    /// Picks list that also holds the OKs. Grey and faded grey for OK and NG were too close
+    /// to tell apart. Not blue for OK: it would disappear into a selected row's highlight.
+    /// "You changed it" is the orange outline and the pencil, not the fill — a fill would
+    /// turn a KEEP you set yourself orange, and those are exactly the ones you'd look for.
     private var badgeFill: Color {
-        if isKeep { return isChanged ? .orange.opacity(0.28) : .green.opacity(0.25) }
-        return isChanged ? .orange.opacity(0.18) : .clear
+        switch flag {
+        case .keep: return .green.opacity(0.25)
+        case .ok:   return .yellow.opacity(0.3)
+        case .ng:   return .red.opacity(0.22)
+        case nil:   return .clear
+        }
     }
 
     private var helpText: String {
         guard clip.umid != nil else { return "No UMID in this clip's XML, so its flag can't be changed" }
+        let click = flag == .keep ? "Click to clear KEEP" : "Click to mark KEEP"
         if isChanged {
-            return "You changed this to \(isKeep ? "KEEP" : "NOT KEEP"). The camera says "
-                 + "\(clip.isKeep ? "KEEP" : "NOT KEEP"). Click to change back. Applied to the copy, never the card."
+            return "You changed this to \(flag.label). The camera says \(clip.flag.label). "
+                 + "\(click); right-click for the other flags. Applied to the copy, never the card."
         }
-        return "From the camera. Click to mark \(isKeep ? "NOT KEEP" : "KEEP")."
+        return "\(flag?.rawValue ?? "No flag") from the camera. \(click); right-click for the other flags."
     }
 }
 
@@ -997,6 +1033,7 @@ final class Playback: ObservableObject {
             case .previousClip:   return playback.moveSelection(-1) ? nil : event
             case .nextClip:       return playback.moveSelection(1) ? nil : event
             case .clearTags:      return playback.requestClearTags() ? nil : event
+            case .toggleOK:       return playback.requestToggleOK() ? nil : event
             default:              return event
             }
         }
@@ -1058,6 +1095,17 @@ final class Playback: ObservableObject {
     func requestClearTags() -> Bool {
         moveToken += 1
         NotificationCenter.default.post(name: .keeperClearTags,
+                                        object: nil,
+                                        userInfo: ["token": moveToken])
+        return true
+    }
+
+    /// Only claimed with a clip in the viewer, so O does nothing rather than something else
+    /// when there's nothing to mark — the same test the arrows use.
+    func requestToggleOK() -> Bool {
+        guard player?.currentItem != nil else { return false }
+        moveToken += 1
+        NotificationCenter.default.post(name: .keeperToggleOK,
                                         object: nil,
                                         userInfo: ["token": moveToken])
         return true
@@ -1311,7 +1359,7 @@ struct XMLInspector: View {
             HStack {
                 VStack(alignment: .leading) {
                     Text(clip.xmlURL.lastPathComponent).font(.headline)
-                    Text("\"\(keepWord)\" detected: \(clip.isKeep ? "YES" : "NO")")
+                    Text("Camera flag: \(clip.flag.label) · KEEP is read as \"\(keepWord)\"")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
