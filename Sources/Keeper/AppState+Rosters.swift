@@ -308,6 +308,7 @@ extension AppState {
     /// team takes its players with it. A filter aimed at something that no longer exists
     /// shows an empty clip list with nothing in the menus to explain why, so it's dropped.
     func dropDanglingFilters() {
+        dropStaleGame()
         if let id = filterTeamID, library.team(id: id) == nil {
             filterTeamID = nil
         }

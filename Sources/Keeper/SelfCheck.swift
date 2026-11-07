@@ -71,6 +71,7 @@ enum SelfCheck {
         subjects()
         oneOffCategories()
         typedCategories()
+        games()
         mostUsedCategories()
         rosterDownload()
         categorySections()
@@ -1026,6 +1027,118 @@ enum SelfCheck {
     // `noteRecent` is on the live library, so the rule is modelled here against a plain array
     // and pinned to the real cap.
 
+    // MARK: - More than one game on a card
+
+    private static func games() {
+        section("Games on a card")
+
+        let order = ["a", "b", "c", "d"]
+        let none: [String: String] = [:]
+        let two = GameSplit.split(at: "c", order: order, in: none, firstGame: "g1", newGame: "g2")
+        expect("the first split divides the card", two,
+               ["a": "g1", "b": "g1", "c": "g2", "d": "g2"])
+        expect("games read in the order they were shot",
+               GameSplit.games(order: order, in: two), ["g1", "g2"])
+        expectTrue("the first clip can't start a game",
+                   !GameSplit.canSplit(at: "a", order: order, in: none))
+        expectTrue("a later one can", GameSplit.canSplit(at: "b", order: order, in: none))
+        expectTrue("nor can the first clip of a later game",
+                   !GameSplit.canSplit(at: "c", order: order, in: two))
+
+        let three = GameSplit.split(at: "b", order: order, in: two, firstGame: "x", newGame: "g3")
+        expect("splitting one game leaves the next alone", three,
+               ["a": "g1", "b": "g3", "c": "g2", "d": "g2"])
+
+        let otherCard = ["z": "old"]
+        expect("another card's clips are left alone",
+               GameSplit.split(at: "c", order: order, in: otherCard, firstGame: "g1",
+                               newGame: "g2")["z"], "old")
+        let day = Date(timeIntervalSince1970: 1_800_000_000)
+        func hours(_ n: Double) -> Date { day.addingTimeInterval(n * 3600) }
+        let shot = ["a": hours(0), "b": hours(1), "c": hours(3), "d": hours(4)]
+        expect("and a card with no games gains none",
+               GameSplit.fill(order: order, in: otherCard, shot: shot), otherCard)
+
+        expect("a new clip from the same shoot joins the game before it",
+               GameSplit.fill(order: order + ["e"], in: two,
+                              shot: shot.merging(["e": hours(5)]) { a, _ in a })["e"], "g2")
+        expect("a clip leading the card joins the one after",
+               GameSplit.fill(order: ["new"] + order, in: two,
+                              shot: shot.merging(["new": hours(-1)]) { a, _ in a })["new"], "g1")
+        expect("past midnight is still the same shoot",
+               GameSplit.fill(order: order + ["e"], in: two,
+                              shot: shot.merging(["e": hours(15)]) { a, _ in a })["e"], "g2")
+        expect("the next day's clip stays out of it",
+               GameSplit.fill(order: order + ["e"], in: two,
+                              shot: shot.merging(["e": hours(40)]) { a, _ in a })["e"], nil)
+        expect("a clip with no date stays out too",
+               GameSplit.fill(order: order + ["e"], in: two, shot: shot)["e"], nil)
+        let drive = (0..<300).map { "other\($0)" }
+        let months = Dictionary(uniqueKeysWithValues: drive.map { ($0, hours(-2000)) })
+        expect("a folder of other shoots isn't swept into a game",
+               GameSplit.fill(order: drive + order, in: two,
+                              shot: shot.merging(months) { a, _ in a }).count, two.count)
+
+        var hockey = two
+        hockey["e"] = nil
+        let later = order + ["e", "f"]
+        expectTrue("a clip in no game on a split card can start one",
+                   GameSplit.canSplit(at: "e", order: later, in: hockey))
+        let started = GameSplit.split(at: "e", order: later, in: hockey,
+                                      firstGame: "unused", newGame: "g3")
+        expect("and takes what follows", started["f"], "g3")
+        expect("without creating a first game",
+               GameSplit.games(order: later, in: started), ["g1", "g2", "g3"])
+
+        expect("removing a game of three hands its clips to the one before",
+               GameSplit.removing("g2", order: order, in: three),
+               ["a": "g1", "b": "g3", "c": "g3", "d": "g3"])
+        expect("removing the first hands them to the next",
+               GameSplit.removing("g1", order: order, in: three)["a"], "g3")
+        expect("down to one game, the card isn't split",
+               GameSplit.removing("g2", order: order, in: two), none)
+
+        expect("folders are safe and don't collide",
+               GameSplit.folderNames(["A/B", "VIR vs WPG", "vir vs wpg"]),
+               ["A-B", "VIR vs WPG", "vir vs wpg 2"])
+
+        // An older library has none of this, and a saved one has to bring it all back.
+        let command = { (key: String) in KeyCombo(key: key, command: true) }
+        expectTrue("⌘2 can't be bound to a command, it's a game",
+                   Shortcuts.refusal(for: command("2"), group: .menu) != nil)
+        expectTrue("nor ⌘0", Shortcuts.refusal(for: command("0"), group: .menu) != nil)
+        expectTrue("⇧⌘2 still can",
+                   Shortcuts.refusal(for: KeyCombo(key: "2", command: true, shift: true),
+                                     group: .menu) == nil)
+        expectTrue("and no default uses a game key",
+                   !Shortcuts.defaults.values.joined().contains {
+                       $0.command && !$0.shift && !$0.option && !$0.control
+                           && Int($0.key) != nil
+                   })
+
+        // A formatted card has new UMIDs, so last week's split means nothing to it.
+        let formatted = ["h1", "h2", "h3"]
+        expect("a card of new clips has no games",
+               GameSplit.games(order: formatted, in: two), [])
+        expect("and takes none from the library",
+               GameSplit.fill(order: formatted, in: two, shot: [:]), two)
+
+        let bare = #"{"teams":[],"tags":[]}"#
+        expectTrue("an older library still reads",
+                   (try? TagLibrary.decodeArchive(Data(bare.utf8))) != nil)
+        let stored = TagLibrary.Archive(teams: [], categories: [], tags: [], presets: nil,
+                                        games: [Game(id: "g1", teamIDs: ["men", "away"])],
+                                        clipGames: ["a": "g1"])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let back = (try? encoder.encode(stored)).flatMap { try? TagLibrary.decodeArchive($0) }
+        expect("a game's rosters survive a save", back?.games?.first?.teamIDs ?? [], ["men", "away"])
+        expect("and so does the split", back?.clipGames ?? [:], ["a": "g1"])
+        let thin = #"{"teams":[],"tags":[],"games":[{"id":"g1"}]}"#
+        expect("a game missing a field still reads",
+               (try? TagLibrary.decodeArchive(Data(thin.utf8)))?.games?.first?.teamIDs ?? ["x"], [])
+    }
+
     // MARK: - Typing a category
     //
     // Letters at the categories used to jump by first letter, so a word nobody planned for
@@ -1068,11 +1181,10 @@ enum SelfCheck {
         expectTrue("but mid-word only at the categories",
                    !FlowKeyState.claims("space", stage: .players, shift: false, typingEntry: true))
         expectTrue("Space joins after a digit too, for 2 on 1",
-                   CategoryWord.joins("space") && !CategoryWord.isWord("2", positions: positions)
+                   !CategoryWord.isWord("2", positions: positions)
                        && CategoryWord.isWord("2 ", positions: positions))
-        expectTrue("a letter doesn't count as joining", !CategoryWord.joins("s"))
         expectTrue("a tag can hold an ampersand", CategoryWord.canType("&"))
-        expectTrue("but not a slash", !CategoryWord.canType("/"))
+        expectTrue("and a plus", CategoryWord.canType("+"))
         expect("Shift+7 at the categories is the character",
                FlowKeyState.sent("7", characters: "&", stage: .categories, shift: true), "&")
         expect("a capital arrives as one",
@@ -1083,8 +1195,13 @@ enum SelfCheck {
                FlowKeyState.sent("7", characters: "&", stage: .players, shift: true), "7")
         expect("named keys pass through",
                FlowKeyState.sent("return", characters: "\r", stage: .categories, shift: true), "return")
-        expectTrue("the clear key still isn't taken",
-                   !FlowKeyState.claims("/", stage: .categories, shift: false, typingEntry: true))
+        expectTrue("mid-word the clear key is only a character, never Clear Tags",
+                   FlowKeyState.claims("/", stage: .categories, shift: false, typingEntry: true))
+        expectTrue("and it can't go in the word", !CategoryWord.canType("/"))
+        expectTrue("but it clears as usual when nothing's typed",
+                   !FlowKeyState.claims("/", stage: .categories, shift: false))
+        expectTrue("a named key still isn't taken",
+                   !FlowKeyState.claims("home", stage: .categories, shift: false, typingEntry: true))
 
         let quickKey = Shortcuts.defaults[.quickTag]?.first?.key ?? ""
         expect("the quick key is a flow action", ShortcutAction.quickTag.group, .flow)

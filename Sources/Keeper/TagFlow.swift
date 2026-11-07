@@ -48,9 +48,10 @@ final class FlowKeyState {
     /// the clip while you tag.
     static func claims(_ key: String, stage: TagStage, shift: Bool,
                        typingEntry: Bool = false) -> Bool {
-        // Only once something's been typed, so Space still plays the clip at the categories
-        // until then. A digit counts: it's how `2 on 1` starts.
-        if typingEntry, stage == .categories, CategoryWord.joins(key) { return true }
+        // Every key, once something's been typed, so Space still plays the clip until then.
+        // A digit counts: it's how `2 on 1` starts. Every key because what isn't claimed goes
+        // on to the review keys, and the `/` in `W/L` is Clear Tags.
+        if typingEntry, stage == .categories, key == "space" || key.count == 1 { return true }
 
         // ⇧↑ and ⇧↓ extend the clip selection — that's the list's own gesture, and the one
         // you use to pick a range before exporting. Taking it collapsed the selection to a
@@ -125,13 +126,6 @@ enum CategoryWord {
 
     static func canType(_ character: Character) -> Bool {
         character.isLetter || character.isNumber || symbols.contains(character)
-    }
-
-    /// Keys that continue an entry without being able to start one, by their `KeyCombo` names.
-    static func joins(_ key: String) -> Bool {
-        if key == "space" { return true }
-        guard key.count == 1, let character = key.first else { return false }
-        return canType(character) && !character.isLetter && !character.isNumber
     }
 
     /// Digits point at a position in the section, until they can't: "3p" is a word, and so
@@ -239,6 +233,9 @@ extension AppState {
     /// has been chosen yet.
     var activeTeams: [Team] {
         let picked = activeTeamIDs.compactMap { library.team(id: $0) }
+        // Not for a game: one with no teams yet has no bench, or its clips would be tagged
+        // against whichever team happens to be first in the library.
+        if picked.isEmpty, benchGame != nil { return [] }
         return picked.isEmpty ? Array(library.teams.prefix(1)) : picked
     }
 
@@ -416,12 +413,14 @@ extension AppState {
 
     /// "VIR vs WPG", "Virden Oil Capitals", "3 rosters" — what the picker reads. Two full
     /// club names won't fit the button, which is what the filename code is good for.
-    var activeTeamsLabel: String {
-        let teams = activeTeams
+    var activeTeamsLabel: String { Self.rosterLabel(activeTeams) ?? "No roster" }
+
+    /// Nil for no teams, which each caller words for itself.
+    static func rosterLabel(_ teams: [Team]) -> String? {
         switch teams.count {
-        case 0:  return "No roster"
+        case 0:  return nil
         case 1:  return teams[0].name
-        case 2:  return "\(Self.shortName(teams[0])) vs \(Self.shortName(teams[1]))"
+        case 2:  return "\(shortName(teams[0])) vs \(shortName(teams[1]))"
         default: return "\(teams.count) rosters"
         }
     }

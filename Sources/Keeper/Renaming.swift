@@ -150,7 +150,10 @@ enum Renamer {
 
     /// A separator of "/" would quietly turn one filename into nested folders, so the
     /// same cleaning the parts get is applied here too.
-    private static func safeSeparator(_ raw: String) -> String {
+    private static func safeSeparator(_ raw: String) -> String { safe(raw) }
+
+    /// What a file or folder name can't hold, swapped for a hyphen.
+    static func safe(_ raw: String) -> String {
         var text = raw
         for bad in ["/", ":", "\\", "?", "*", "\"", "<", ">", "|"] {
             text = text.replacingOccurrences(of: bad, with: "-")
@@ -186,9 +189,7 @@ enum Renamer {
     private static func tidy(_ part: String) -> String {
         var text = part.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return "" }
-        for bad in ["/", ":", "\\", "?", "*", "\"", "<", ">", "|"] {
-            text = text.replacingOccurrences(of: bad, with: "-")
-        }
+        text = safe(text)
         text = text.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: "-")

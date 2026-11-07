@@ -125,6 +125,7 @@ final class AppState: ObservableObject {
             // so the positional anchor has to go with it or the arrows resume at a stale
             // index. Doing it here rather than at each site means an eighth can't forget.
             if lastSelected == nil { lastVisibleIndex = nil }
+            if lastSelected != oldValue { followBench() }
         }
     }
     @Published var selection = Set<URL>() {
@@ -194,8 +195,18 @@ final class AppState: ObservableObject {
 
     /// The rosters in play, in the order they were chosen. See `activeTeams` in TagFlow.swift.
     @Published var activeTeamIDs: [String] = [] {
-        didSet { UserDefaults.standard.set(activeTeamIDs, forKey: "activeTeamIDs") }
+        didSet {
+            UserDefaults.standard.set(activeTeamIDs, forKey: "activeTeamIDs")
+            if let game = benchGame { library.setGameTeams(activeTeamIDs, game: game.id) }
+        }
     }
+
+    /// Which game's tab is showing, or nil for All. See Games.swift.
+    @Published var activeGameID: String? {
+        didSet { if activeGameID != oldValue { selection = [] } }
+    }
+    /// Not remembered, like the rest of the export's layout: see `grouping`.
+    @Published var folderPerGame = false
 
     /// Two benches in play for a game, or one. Off, ticking a roster swaps it in; on, a
     /// second can join the first — from the same league only. See `TeamPick`.
@@ -514,6 +525,11 @@ final class AppState: ObservableObject {
     /// both halves of whatever the tag filters show, whichever flag the list is set to.
     func matchingTagFilters(_ clips: [Clip]) -> [Clip] {
         var list = clips
+        // Here so an export of what's shown follows the tab, split by flag or not.
+        if let activeGameID {
+            let wanted = activeGameID == Self.noGameTab ? nil : activeGameID
+            list = list.filter { library.gameID(forUMID: $0.umid) == wanted }
+        }
         if let filterTeamID {
             list = list.filter { clip in
                 library.tags(forUMID: clip.umid).contains { $0.teamID == filterTeamID }
@@ -1168,6 +1184,14 @@ final class AppState: ObservableObject {
                     keeps: result.clips.filter { self.flag($0) == .keep }.count,
                     oks: result.clips.filter { self.flag($0) == .ok }.count,
                     withoutSidecar: result.videosWithoutXML.count)
+                // The bench outlives the card, which suits shooting one team all season and
+                // doesn't suit the morning after a different sport, so it's said out loud.
+                if !self.activeTeams.isEmpty { self.status += " Teams: \(self.activeTeamsLabel)." }
+                let added = self.adoptNewClips()
+                if added > 0 {
+                    self.status += " \(added) new clip\(added == 1 ? "" : "s") joined the game "
+                        + "shot before \(added == 1 ? "it" : "them")."
+                }
             }
         }
     }

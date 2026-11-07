@@ -46,6 +46,7 @@ extension AppState {
     /// flag, the Picks filter is set aside — see `exportClips`.
     var filterSummary: String {
         var parts = [splitsByKeep && exportScope == .shown ? "Picks and unpicked" : filter.rawValue]
+        if let activeGameTitle { parts.append(activeGameTitle) }
         if let id = filterTeamID, let team = library.team(id: id) { parts.append(team.name) }
         if let id = filterPlayerID,
            let player = library.allPlayers.first(where: { $0.id == id }) { parts.append(player.label) }
@@ -301,6 +302,7 @@ extension AppState {
     func copyPlan() -> [CopyJob] {
         let preset = activePreset
         var jobs: [CopyJob] = []
+        let byGame = exportsByGame ? gameFolders : [:]
 
         for clip in exportClips {
             // Only missing when the sheet would have blocked the copy.
@@ -337,10 +339,13 @@ extension AppState {
 
             let sources = includeXML ? [clip.videoURL, clip.xmlURL] : [clip.videoURL]
             let override = isFlagChanged(clip) ? FlagMark(flag: flag(clip)) : nil
+            // Outermost, so a game stays together however the rest is laid out.
+            let game = byGame[library.gameID(forUMID: clip.umid) ?? Self.noGameTab] ?? ""
             for folder in folders {
                 jobs.append(CopyJob(sources: sources,
                                     destination: destination,
-                                    subfolder: folder,
+                                    subfolder: [game, folder].filter { !$0.isEmpty }
+                                        .joined(separator: "/"),
                                     baseName: base,
                                     writeFlag: override))
             }

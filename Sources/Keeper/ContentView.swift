@@ -21,6 +21,10 @@ struct ContentView: View {
                 Divider()
                 tagFilterBar
             }
+            if state.cardGames.count > 1 {
+                Divider()
+                gameBar
+            }
             Divider()
             HSplitView {
                 clipList
@@ -234,6 +238,57 @@ struct ContentView: View {
 
     // MARK: Tag filter bar
 
+    /// Only once a card is split, so a one-game card looks as it always has.
+    private var gameBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                gameTab("All", count: state.clips.count, id: nil)
+                ForEach(state.cardGames) { game in
+                    gameTab(state.gameLabel(game), count: state.clipCount(in: game), id: game.id)
+                        .contextMenu {
+                            Button("Remove This Game") { state.removeGame(game) }
+                        }
+                }
+                if state.looseClipCount > 0 {
+                    gameTab("No Game", count: state.looseClipCount, id: AppState.noGameTab)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+        }
+    }
+
+    private func gameTab(_ label: String, count: Int, id: String?) -> some View {
+        let on = state.activeGameID == id
+        return Button { state.showGame(id) } label: {
+            Text("\(label) · \(count)")
+                .font(.caption.weight(on ? .bold : .regular))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(on ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1))
+                .foregroundStyle(on ? Color.accentColor : .secondary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(id == nil ? "Every clip on the card"
+              : id == AppState.noGameTab ? "Clips that aren't in any game"
+              : "This game's clips and teams. Right-click to remove it.")
+    }
+
+    /// Only ever a single clip's item for the split: a game starts at one place.
+    @ViewBuilder
+    private func gameMenu(for clip: Clip, targets: [Clip], games: [Game]) -> some View {
+        Divider()
+        Button("New Game Starts Here") { state.startGame(at: clip) }
+        if games.count > 1 {
+            Menu(targets.count > 1 ? "Move \(targets.count) Clips to Game" : "Move to Game") {
+                ForEach(games) { game in
+                    Button(state.gameLabel(game)) { state.moveClips(targets, to: game) }
+                }
+            }
+        }
+    }
+
     private var tagFilterBar: some View {
         HStack(spacing: 10) {
             Text("Filter by tag")
@@ -389,6 +444,7 @@ struct ContentView: View {
         let selected = ContextTargets.selected(state.selection, in: shown)
         let selectedFlags = Set(selected.filter { $0.umid != nil }.map { state.flag($0) })
         let selectedChanged = selected.contains { state.isFlagChanged($0) }
+        let games = state.cardGames
         return List(shown, selection: $state.selection) { clip in
             ClipRow(clip: clip,
                     urls: state.urls(for: clip),
@@ -429,6 +485,7 @@ struct ContentView: View {
                             state.revertFlags(onContextOf: clip)
                         }
                     }
+                    gameMenu(for: clip, targets: targets, games: games)
                     if let umid = clip.umid, state.library.isTagged(umid) {
                         Divider()
                         Button("Remove all tags from this clip", role: .destructive) {

@@ -269,7 +269,9 @@ enum WelcomeTour {
                  + "or subject.\n\n"
                  + "To skip the mouse: Tab moves between the list, the bench and the "
                  + "categories, and typing a shirt number jumps to that player. At the "
-                 + "categories, type a word to find a tag, or to add one nobody planned for.",
+                 + "categories, type a word to find a tag, or to add one nobody planned for.\n\n"
+                 + "Two games on one card? Right-click the first clip of the second and choose "
+                 + "New Game Starts Here. Each game gets a tab with its own teams.",
              key: .keyboardFlow),
 
         Step(title: "Export",

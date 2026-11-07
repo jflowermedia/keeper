@@ -172,7 +172,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
     // Menu commands: always with ⌘, set on the menu item itself.
     case chooseFolder, rescan, export, verify, importRoster, editRosters
     case toggleKeep, markKeep, markNotKeep
-    case fullScreen, taggingPanel, keyboardFlow, debugLog
+    case fullScreen, taggingPanel, keyboardFlow, debugLog, nextGame
     // Keyboard tagging only, and only at one step of it. Its own group because a key that
     // works in one place and nowhere else needs saying, and because being outside `.review`
     // keeps it away from the transport keys entirely.
@@ -216,6 +216,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .taggingPanel:    return "Tagging panel"
         case .keyboardFlow:    return "Keyboard tagging"
         case .debugLog:        return "Debug log"
+        case .nextGame:        return "Next Game"
         case .clearTags:       return "Clear tags on selected clips"
         case .subjectsOnly:    return "Subjects pill"
         case .quickTag:        return "Tag with no player"
@@ -269,6 +270,7 @@ final class Shortcuts: ObservableObject {
         .taggingPanel:   [KeyCombo(key: "e", command: true)],
         .keyboardFlow:   [KeyCombo(key: "t", command: true, shift: true)],
         .debugLog:       [KeyCombo(key: "d", command: true)],
+        .nextGame:       [KeyCombo(key: "]", command: true)],
 
         // The key left of 1 on a British keyboard. A US layout has ` there instead, which
         // is why this one is worth rebinding rather than assuming — and why it's bindable
@@ -448,6 +450,13 @@ final class Shortcuts: ObservableObject {
         "q", "w", "h", "m", "n", "a", "c", "v", "x", "z", "p", ",", "`"
     ]
 
+    /// ⌘1 to ⌘9 go to a game and ⌘0 to All. Fixed rather than bindable, being one per position.
+    static let gameKeys = 9
+
+    private static func isGameKey(_ key: String) -> Bool {
+        (0...gameKeys).map(String.init).contains(key)
+    }
+
     /// Why a binding can't be used, or nil if it can. Internal rather than private so the
     /// checks can exercise the rules without going through the recorder.
     static func refusal(for combo: KeyCombo, group: ShortcutAction.Group) -> String? {
@@ -465,6 +474,9 @@ final class Shortcuts: ObservableObject {
         case .menu:
             guard combo.command else {
                 return "A menu command needs ⌘, or it would fire while you were typing."
+            }
+            if !combo.shift, !combo.option, !combo.control, isGameKey(combo.key) {
+                return "\(combo.display) switches between games on a card."
             }
             if !combo.shift, !combo.option, !combo.control,
                systemReserved.contains(combo.key) {

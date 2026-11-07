@@ -263,6 +263,10 @@ final class TagLibrary: ObservableObject {
     @Published private(set) var tags: [Tag] = [] {
         didSet { mostUsedCache = nil }
     }
+    /// The games cards have been split into, and which one each clip is in, by UMID. See
+    /// Games.swift. Nothing here is on a card.
+    @Published private(set) var games: [Game] = []
+    @Published private(set) var clipGames: [String: String] = [:]
     /// The grid reads this on every keystroke, and it walks every tag.
     private var mostUsedCache: [String]?
     @Published var presets: [RenamePreset] = [.standard()]
@@ -950,6 +954,27 @@ final class TagLibrary: ObservableObject {
         save()
     }
 
+    // MARK: Games
+
+    func game(id: String?) -> Game? { id.flatMap { id in games.first { $0.id == id } } }
+
+    func gameID(forUMID umid: String?) -> String? { umid.flatMap { clipGames[$0] } }
+
+    /// A game no clip is in any more goes with its last clip, or they'd collect forever.
+    func assignGames(_ assignment: [String: String], adding new: [Game] = []) {
+        let used = Set(assignment.values)
+        games = (games + new).filter { used.contains($0.id) }
+        clipGames = assignment
+        save()
+    }
+
+    func setGameTeams(_ ids: [String], game id: String) {
+        guard let index = games.firstIndex(where: { $0.id == id }),
+              games[index].teamIDs != ids else { return }
+        games[index].teamIDs = ids
+        save()
+    }
+
     // MARK: Most used
 
     /// How many tags a one-off takes before it stops counting as a one-off.
@@ -1160,6 +1185,8 @@ final class TagLibrary: ObservableObject {
         var flagOverrides: [String: String]?
         /// Optional like the rest, and last so the initialiser's other callers needn't pass it.
         var dismissedMostUsed: [String]?
+        var games: [Game]?
+        var clipGames: [String: String]?
     }
 
     /// The overrides as `load()` reads them. A library from before OK and NG has only the
@@ -1240,6 +1267,8 @@ final class TagLibrary: ObservableObject {
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
         dismissedMostUsed = archive.dismissedMostUsed ?? []
+        games = archive.games ?? []
+        clipGames = archive.clipGames ?? [:]
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         flagOverrides = Self.flagOverrides(from: archive)
@@ -1263,7 +1292,9 @@ final class TagLibrary: ObservableObject {
                               presets: presets,
                               keepOverrides: flagOverrides.mapValues { $0.flag == .keep },
                               flagOverrides: flagOverrides.mapValues { $0.flag?.rawValue ?? "" },
-                              dismissedMostUsed: dismissedMostUsed)
+                              dismissedMostUsed: dismissedMostUsed,
+                              games: games,
+                              clipGames: clipGames)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -1412,6 +1443,8 @@ final class TagLibrary: ObservableObject {
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
         dismissedMostUsed = archive.dismissedMostUsed ?? []
+        games = archive.games ?? []
+        clipGames = archive.clipGames ?? [:]
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         flagOverrides = Self.flagOverrides(from: archive)

@@ -147,6 +147,25 @@ struct KeeperApp: App {
                 Toggle("Tagging Panel", isOn: $showTagging)
                     .keyboardShortcut(shortcuts.equivalent(.taggingPanel),
                                       modifiers: shortcuts.modifiers(.taggingPanel))
+                Button("Next Game") { state.nextGame() }
+                    .keyboardShortcut(shortcuts.equivalent(.nextGame),
+                                      modifiers: shortcuts.modifiers(.nextGame))
+                    .disabled(state.aSheetIsUp)
+                // All of them, always, in a submenu: a key that only exists with a split card
+                // would beep at you on any other, where this can say why.
+                Menu("Go to Game") {
+                    Button("All") { state.showGame(number: 0) }
+                        .keyboardShortcut("0", modifiers: .command)
+                    let games = state.cardGames
+                    ForEach(1...Shortcuts.gameKeys, id: \.self) { number in
+                        Button(games.indices.contains(number - 1)
+                               ? state.gameLabel(games[number - 1]) : "Game \(number)") {
+                            state.showGame(number: number)
+                        }
+                        .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    }
+                }
+                .disabled(state.aSheetIsUp)
                 Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
                     .keyboardShortcut(shortcuts.equivalent(.keyboardFlow),
                                       modifiers: shortcuts.modifiers(.keyboardFlow))

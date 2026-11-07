@@ -67,10 +67,15 @@ struct ExportSheet: View {
         // Split, the Picks filter stops applying: the point is to take both halves at once.
         if state.splitsByKeep {
             let n = state.matchingTagFilters(state.clips).count
-            return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing, picks and unpicked"
+            return "All \(n) clip\(n == 1 ? "" : "s") \(shownPlace), picks and unpicked"
         }
         let n = state.visible.count
-        return "All \(n) clip\(n == 1 ? "" : "s") the filter is showing"
+        return "All \(n) clip\(n == 1 ? "" : "s") \(shownPlace)"
+    }
+
+    /// Names the game, because from a tab this is part of the card, not all of it.
+    private var shownPlace: String {
+        state.activeGameTitle.map { "in \($0), not the whole card" } ?? "the filter is showing"
     }
 
     // MARK: Naming
@@ -152,6 +157,9 @@ struct ExportSheet: View {
 
     private var copyOptions: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if state.activeGameID == nil && state.cardGames.count > 1 {
+                Toggle("Put each game in its own folder", isOn: $state.folderPerGame)
+            }
             Toggle("Send picks and unpicked clips to separate folders", isOn: $state.splitByKeep)
                 .toggleStyle(.checkbox)
 

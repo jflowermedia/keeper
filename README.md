@@ -154,6 +154,16 @@ Before anything is written, Keeper shows which columns it read from each file an
 - A one-off with 10 or more tags moves up to **Most Used**. Right-click to keep it in a section or forget it.
 - **Move On After Tagging** (View menu) goes to the next clip after each tag.
 
+### Two games on one card
+
+Right-click the first clip of the second game and choose **New Game Starts Here**. Each game gets a tab above the clip list, named from its teams, and remembers its own rosters. On **All**, the teams follow the clip you're on. **⌘1** to **⌘9** go to a game, **⌘0** goes to All, and **⌘]** steps through them.
+
+- A clip in the wrong game: right-click, **Move to Game**.
+- **Remove This Game** on a tab puts its clips in the game beside it. Tags aren't touched.
+- The split is saved with your library, not on the card, so it comes back when the card does. New clips shot within 12 hours join the game beside them.
+- Anything else, like a clip with no ID, goes under a **No Game** tab so it can't be missed.
+- Exporting from a game's tab copies that game. From **All**, **Put each game in its own folder** does every game in one run, with a `No Game` folder for anything left over. With picks and unpicked split, each of those folders gets a folder per game.
+
 ### Keyboard tagging
 
 **⇧⌘T** turns it on.
