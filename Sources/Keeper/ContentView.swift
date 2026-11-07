@@ -104,6 +104,11 @@ struct ContentView: View {
         .onChange(of: state.library.teams) { _ in
             state.clampFlowCursors()
         }
+        // Tags come off by undo, the clear key and the panel, and the last one can take a
+        // removed subject out of the filter menu while it's still the filter.
+        .onChange(of: state.library.tags) { _ in
+            state.dropDanglingFilters()
+        }
         // The key monitor can't touch `AppState` — it runs outside the main actor and this
         // does not — so it posts instead and the move happens here.
         .onReceive(NotificationCenter.default.publisher(for: .keeperMoveSelection)) { note in
@@ -280,7 +285,7 @@ struct ContentView: View {
             } label: {
                 Text(playerFilterLabel)
             }
-            .frame(width: 190)
+            .frame(width: 180)
 
             if !positionsForFilter.isEmpty {
                 Menu {
@@ -306,7 +311,20 @@ struct ContentView: View {
             } label: {
                 Text(state.filterCategory ?? "Any category")
             }
-            .frame(width: 150)
+            .frame(width: 140)
+
+            if !state.library.filterableSubjects.isEmpty || state.filterSubject != nil {
+                Menu {
+                    Button("Any subject") { state.filterSubject = nil }
+                    Divider()
+                    ForEach(state.library.filterableSubjects, id: \.self) { subject in
+                        Button(subject) { state.filterSubject = subject }
+                    }
+                } label: {
+                    Text(state.filterSubject ?? "Any subject")
+                }
+                .frame(width: 130)
+            }
 
             if state.isTagFiltered {
                 Button("Clear") { state.clearTagFilters() }
@@ -1003,8 +1021,11 @@ final class Playback: ObservableObject {
             // at. Everything else falls through, which is what keeps Space playing the clip
             // while you tag.
             let flow = FlowKeyState.shared
-            if flow.active, FlowKeyState.claims(key, stage: flow.stage, shift: shift) {
-                Playback.shared.sendFlowKey(key, shift: shift)
+            if flow.active, FlowKeyState.claims(key, stage: flow.stage, shift: shift,
+                                                typingEntry: flow.typingEntry) {
+                let sent = FlowKeyState.sent(key, characters: event.characters,
+                                             stage: flow.stage, shift: shift)
+                Playback.shared.sendFlowKey(sent, shift: shift)
                 return nil
             }
 

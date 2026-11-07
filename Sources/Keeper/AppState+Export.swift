@@ -50,6 +50,7 @@ extension AppState {
         if let id = filterPlayerID,
            let player = library.allPlayers.first(where: { $0.id == id }) { parts.append(player.label) }
         if let position = filterPosition { parts.append(position) }
+        if let subject = filterSubject { parts.append(subject) }
         if let category = filterCategory { parts.append(category) }
         return parts.joined(separator: " · ")
     }

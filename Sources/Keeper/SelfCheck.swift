@@ -64,11 +64,14 @@ enum SelfCheck {
         benchStops()
         clipRange()
         reimport()
+        importReview()
         positionSuggestions()
         sleepHold()
         addingTeams()
         subjects()
         oneOffCategories()
+        typedCategories()
+        mostUsedCategories()
         rosterDownload()
         categorySections()
         keepSplit()
@@ -1023,6 +1026,153 @@ enum SelfCheck {
     // `noteRecent` is on the live library, so the rule is modelled here against a plain array
     // and pinned to the real cap.
 
+    // MARK: - Typing a category
+    //
+    // Letters at the categories used to jump by first letter, so a word nobody planned for
+    // could only be entered with the mouse. The quiet failures here: `3pt` starts with what
+    // looks like a position, Space has to stay play until a word has begun, and a typed word
+    // in another case must land on the existing tag rather than become a second one.
+
+    private static func typedCategories() {
+        section("Typed categories")
+
+        let positions = [1, 2, 3]
+        expectTrue("digits point at a position", !CategoryWord.isWord("2", positions: positions))
+        expectTrue("a letter makes it a word", CategoryWord.isWord("3p", positions: positions))
+        expectTrue("and so does a digit past the end", CategoryWord.isWord("7", positions: positions))
+        expectTrue("nothing typed is not a word", !CategoryWord.isWord("", positions: positions))
+
+        expect("a capital is added", CategoryWord.clean("dancing"), "Dancing")
+        expect("only the first", CategoryWord.clean("bTS"), "BTS")
+        expect("a leading digit is left", CategoryWord.clean("3pt"), "3pt")
+        expect("spaces are tidied", CategoryWord.clean(" bench  clearing "), "Bench clearing")
+
+        let pool = ["Goal", "Save", "Bench clearing", "dunk", "Goalie fight"]
+        expect("the start of a name beats the middle",
+               CategoryWord.items(for: "go", in: pool), ["Goal", "Goalie fight", "Go"])
+        expect("the middle of a name matches", CategoryWord.items(for: "clear", in: pool),
+               ["Bench clearing", "Clear"])
+        expect("nothing matching leaves the word", CategoryWord.items(for: "dancing", in: pool),
+               ["Dancing"])
+        expect("an exact name comes first and adds nothing",
+               CategoryWord.items(for: "goal", in: pool), ["Goal", "Goalie fight"])
+        expect("the stored spelling wins", CategoryWord.items(for: "Dunk", in: pool), ["dunk"])
+        expect("only spaces is nothing", CategoryWord.items(for: "  ", in: pool), [])
+
+        expectTrue("Space plays until a word has begun",
+                   !FlowKeyState.claims("space", stage: .categories, shift: false))
+        expectTrue("then it's part of the word",
+                   FlowKeyState.claims("space", stage: .categories, shift: false, typingEntry: true))
+        expectTrue("a hyphen continues a word too",
+                   FlowKeyState.claims("-", stage: .categories, shift: false, typingEntry: true))
+        expectTrue("but mid-word only at the categories",
+                   !FlowKeyState.claims("space", stage: .players, shift: false, typingEntry: true))
+        expectTrue("Space joins after a digit too, for 2 on 1",
+                   CategoryWord.joins("space") && !CategoryWord.isWord("2", positions: positions)
+                       && CategoryWord.isWord("2 ", positions: positions))
+        expectTrue("a letter doesn't count as joining", !CategoryWord.joins("s"))
+        expectTrue("a tag can hold an ampersand", CategoryWord.canType("&"))
+        expectTrue("but not a slash", !CategoryWord.canType("/"))
+        expect("Shift+7 at the categories is the character",
+               FlowKeyState.sent("7", characters: "&", stage: .categories, shift: true), "&")
+        expect("a capital arrives as one",
+               FlowKeyState.sent("q", characters: "Q", stage: .categories, shift: true), "Q")
+        expect("no Shift leaves the key",
+               FlowKeyState.sent("7", characters: "7", stage: .categories, shift: false), "7")
+        expect("and it's only for the categories",
+               FlowKeyState.sent("7", characters: "&", stage: .players, shift: true), "7")
+        expect("named keys pass through",
+               FlowKeyState.sent("return", characters: "\r", stage: .categories, shift: true), "return")
+        expectTrue("the clear key still isn't taken",
+                   !FlowKeyState.claims("/", stage: .categories, shift: false, typingEntry: true))
+
+        let quickKey = Shortcuts.defaults[.quickTag]?.first?.key ?? ""
+        expect("the quick key is a flow action", ShortcutAction.quickTag.group, .flow)
+        expectTrue("its default passes the flow rules",
+                   Shortcuts.defaults[.quickTag].map {
+                       $0.allSatisfy { Shortcuts.refusal(for: $0, group: .flow) == nil }
+                   } ?? false)
+        let others = Shortcuts.defaults.filter { $0.key != .quickTag }.values.flatMap { $0 }
+        expectTrue("and clashes with nothing bare",
+                   !others.contains { $0.key == quickKey && !$0.hasModifier })
+    }
+
+    // MARK: - Most used, and what reaches a filename
+
+    private static func mostUsedCategories() {
+        section("Most used categories")
+
+        func tag(_ category: String, _ umid: String, player: String? = nil) -> Tag {
+            Tag(umid: umid, clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                playerName: player, category: category)
+        }
+        func clips(_ category: String, _ count: Int) -> [Tag] {
+            (0..<count).map { tag(category, "clip\($0)") }
+        }
+        let enough = TagLibrary.mostUsedThreshold
+        let earned = clips("Layup", enough)
+        let nothing: [String] = []
+
+        expect("enough clips earns it",
+               TagLibrary.mostUsed(earned, permanent: [], dismissed: []), ["Layup"])
+        expect("one short doesn't",
+               TagLibrary.mostUsed(Array(earned.dropLast()), permanent: [], dismissed: []), nothing)
+        expect("every tag counts, on one clip or many",
+               TagLibrary.mostUsed(Array(repeating: tag("Layup", "a"), count: enough),
+                                   permanent: [], dismissed: []), ["Layup"])
+        expect("a real category isn't a one-off",
+               TagLibrary.mostUsed(earned, permanent: ["layup"], dismissed: []), nothing)
+        expect("a dismissed word stays out",
+               TagLibrary.mostUsed(earned, permanent: [], dismissed: ["Layup"]), nothing)
+        let more = clips("3pt", enough + 1)
+        expect("the most clips come first",
+               TagLibrary.mostUsed(earned + more, permanent: [], dismissed: []),
+               ["3pt", "Layup"])
+        expect("ties read alphabetically",
+               TagLibrary.mostUsed(earned + clips("Dunk", enough),
+                                   permanent: [], dismissed: []), ["Dunk", "Layup"])
+
+        expectTrue("the drawn section is reserved",
+                   CategorySection.isReserved(CategorySection.mostUsed([]).id))
+        expectTrue("but a real section can still have that name",
+                   !CategorySection.isReserved(Team.slug("Most Used")))
+        expectTrue("nor Recent", CategorySection.isReserved(Team.slug("Recent")))
+
+        // An old file has no such key, and a new one must carry it back.
+        let bare = #"{"teams":[],"tags":[]}"#
+        expectTrue("an older library still reads",
+                   (try? TagLibrary.decodeArchive(Data(bare.utf8)))?.dismissedMostUsed == nil
+                       && (try? TagLibrary.decodeArchive(Data(bare.utf8))) != nil)
+        let stored = TagLibrary.Archive(teams: [], categories: [], tags: [], presets: nil,
+                                        dismissedMostUsed: ["Layup"])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let back = (try? encoder.encode(stored)).flatMap { try? TagLibrary.decodeArchive($0) }
+        expect("dismissed words survive a save", back?.dismissedMostUsed ?? [], ["Layup"])
+
+        // Where a word is listed changes nothing about the file: player, then action.
+        let clip = Clip(id: URL(fileURLWithPath: "/C0001.MP4"),
+                        videoURL: URL(fileURLWithPath: "/C0001.MP4"),
+                        xmlURL: URL(fileURLWithPath: "/C0001M01.XML"),
+                        flag: nil, videoSize: 0, xmlSize: 0, umid: "a", shotDate: nil)
+        func name(_ tags: [Tag]) -> String {
+            Renamer.baseName(for: clip, tags: tags,
+                             preset: RenamePreset(name: "t", teamCode: "", separator: "_",
+                                                  tokens: [.originalName, .playerSurname, .topTag]),
+                             priority: ["Goal", "Dancing"], rosterCode: nil)
+        }
+        expect("a listed category is named",
+               name([tag("Goal", "a", player: "Sam Marchetti")]), "C0001_Marchetti_Goal")
+        expect("and a typed word just the same",
+               name([tag("Dancing", "a", player: "Sam Marchetti")]), "C0001_Marchetti_Dancing")
+        expect("even one nothing lists any more",
+               name([tag("Bench clearing", "a", player: "Sam Marchetti")]),
+               "C0001_Marchetti_Bench-clearing")
+        expect("a listed category still wins",
+               name([tag("Dancing", "a"), tag("Goal", "a", player: "Sam Marchetti")]),
+               "C0001_Marchetti_Goal")
+    }
+
     private static func oneOffCategories() {
         section("One-off categories")
 
@@ -1138,6 +1288,53 @@ enum SelfCheck {
         expect("an old library gets the defaults", (old ?? Subjects.defaults).count,
                Subjects.defaults.count)
         expect("an emptied one stays empty", (emptied ?? Subjects.defaults).count, 0)
+
+        // The three shapes a tag comes in. Telling them apart is what the chip, the panel
+        // and the filter all lean on, and a subject used to vanish from the first two.
+        func tag(number: String?, name: String?) -> Tag {
+            Tag(umid: "060A2B34", clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                teamID: "bisons", playerNumber: number, playerName: name, category: "Goal")
+        }
+        let onSubject = tag(number: nil, name: "Mascot")
+        let onPlayer = tag(number: "17", name: "Sam Reid")
+        let onNoNumber = tag(number: "", name: "Sam Reid")
+        let onClip = tag(number: nil, name: nil)
+
+        expect("a player's chip keeps the number", onPlayer.chipText, "17 · Goal")
+        expect("a subject's chip names the subject", onSubject.chipText, "Mascot · Goal")
+        expect("a player with no number shows their name", onNoNumber.chipText, "Sam Reid · Goal")
+        expect("a tag on the clip alone is just the tag", onClip.chipText, "Goal")
+
+        var onTeam = onPlayer
+        onTeam.teamName = "Bisons"
+        expect("the tooltip spells out the player and team", onTeam.chipDetail,
+               "#17 Sam Reid · Goal · Bisons")
+        expect("and a subject with no team has no gap", onSubject.chipDetail, "Mascot · Goal")
+        expect("and a tag on the clip is just the tag", onClip.chipDetail, "Goal")
+
+        expect("the panel names a subject", onSubject.playerLabel ?? "none", "Mascot")
+        expect("and still numbers a player", onPlayer.playerLabel ?? "none", "#17 Sam Reid")
+        expectTrue("and has nobody to name on a clip tag", onClip.playerLabel == nil)
+
+        expect("a subject tag knows its subject", onSubject.subjectName ?? "none", "Mascot")
+        expectTrue("a player is not a subject tag", onPlayer.subjectName == nil)
+        expectTrue("nor is a player with no number", onNoNumber.subjectName == nil)
+        expectTrue("nor a tag on the clip alone", onClip.subjectName == nil)
+
+        // The duplicate check and the bench's green both go by this. Two subjects with the
+        // same category on one clip used to count as a repeat, and the second was dropped.
+        expect("a subject tag matches its bench entry", onSubject.benchID ?? "none", mascot.id)
+        expectTrue("two subjects are different people",
+                   onSubject.benchID != tag(number: nil, name: "Crowd").benchID)
+        expectTrue("a subject isn't the clip itself", onSubject.benchID != onClip.benchID)
+        expect("a player's is still their id", onPlayer.benchID ?? "none", "bisons/17")
+
+        // Removing a subject leaves its tags behind, so the filter has to go on offering it.
+        let offered = TagLibrary.filterableSubjects(listed: ["Crowd", "Mascot"],
+                                                    tags: [onSubject, onPlayer, onClip,
+                                                           tag(number: nil, name: "Zamboni")])
+        expect("the filter lists subjects, then removed ones still on clips", offered,
+               ["Crowd", "Mascot", "Zamboni"])
     }
 
     // MARK: - Adding a team
@@ -1431,6 +1628,123 @@ enum SelfCheck {
         expect("in that bench's place", after(["a", "b"], "c", shown: "b"), ["a", "c"])
         expect("both: a pair it can't join is replaced", after(["a", "b"], "x", shown: "a"), ["x"])
         expect("nothing in play: it comes in", after([], "a"), ["a"])
+    }
+
+    // A re-import compared players only, so a file whose code differed from the one you'd
+    // typed went straight in and put its own code back — every export after it came out
+    // under the old code, with nothing to say where it came from. These pin down that a
+    // team-level difference is asked about, what each choice then writes, and how a file's
+    // columns are read and reported.
+
+    private static func importReview() {
+        section("Reviewing an import")
+        let players = [Player(teamID: "wbb", number: "4", name: "Anna Miko")]
+        let mine = Team(id: "manitoba-bisons-women-s-basketball",
+                        name: "Manitoba Bisons Women's Basketball",
+                        code: "WBB", league: "U SPORTS", players: players)
+        func incoming(code: String?, league: String? = "U SPORTS",
+                      name: String = "Manitoba Bisons Women's Basketball") -> TagLibrary.IncomingTeam {
+            TagLibrary.IncomingTeam(slug: Team.slug(name), name: name, code: code,
+                                    league: league, players: players)
+        }
+
+        let theirs = incoming(code: "MBW")
+        expect("a different code is a change",
+               TagLibrary.detailChanges(existing: mine, incoming: theirs),
+               [TagLibrary.DetailChange(field: "Code", old: "WBB", new: "MBW")])
+        let sorted = TagLibrary.sortImport([theirs], against: [mine])
+        expect("and the team is held for review, players identical or not",
+               sorted.conflicts.map(\.id), [theirs.slug])
+        expect("rather than going straight in", sorted.unchanged.count, 0)
+
+        expect("no code column says nothing about the code",
+               TagLibrary.detailChanges(existing: mine, incoming: incoming(code: nil)), [])
+        expect("the same code is no change",
+               TagLibrary.sortImport([incoming(code: " WBB ")], against: [mine]).unchanged.count, 1)
+
+        var blank = mine
+        blank.code = nil
+        let fill = TagLibrary.sortImport([incoming(code: "WBB")], against: [blank])
+        expect("filling a blank code is asked about, because it changes filenames",
+               fill.conflicts.count, 1)
+        expect("and shown as a fill", fill.conflicts.first?.details.map(\.overwrites), [false])
+
+        var noLeague = mine
+        noLeague.league = nil
+        let filled = TagLibrary.sortImport([incoming(code: "WBB")], against: [noLeague])
+        expect("filling a blank league isn't asked about", filled.conflicts.count, 0)
+        expectTrue("and it's still written",
+                   RosterImportReview(unchanged: filled.unchanged).writesAnything)
+        let same = TagLibrary.sortImport([incoming(code: "WBB")], against: [mine])
+        expectTrue("an identical team writes nothing",
+                   !RosterImportReview(unchanged: same.unchanged).writesAnything)
+
+        let wearing = Team(id: "t", name: "T", players: [
+            Player(teamID: "t", number: "30", name: "Sam Smith", position: "Forward")])
+        func replaced(by name: String) -> String? {
+            let list = TagLibrary.IncomingTeam(slug: "t", name: "T", code: nil, league: nil,
+                                               players: [Player(teamID: "t", number: "30", name: name)])
+            return TagLibrary.importedTeam(list, into: wearing, mode: .replace).players.first?.position
+        }
+        expect("a blank position keeps the same person's", replaced(by: " sam smith "), "Forward")
+        expect("but a new person in that number doesn't inherit it", replaced(by: "Jo Jones"), "")
+
+        expect("a team you don't have is new",
+               TagLibrary.sortImport([incoming(code: "X", name: "Somebody Else")], against: [mine])
+                   .new.count, 1)
+
+        // What each choice writes.
+        expect("Replace takes the file's code",
+               TagLibrary.importedTeam(theirs, into: mine, mode: .replace).code, "MBW")
+        expect("Merge keeps yours",
+               TagLibrary.importedTeam(theirs, into: mine, mode: .merge).code, "WBB")
+        expect("Replace without a code keeps yours",
+               TagLibrary.importedTeam(incoming(code: nil), into: mine, mode: .replace).code, "WBB")
+        expect("a blank code in the file keeps yours",
+               TagLibrary.importedTeam(incoming(code: "  "), into: mine, mode: .replace).code, "WBB")
+        expect("Merge fills a blank",
+               TagLibrary.importedTeam(theirs, into: blank, mode: .merge).code, "MBW")
+        var placed = mine
+        placed.players = [Player(teamID: mine.id, number: "4", name: "Anna Miko", position: "Guard")]
+        expect("Replace without positions keeps yours",
+               TagLibrary.importedTeam(theirs, into: placed, mode: .replace).players.map(\.position),
+               ["Guard"])
+        let moved = TagLibrary.IncomingTeam(slug: theirs.slug, name: theirs.name, code: nil, league: nil,
+                                            players: [Player(teamID: "x", number: "4", name: "Anna Miko",
+                                                             position: "Forward")])
+        expect("but a position it gives wins",
+               TagLibrary.importedTeam(moved, into: placed, mode: .replace).players.map(\.position),
+               ["Forward"])
+        expect("the team keeps its id",
+               TagLibrary.importedTeam(theirs, into: mine, mode: .replace).players.first?.teamID,
+               mine.id)
+
+        // How a file is read, which is what the review reports.
+        let header = TagLibrary.rosterLayout(TagLibrary.rosterRows(
+            "league,team,code,number,name,position,jersey size\nU SPORTS,A,AA,1,B,G,M\n"))
+        expect("the columns read, in file order", header.fields,
+               ["league", "team", "code", "number", "name", "position"])
+        expect("a heading nobody knows is reported", header.ignored, ["jersey size"])
+        expectTrue("a header row is a header", !header.headerless)
+        let bare = TagLibrary.rosterLayout(TagLibrary.rosterRows("Jets,9,Adam Lowry\n"))
+        expectTrue("no header row is said", bare.headerless)
+        expect("and read by position", bare.fields, ["team", "number", "name"])
+
+        // Several files at once.
+        let a = incoming(code: "WBB")
+        let b = incoming(code: "MBB", name: "Manitoba Bisons Men's Basketball")
+        let clash = TagLibrary.repeatedTeams([("w.csv", [a]), ("m.csv", [b]), ("w2.csv", [a])],
+                                             against: [mine])
+        expect("a team in two files is caught", clash[mine.id], ["w.csv", "w2.csv"])
+        expect("and only that one", clash.count, 1)
+        let renamed = Team(id: "new-team", name: "Fan Fest", code: nil, league: nil, players: [])
+        let byName = TagLibrary.IncomingTeam(slug: "fan-fest", name: "Fan Fest", code: nil,
+                                             league: nil, players: [])
+        let byID = TagLibrary.IncomingTeam(slug: "new-team", name: "New team", code: nil,
+                                           league: nil, players: [])
+        expect("matched by name or by id, it's the same team",
+               TagLibrary.repeatedTeams([("1.csv", [byName]), ("2.csv", [byID])],
+                                        against: [renamed]).keys.sorted(), ["new-team"])
     }
 
     private static func clipRange() {

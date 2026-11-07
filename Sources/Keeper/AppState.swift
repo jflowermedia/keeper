@@ -120,10 +120,10 @@ final class AppState: ObservableObject {
     /// Tracks the most recently added row so the preview follows the clip you just clicked.
     @Published private(set) var lastSelected: URL? {
         didSet {
-            // No preview means no place to carry on from. Six things clear this — a filter
+            // No preview means no place to carry on from. Seven things clear this — a filter
             // change, each tag filter, a rescan — and every one of them is a fresh start,
             // so the positional anchor has to go with it or the arrows resume at a stale
-            // index. Doing it here rather than at each site means a seventh can't forget.
+            // index. Doing it here rather than at each site means an eighth can't forget.
             if lastSelected == nil { lastVisibleIndex = nil }
         }
     }
@@ -182,6 +182,9 @@ final class AppState: ObservableObject {
     @Published var filterPlayerID: String? { didSet { if filterPlayerID != oldValue { selection = [] } } }
     @Published var filterCategory: String? { didSet { if filterCategory != oldValue { selection = [] } } }
     @Published var filterPosition: String? { didSet { if filterPosition != oldValue { selection = [] } } }
+    /// By name rather than through `filterPlayerID`: a subject's tag has no number, so no
+    /// player id, and the bench's reserved `subject:` id never reaches the tag.
+    @Published var filterSubject: String? { didSet { if filterSubject != oldValue { selection = [] } } }
     // Neither is remembered between launches, on purpose: every session's export starts
     // from the defaults rather than from whatever the last card needed.
     @Published var grouping: Grouping = .flat
@@ -258,7 +261,14 @@ final class AppState: ObservableObject {
     @Published var numberEntry = ""
     /// Digits typed at the category stage, narrowing the grid by position the way
     /// `numberEntry` narrows the bench by shirt number.
-    @Published var categoryEntry = ""
+    @Published var categoryEntry = "" {
+        didSet {
+            FlowKeyState.shared.typingEntry = !categoryEntry.isEmpty
+            // A cursor set against a word's matches means nothing against the section that
+            // comes back, and could file a category you never looked at.
+            if categoryEntry != oldValue { categoryCursor = 0 }
+        }
+    }
     /// The Subjects pill is the one showing — mascot, crowd, anthem and the rest, as a bench
     /// of their own beside the teams. Reached by the pill, by ← → past the last team, or by
     /// the key bound to `.subjectsOnly`. The team pills stay as they were underneath, which is
@@ -346,9 +356,9 @@ final class AppState: ObservableObject {
 
     // MARK: - Reviewing a re-import
 
-    /// Teams you already have that an import would change, waiting on Merge, Replace or Skip.
-    /// Nothing in here has been written yet.
-    @Published var rosterReview: [TagLibrary.RosterConflict]?
+    /// An import waiting on you: from files, everything they'd do; from a download, the teams
+    /// you already have that it would change. Nothing in here has been written yet.
+    @Published var rosterReview: RosterImportReview?
     @Published var rosterReviewModes: [String: TagLibrary.ImportMode] = [:]
     /// Which sheet shows the review. SwiftUI won't reliably put a sheet up over another from
     /// the window, so a review that comes out of the download sheet is shown from inside it.
@@ -524,6 +534,11 @@ final class AppState: ObservableObject {
                 library.tags(forUMID: clip.umid).contains { $0.playerPosition == filterPosition }
             }
         }
+        if let filterSubject {
+            list = list.filter { clip in
+                library.tags(forUMID: clip.umid).contains { $0.subjectName == filterSubject }
+            }
+        }
         return list
     }
 
@@ -668,7 +683,8 @@ final class AppState: ObservableObject {
     }
 
     var isTagFiltered: Bool {
-        filterTeamID != nil || filterPlayerID != nil || filterCategory != nil || filterPosition != nil
+        filterTeamID != nil || filterPlayerID != nil || filterCategory != nil
+            || filterPosition != nil || filterSubject != nil
     }
 
     func clearTagFilters() {
@@ -676,6 +692,7 @@ final class AppState: ObservableObject {
         filterPlayerID = nil
         filterCategory = nil
         filterPosition = nil
+        filterSubject = nil
     }
 
     /// The rosters the player menu should offer: just the chosen team, or all of them.

@@ -19,16 +19,29 @@ struct Player: Codable, Identifiable, Hashable {
 struct CategorySection: Codable, Identifiable, Hashable {
     var name: String
     var items: [String]
+    /// Only on a section that's drawn but never stored. See `mostUsedID`.
+    var fixedID: String? = nil
 
     /// Slugged, so two sections can't share an id in the pills. `addSection` refuses a name
     /// that would collide.
-    var id: String { Team.slug(name) }
+    var id: String { fixedID ?? Team.slug(name) }
 
     /// The one-offs are shown as a section but aren't one — they're a view of
     /// `recentCategories`, with nothing to rename, reorder or delete. So the name is
     /// reserved: a real section called "Recent" would share its id and could never be moved
     /// or removed again.
     static let reservedID = "recent"
+    /// The one-offs you keep using. See `TagLibrary.mostUsedCategories`. Not something a slug
+    /// can produce, so a library with a real section called Most Used keeps it, and keeps
+    /// being able to move and remove it.
+    static let mostUsedID = "*most-used"
+
+    static func mostUsed(_ items: [String]) -> CategorySection {
+        CategorySection(name: "Most Used", items: items, fixedID: mostUsedID)
+    }
+
+    /// Names a real section can't take, because something that isn't one is drawn under them.
+    static func isReserved(_ id: String) -> Bool { id == reservedID || id == mostUsedID }
 
     /// What a new library starts with. Gameplay carries the labels that were the whole list
     /// before sections existed; Misc starts empty on purpose, as somewhere to promote a
@@ -126,8 +139,34 @@ struct Tag: Codable, Identifiable, Hashable {
     }
 
     var playerLabel: String? {
-        guard let playerNumber, let playerName else { return nil }
-        return playerNumber.isEmpty ? playerName : "#\(playerNumber) \(playerName)"
+        guard let playerName else { return nil }
+        guard let playerNumber, !playerNumber.isEmpty else { return playerName }
+        return "#\(playerNumber) \(playerName)"
+    }
+
+    /// The subject this tag is for, if it's for one. `makeTag` files a subject with a name and
+    /// a nil number, and nothing else has that shape: a roster player with no number carries
+    /// the empty string, and a tag on the clip alone has no name either.
+    var subjectName: String? { playerNumber == nil ? playerName : nil }
+
+    /// Who this tag is against, comparable with `Player.id` for players and subjects alike.
+    /// `playerID` alone is nil for every subject, which made Mascot and Crowd the same person
+    /// to the duplicate check: the second one on a clip was silently dropped.
+    var benchID: String? { playerID ?? subjectName.map { Subjects.entry($0).id } }
+
+    /// What a clip row's chip says: "17 · Goal", "Mascot · Goal", or "Goal" for a tag with
+    /// nobody against it. A name only stands in where there's no number, because a row hasn't
+    /// the room for a full roster name and the number is what you look a player up by.
+    var chipText: String {
+        if let playerNumber, !playerNumber.isEmpty { return "\(playerNumber) · \(category)" }
+        if let playerName { return "\(playerName) · \(category)" }
+        return category
+    }
+
+    /// The chip's tooltip. The team is what it's really for: with both benches in play, two
+    /// chips can both say 17 and mean different players.
+    var chipDetail: String {
+        [playerLabel, category, teamName].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// "17-Smith" or "Goal" — used for export folder names.
@@ -204,7 +243,9 @@ final class TagLibrary: ObservableObject {
     /// Categories in sections — Gameplay, Media, Misc — which ← → step between while ↑ ↓
     /// move within one. The grouping is organisation only: with forty labels a flat grid is
     /// a search every time, and sections turn that into "which kind of thing is this".
-    @Published var categorySections: [CategorySection] = CategorySection.defaults
+    @Published var categorySections: [CategorySection] = CategorySection.defaults {
+        didSet { mostUsedCache = nil }
+    }
 
     /// Every category, in section order. Computed rather than stored, so everything that
     /// treats the list as flat — filename priority, the preset editor, the filter menu —
@@ -214,7 +255,16 @@ final class TagLibrary: ObservableObject {
     @Published var subjects: [String] = Subjects.defaults
     /// One-off categories, newest first and capped. See `noteRecent`.
     @Published private(set) var recentCategories: [String] = []
-    @Published private(set) var tags: [Tag] = []
+    /// Words kept out of Most Used by being forgotten or removed by hand. It's worked out from
+    /// the tags, which are still there, so without this they'd come straight back.
+    @Published private(set) var dismissedMostUsed: [String] = [] {
+        didSet { mostUsedCache = nil }
+    }
+    @Published private(set) var tags: [Tag] = [] {
+        didSet { mostUsedCache = nil }
+    }
+    /// The grid reads this on every keystroke, and it walks every tag.
+    private var mostUsedCache: [String]?
     @Published var presets: [RenamePreset] = [.standard()]
 
     /// Clips you've flagged yourself, by UMID. The card is never touched: the override is
@@ -470,12 +520,12 @@ final class TagLibrary: ObservableObject {
         var landed: [Tag] = []
         for tag in newTags {
             let alreadyThere = (index[tag.umid] ?? []).contains {
-                $0.category == tag.category && $0.playerID == tag.playerID
+                $0.category == tag.category && $0.benchID == tag.benchID
             }
             // Also against this batch, or tagging the same player twice in one call would
             // slip two identical tags through the check above.
             let inThisBatch = landed.contains {
-                $0.umid == tag.umid && $0.category == tag.category && $0.playerID == tag.playerID
+                $0.umid == tag.umid && $0.category == tag.category && $0.benchID == tag.benchID
             }
             guard !alreadyThere, !inThisBatch else { continue }
             landed.append(tag)
@@ -809,6 +859,7 @@ final class TagLibrary: ObservableObject {
         for index in categorySections.indices {
             categorySections[index].items.removeAll { $0 == name }
         }
+        dismissFromMostUsed([name])
         save()
     }
 
@@ -818,7 +869,7 @@ final class TagLibrary: ObservableObject {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let slug = Team.slug(clean)
         guard !clean.isEmpty, !slug.isEmpty,
-              slug != CategorySection.reservedID,
+              !CategorySection.isReserved(slug),
               !categorySections.contains(where: { $0.id == slug })
         else { return }
         categorySections.append(CategorySection(name: clean, items: []))
@@ -831,6 +882,7 @@ final class TagLibrary: ObservableObject {
     func removeSection(_ id: String) {
         // Never leave nothing to arrow between: a grid with no sections has no way back.
         guard categorySections.count > 1 else { return }
+        dismissFromMostUsed(categorySections.first { $0.id == id }?.items ?? [])
         categorySections.removeAll { $0.id == id }
         save()
     }
@@ -863,6 +915,8 @@ final class TagLibrary: ObservableObject {
         guard !clean.isEmpty,
               !categories.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame })
         else { return }
+        // Using it again is changing your mind about having dismissed it.
+        dismissedMostUsed.removeAll { $0.caseInsensitiveCompare(clean) == .orderedSame }
         recentCategories.removeAll { $0.caseInsensitiveCompare(clean) == .orderedSame }
         recentCategories.insert(clean, at: 0)
         if recentCategories.count > Self.recentLimit {
@@ -875,6 +929,7 @@ final class TagLibrary: ObservableObject {
     /// because being in both is the one state that draws it twice.
     func keepCategory(_ name: String, to sectionID: String? = nil) {
         recentCategories.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        dismissedMostUsed.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
         addCategory(name, to: sectionID)          // saves
     }
 
@@ -882,7 +937,7 @@ final class TagLibrary: ObservableObject {
     /// the one-offs, in which case the last real one — which is Misc out of the box, and is
     /// the catch-all wherever you've moved it to.
     func sectionForNewCategory(viewing sectionID: String?) -> String? {
-        if let sectionID, sectionID != CategorySection.reservedID,
+        if let sectionID, !CategorySection.isReserved(sectionID),
            categorySections.contains(where: { $0.id == sectionID }) {
             return sectionID
         }
@@ -891,14 +946,67 @@ final class TagLibrary: ObservableObject {
 
     func forgetRecent(_ name: String) {
         recentCategories.removeAll { $0 == name }
+        dismissFromMostUsed([name])
         save()
+    }
+
+    // MARK: Most used
+
+    /// How many tags a one-off takes before it stops counting as a one-off.
+    static let mostUsedThreshold = 10
+
+    /// One-offs you keep coming back to, most used first. Only where they're listed changes:
+    /// they reach filenames the same as any other tag, wherever they sit.
+    ///
+    /// Worked out from the tags rather than counted as you go, so undoing a tag undoes the
+    /// count, words that fell off the end of Recent still qualify, and nothing new has to be
+    /// trusted in `library.json`.
+    static func mostUsed(_ tags: [Tag], permanent: [String], dismissed: [String]) -> [String] {
+        func listed(_ name: String, in list: [String]) -> Bool {
+            list.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        var uses: [String: Int] = [:]
+        for tag in tags { uses[tag.category, default: 0] += 1 }
+        let earned = uses.filter {
+            $0.value >= mostUsedThreshold
+                && !$0.key.isEmpty
+                && !listed($0.key, in: permanent)
+                && !listed($0.key, in: dismissed)
+        }
+        return earned.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.map(\.key)
+    }
+
+    var mostUsedCategories: [String] {
+        if let mostUsedCache { return mostUsedCache }
+        let fresh = Self.mostUsed(tags, permanent: categories, dismissed: dismissedMostUsed)
+        mostUsedCache = fresh
+        return fresh
+    }
+
+    /// Recent, less whatever has moved up to Most Used. A word in two sections would match
+    /// twice when typing and repeat in the filter menu.
+    var recentOnly: [String] {
+        let mostUsed = mostUsedCategories
+        return recentCategories.filter { !mostUsed.contains($0) }
+    }
+
+    func isOneOff(_ name: String) -> Bool {
+        recentCategories.contains(name) || mostUsedCategories.contains(name)
+    }
+
+    /// Only what's on a tag needs remembering: anything else was never going to qualify.
+    private func dismissFromMostUsed(_ names: [String]) {
+        let used = names.filter { name in
+            tags.contains { $0.category == name } && !dismissedMostUsed.contains(name)
+        }
+        if !used.isEmpty { dismissedMostUsed.append(contentsOf: used) }
     }
 
     /// What the grid draws and the cursor walks: the permanent list, then the one-offs.
     ///
     /// Also the filename priority, so a clip tagged both Goal and Dancing is named for the
     /// goal — anything permanent outranks anything passing through.
-    var allCategories: [String] { categories + recentCategories }
+    var allCategories: [String] { categories + mostUsedCategories + recentOnly }
 
     /// Rejects a name whose slug is already taken, not just an exact repeat: two subjects
     /// sharing a slug would share a bench id, and a duplicate id in a grid is the one thing
@@ -920,6 +1028,15 @@ final class TagLibrary: ObservableObject {
 
     /// The bench entries for the subjects, in the order they're listed.
     var subjectEntries: [Player] { subjects.map(Subjects.entry) }
+
+    /// What the subject filter offers. A removed subject leaves its name on the clips it was
+    /// tagged on, and those clips still have to be findable.
+    var filterableSubjects: [String] { Self.filterableSubjects(listed: subjects, tags: tags) }
+
+    static func filterableSubjects(listed: [String], tags: [Tag]) -> [String] {
+        (listed + tags.compactMap(\.subjectName))
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+    }
 
     /// Reordering categories changes which tag wins in a filename, so it is a real setting
     /// rather than cosmetics.
@@ -1041,6 +1158,8 @@ final class TagLibrary: ObservableObject {
         var keepOverrides: [String: Bool]?
         /// The flag you set, by UMID: KEEP, OK, NG, or "" for one you cleared.
         var flagOverrides: [String: String]?
+        /// Optional like the rest, and last so the initialiser's other callers needn't pass it.
+        var dismissedMostUsed: [String]?
     }
 
     /// The overrides as `load()` reads them. A library from before OK and NG has only the
@@ -1120,6 +1239,7 @@ final class TagLibrary: ObservableObject {
         // stays empty, which is why nil and [] are told apart.
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
+        dismissedMostUsed = archive.dismissedMostUsed ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         flagOverrides = Self.flagOverrides(from: archive)
@@ -1142,7 +1262,8 @@ final class TagLibrary: ObservableObject {
                               tags: tags,
                               presets: presets,
                               keepOverrides: flagOverrides.mapValues { $0.flag == .keep },
-                              flagOverrides: flagOverrides.mapValues { $0.flag?.rawValue ?? "" })
+                              flagOverrides: flagOverrides.mapValues { $0.flag?.rawValue ?? "" },
+                              dismissedMostUsed: dismissedMostUsed)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -1290,6 +1411,7 @@ final class TagLibrary: ObservableObject {
         // stays empty, which is why nil and [] are told apart.
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
+        dismissedMostUsed = archive.dismissedMostUsed ?? []
         tags = archive.tags
         presets = archive.presets ?? [.standard()]
         flagOverrides = Self.flagOverrides(from: archive)
@@ -1349,7 +1471,7 @@ final class TagLibrary: ObservableObject {
 
     /// Reads and replaces in one go, with nothing asked. What the checks and any caller that
     /// doesn't review changes use; the app's own import paths go through `parseRoster`,
-    /// `conflicts(in:)` and `applyImport` so a team you already have isn't overwritten unseen.
+    /// `sortImport` and `applyImport` so a team you already have isn't overwritten unseen.
     @discardableResult
     func importRoster(csv text: String,
                       fallbackTeam: String) throws -> (team: String, players: Int, tagsUpdated: Int) {
@@ -1369,6 +1491,56 @@ final class TagLibrary: ObservableObject {
         let players: [Player]
     }
 
+    /// How a roster file's columns were read: which field each column feeds, and the
+    /// headings that matched nothing.
+    struct RosterLayout: Equatable {
+        var columns: [String: Int]
+        var ignored: [String] = []
+        var headerless = false
+
+        /// The fields read, in the file's own column order — what the review lists.
+        var fields: [String] { columns.sorted { $0.value < $1.value }.map(\.key) }
+    }
+
+    static func rosterRows(_ text: String) -> [[String]] {
+        CSV.parse(text).filter { row in row.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty } }
+    }
+
+    /// The one place a roster's columns are decided. The importer reads with it and the
+    /// import review describes the file with it, so what the review says was read is what
+    /// was read. A code arriving from a column nobody knew was there is how a filename code
+    /// went on changing back with nothing to say where from.
+    static func rosterLayout(_ rows: [[String]]) -> RosterLayout {
+        guard let firstRow = rows.first else { return RosterLayout(columns: [:]) }
+        let first = firstRow.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        let knownHeaders = ["team", "code", "teamcode", "number", "no", "#",
+                            "name", "player", "position", "pos",
+                            "league", "org", "organisation", "organization", "group"]
+        guard first.contains(where: { knownHeaders.contains($0) }) else {
+            // Positional: team, number, name — or just number, name.
+            return firstRow.count >= 3
+                ? RosterLayout(columns: ["team": 0, "number": 1, "name": 2], headerless: true)
+                : RosterLayout(columns: ["number": 0, "name": 1], headerless: true)
+        }
+
+        var layout = RosterLayout(columns: [:])
+        for (i, heading) in first.enumerated() {
+            switch heading {
+            case "team":                   layout.columns["team"] = i
+            case "code", "teamcode":       layout.columns["code"] = i
+            case "number", "no", "#":      layout.columns["number"] = i
+            case "name", "player":         layout.columns["name"] = i
+            case "position", "pos":        layout.columns["position"] = i
+            case "league", "org", "organisation", "organization", "group":
+                layout.columns["league"] = i
+            case "":                       break
+            default:
+                layout.ignored.append(firstRow[i].trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return layout
+    }
+
     /// The order a roster is kept in: by number, numberless last, then by name.
     static func rosterOrder(_ a: Player, _ b: Player) -> Bool {
         (Int(a.number) ?? Int.max, a.name) < (Int(b.number) ?? Int.max, b.name)
@@ -1381,38 +1553,12 @@ final class TagLibrary: ObservableObject {
     /// gets the identical column handling and duplicate-number refusal. Two import paths that
     /// validated differently would be two sets of bugs.
     static func parseRoster(csv text: String, fallbackTeam: String) throws -> [IncomingTeam] {
-        var rows = CSV.parse(text).filter { row in row.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty } }
+        var rows = rosterRows(text)
         guard !rows.isEmpty else { throw ImportError.noRows }
 
-        var columns: [String: Int] = [:]
-
-        // Header row?
-        let first = rows[0].map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        let knownHeaders = ["team", "code", "teamcode", "number", "no", "#",
-                            "name", "player", "position", "pos",
-                            "league", "org", "organisation", "organization", "group"]
-        if first.contains(where: { knownHeaders.contains($0) }) {
-            for (i, heading) in first.enumerated() {
-                switch heading {
-                case "team":                   columns["team"] = i
-                case "code", "teamcode":       columns["code"] = i
-                case "number", "no", "#":      columns["number"] = i
-                case "name", "player":         columns["name"] = i
-                case "position", "pos":        columns["position"] = i
-                case "league", "org", "organisation", "organization", "group":
-                    columns["league"] = i
-                default: break
-                }
-            }
-            rows.removeFirst()
-        } else {
-            // Positional: team, number, name — or just number, name.
-            if rows[0].count >= 3 {
-                columns = ["team": 0, "number": 1, "name": 2]
-            } else {
-                columns = ["number": 0, "name": 1]
-            }
-        }
+        let layout = rosterLayout(rows)
+        let columns = layout.columns
+        if !layout.headerless { rows.removeFirst() }
 
         func field(_ row: [String], _ key: String) -> String {
             guard let i = columns[key], i < row.count else { return "" }
@@ -1527,23 +1673,155 @@ final class TagLibrary: ObservableObject {
         var id: String { rawValue }
     }
 
-    /// A team that's already in the library and that the new list would change.
+    /// A team-level field the new list would set: its name, code or league.
+    struct DetailChange: Equatable {
+        let field: String
+        /// Blank when you hadn't set one.
+        let old: String
+        let new: String
+
+        /// Filling in a blank loses nothing; replacing something you typed does.
+        var overwrites: Bool { !old.isEmpty }
+    }
+
+    /// Only what the new list actually says. A file without a code column says nothing
+    /// about codes, the same way a blank position says nothing about positions.
+    static func detailChanges(existing: Team, incoming: IncomingTeam) -> [DetailChange] {
+        var out: [DetailChange] = []
+        func compare(_ field: String, _ mine: String?, _ theirs: String?) {
+            let theirs = theirs?.trimmingCharacters(in: .whitespaces) ?? ""
+            let mine = mine?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !theirs.isEmpty, theirs != mine else { return }
+            out.append(DetailChange(field: field, old: mine, new: theirs))
+        }
+        compare("Name", existing.name, incoming.name)
+        compare("Code", existing.code, incoming.code)
+        compare("League", existing.league, incoming.league)
+        return out
+    }
+
+    /// A team that's already in the library, with what the new list would do to it.
     struct RosterConflict: Identifiable {
         let incoming: IncomingTeam
         let existingName: String
         let changes: RosterChanges
+        var details: [DetailChange] = []
         var id: String { incoming.slug }
+
+        /// Whether to ask. Players changing, or a name, code or league you set being
+        /// replaced. The code used to be left out, so a re-import put the file's code back
+        /// over the one you'd typed in the roster editor without a word — and every export
+        /// after it came out under a code you'd already changed.
+        ///
+        /// A code is asked about even into a blank, because blank can be a choice: it's how
+        /// a preset's own code applies, and a filename shouldn't change without being asked.
+        var needsReview: Bool {
+            !changes.isEmpty || details.contains { $0.overwrites || $0.field == "Code" }
+        }
+
+        /// Identical to what you have, so writing it would only report a change that isn't one.
+        var changesNothing: Bool { changes.isEmpty && details.isEmpty }
     }
 
-    /// The incoming teams that match one you have and differ from it. A team you don't have,
-    /// or one that would come in identical, has nothing to ask about.
-    func conflicts(in incoming: [IncomingTeam]) -> [RosterConflict] {
-        incoming.compactMap { team in
-            guard let existing = Self.importTarget(slug: team.slug, name: team.name, in: teams)
-            else { return nil }
-            let changes = Self.rosterChanges(old: existing.players, new: team.players)
-            guard !changes.isEmpty else { return nil }
-            return RosterConflict(incoming: team, existingName: existing.name, changes: changes)
+    /// An import sorted by what it would do: teams you don't have, teams you have that it
+    /// leaves alone (or only fills blanks in), and teams that need asking about.
+    struct ImportSort {
+        var new: [IncomingTeam] = []
+        var unchanged: [RosterConflict] = []
+        var conflicts: [RosterConflict] = []
+    }
+
+    static func sortImport(_ incoming: [IncomingTeam], against teams: [Team]) -> ImportSort {
+        var sorted = ImportSort()
+        for team in incoming {
+            guard let existing = importTarget(slug: team.slug, name: team.name, in: teams) else {
+                sorted.new.append(team)
+                continue
+            }
+            let conflict = RosterConflict(incoming: team,
+                                          existingName: existing.name,
+                                          changes: rosterChanges(old: existing.players, new: team.players),
+                                          details: detailChanges(existing: existing, incoming: team))
+            if conflict.needsReview {
+                sorted.conflicts.append(conflict)
+            } else {
+                sorted.unchanged.append(conflict)
+            }
+        }
+        return sorted
+    }
+
+    /// Teams that more than one place in an import describes, keyed by the team they'd land
+    /// on, with the files they're in. Writing both would leave whichever came last with
+    /// nothing to say the other was dropped — so the caller leaves them all out and says so.
+    static func repeatedTeams(_ files: [(file: String, teams: [IncomingTeam])],
+                              against teams: [Team]) -> [String: [String]] {
+        var seen: [String: [String]] = [:]
+        for (file, incoming) in files {
+            for team in incoming {
+                seen[importKey(team, against: teams), default: []].append(file)
+            }
+        }
+        return seen.filter { $0.value.count > 1 }
+    }
+
+    /// The key `repeatedTeams` files a team under, for the caller to filter by.
+    static func importKey(_ team: IncomingTeam, against teams: [Team]) -> String {
+        importTarget(slug: team.slug, name: team.name, in: teams)?.id ?? team.slug
+    }
+
+    /// What a team becomes once an import lands on it. Replace takes the new list's word on
+    /// everything it says; Merge keeps yours and only fills what you'd left blank.
+    ///
+    /// A list that doesn't give a code or league never wipes yours — re-importing to fix a
+    /// spelling shouldn't cost you a filename code. Whether a code it *does* give replaces
+    /// yours is the review's question, not this function's: by the time this runs, you've
+    /// seen it and chosen.
+    static func importedTeam(_ team: IncomingTeam, into existing: Team?, mode: ImportMode) -> Team {
+        // Keep whichever id already exists, because tags are keyed to it. The players
+        // were stamped with the slug while they were being grouped, so they have to be
+        // re-stamped to match, or the roster and its tags would belong to different teams.
+        let teamID = existing?.id ?? team.slug
+        let restamped = team.players.map {
+            Player(teamID: teamID, number: $0.number, name: $0.name, position: $0.position)
+        }
+        func given(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespaces) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        switch mode {
+        case .replace, .skip:
+            // A blank position keeps yours, for the same reason a missing code does — and
+            // because `rosterChanges` already calls it no change, so the review would have
+            // shown nothing while every position on the team was wiped.
+            //
+            // The same person only. A number gets handed on, and the new #30 isn't a forward
+            // because the last one was.
+            let mine = Dictionary((existing?.players ?? []).map { ($0.number, $0) },
+                                  uniquingKeysWith: { first, _ in first })
+            let players = restamped.map { player -> Player in
+                guard player.position.isEmpty, let kept = mine[player.number],
+                      kept.name.trimmingCharacters(in: .whitespaces)
+                        .caseInsensitiveCompare(player.name.trimmingCharacters(in: .whitespaces))
+                        == .orderedSame
+                else { return player }
+                return Player(teamID: player.teamID, number: player.number, name: player.name,
+                              position: kept.position)
+            }
+            return Team(id: teamID,
+                        name: team.name,
+                        code: given(team.code) ?? given(existing?.code),
+                        league: given(team.league) ?? given(existing?.league),
+                        players: players)
+        case .merge:
+            // Yours wins throughout, the name included: Merge only ever adds.
+            return Team(id: teamID,
+                        name: existing?.name ?? team.name,
+                        code: given(existing?.code) ?? given(team.code),
+                        league: given(existing?.league) ?? given(team.league),
+                        players: merged(existing: existing?.players ?? [], incoming: restamped,
+                                        teamID: teamID))
         }
     }
 
@@ -1567,37 +1845,10 @@ final class TagLibrary: ObservableObject {
             // Two teams of one name is a state the roster editor then refuses to save, which
             // is a brick wall reached by doing nothing unusual.
             let existing = Self.importTarget(slug: team.slug, name: team.name, in: teams)
-
-            // Keep whichever id already exists, because tags are keyed to it. The players
-            // were stamped with the slug while they were being grouped, so they have to be
-            // re-stamped to match, or the roster and its tags would belong to different teams.
-            let teamID = existing?.id ?? team.slug
-            let restamped = team.players.map {
-                Player(teamID: teamID, number: $0.number, name: $0.name, position: $0.position)
-            }
-
-            switch mode {
-            case .replace, .skip:
-                // An import replaces the whole team, so a CSV without a code or league column
-                // would otherwise silently wipe one you'd already set. Fall back to what's
-                // there: re-importing to fix a spelling shouldn't cost you a filename code.
-                upsert(team: Team(id: teamID,
-                                  name: team.name,
-                                  code: team.code ?? existing?.code,
-                                  league: team.league ?? existing?.league,
-                                  players: restamped))
-            case .merge:
-                // Yours wins throughout, the name included: Merge only ever adds.
-                let base = existing?.players ?? []
-                upsert(team: Team(id: teamID,
-                                  name: existing?.name ?? team.name,
-                                  code: existing?.code ?? team.code,
-                                  league: existing?.league ?? team.league,
-                                  players: Self.merged(existing: base, incoming: restamped,
-                                                       teamID: teamID)))
-            }
-            players += restamped.count
-            written.append(teamID)
+            let result = Self.importedTeam(team, into: existing, mode: mode)
+            upsert(team: result)
+            players += team.players.count
+            written.append(result.id)
             names.append(team.name)
         }
 

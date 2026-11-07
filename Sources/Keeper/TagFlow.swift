@@ -32,6 +32,9 @@ final class FlowKeyState {
     /// Whether the subjects key is held rather than toggled. Mirrored here because the
     /// key-up monitor runs outside the main actor and has to decide without asking.
     var holdSubjects = false
+    /// Something has been typed at the categories. Mirrored because Space only stops being
+    /// play once it has, and the monitor has to know that before it hands the key over.
+    var typingEntry = false
 
     private init() {
         // The toggle is stored, so the monitor has to start out agreeing with it — the
@@ -43,7 +46,12 @@ final class FlowKeyState {
     /// Whether the flow wants this key, given where it is. Everything the flow doesn't
     /// claim falls through to the ordinary review keys, which is what keeps Space playing
     /// the clip while you tag.
-    static func claims(_ key: String, stage: TagStage, shift: Bool) -> Bool {
+    static func claims(_ key: String, stage: TagStage, shift: Bool,
+                       typingEntry: Bool = false) -> Bool {
+        // Only once something's been typed, so Space still plays the clip at the categories
+        // until then. A digit counts: it's how `2 on 1` starts.
+        if typingEntry, stage == .categories, CategoryWord.joins(key) { return true }
+
         // ⇧↑ and ⇧↓ extend the clip selection — that's the list's own gesture, and the one
         // you use to pick a range before exporting. Taking it collapsed the selection to a
         // single clip on every press, because the flow's answer to ↓ is "move to the next
@@ -90,9 +98,72 @@ final class FlowKeyState {
                     || Shortcuts.shared.isBound(key, to: .subjectsOnly)
                     || Shortcuts.shared.isBound(key, to: .toggleOK)
             case .categories: return character.isLetter || character.isNumber
-            case .clips:      return false
+            // Bound rather than written in, like the subjects key. Only this key: the
+            // digits and letters here still belong to the transport and review keys.
+            case .clips:      return Shortcuts.shared.isBound(key, to: .quickTag)
             }
         }
+    }
+}
+
+extension FlowKeyState {
+    /// What to hand the flow for a key it claimed. `KeyCombo.name` undoes Shift, which is right
+    /// for a shortcut, but a word needs the character: Shift+7 is `&`, not 7.
+    static func sent(_ key: String, characters: String?, stage: TagStage, shift: Bool) -> String {
+        guard shift, stage == .categories, key.count == 1,
+              let characters, characters.count == 1 else { return key }
+        return characters
+    }
+}
+
+/// Typing at the categories: finding one by name, or tagging with a word that isn't in the
+/// list at all. Picking from a list suits a goal; something nobody planned for has no entry
+/// to pick.
+enum CategoryWord {
+    /// What a tag can have in it, besides letters and digits.
+    private static let symbols = " -'&#+"
+
+    static func canType(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || symbols.contains(character)
+    }
+
+    /// Keys that continue an entry without being able to start one, by their `KeyCombo` names.
+    static func joins(_ key: String) -> Bool {
+        if key == "space" { return true }
+        guard key.count == 1, let character = key.first else { return false }
+        return canType(character) && !character.isLetter && !character.isNumber
+    }
+
+    /// Digits point at a position in the section, until they can't: "3p" is a word, and so
+    /// is a "3" with no third category on screen, or `3pt` couldn't be reached from a short
+    /// section.
+    static func isWord(_ entry: String, positions: [Int]) -> Bool {
+        guard !entry.isEmpty else { return false }
+        guard entry.allSatisfy(\.isNumber) else { return true }
+        return !positions.contains { String($0).hasPrefix(entry) }
+    }
+
+    /// What gets filed: tidied, with a capital because letters arrive from the keyboard in
+    /// lowercase. Only the first, so `3pt` and `BTS` survive.
+    static func clean(_ entry: String) -> String {
+        let words = entry.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
+    /// Every match from every section, best first, then the word itself unless it's already
+    /// there. Last, so Return on `go` means Goal and the new word costs one ↓. An existing
+    /// spelling beats what was typed, or `dunk` and `Dunk` become two tags.
+    static func items(for entry: String, in pool: [String]) -> [String] {
+        let word = clean(entry)
+        guard !word.isEmpty else { return [] }
+        func same(_ name: String) -> Bool { name.caseInsensitiveCompare(word) == .orderedSame }
+        let needle = word.lowercased()
+        let exact = pool.filter(same)
+        let starts = pool.filter { !same($0) && $0.lowercased().hasPrefix(needle) }
+        let inside = pool.filter {
+            !same($0) && !$0.lowercased().hasPrefix(needle) && $0.lowercased().contains(needle)
+        }
+        return exact + starts + inside + (exact.isEmpty ? [word] : [])
     }
 }
 
@@ -272,14 +343,18 @@ extension AppState {
 
     func focusLabel(for team: Team) -> String { Self.shortName(team) }
 
-    /// The sections ← → step between: the real ones, then the one-offs if there are any.
+    /// The sections ← → step between: the real ones, then the one-offs if there are any,
+    /// the ones you keep coming back to first.
     ///
     /// Recents are a section rather than a tail on the last one, so a list you curated never
     /// quietly fills with words you typed once.
     var categorySections: [CategorySection] {
-        let real = library.categorySections
-        guard !library.recentCategories.isEmpty else { return real }
-        return real + [CategorySection(name: "Recent", items: library.recentCategories)]
+        var sections = library.categorySections
+        let mostUsed = library.mostUsedCategories
+        if !mostUsed.isEmpty { sections.append(.mostUsed(mostUsed)) }
+        let recent = library.recentOnly
+        if !recent.isEmpty { sections.append(CategorySection(name: "Recent", items: recent)) }
+        return sections
     }
 
     /// The section the cursor is in, clamped — sections can be removed while the flow sits
@@ -291,7 +366,7 @@ extension AppState {
     }
 
     /// What the grid draws and the cursor walks: one section at a time, narrowed by any
-    /// digits typed.
+    /// digits typed, or every section's matches for a word.
     var flowCategories: [String] { flowCategoryItems.map(\.name) }
 
     /// The current section's categories with their positions attached.
@@ -310,7 +385,16 @@ extension AppState {
     /// Return" land on the first category whatever else starts with a 1.
     var flowCategoryItems: [FlowCategory] {
         guard !categoryEntry.isEmpty else { return sectionCategories }
+        if isTypingCategory {
+            return CategoryWord.items(for: categoryEntry, in: library.allCategories)
+                .enumerated().map { FlowCategory(number: $0.offset + 1, name: $0.element) }
+        }
         return sectionCategories.filter { String($0.number).hasPrefix(categoryEntry) }
+    }
+
+    /// Whether `categoryEntry` is a word rather than a position. See `CategoryWord.isWord`.
+    var isTypingCategory: Bool {
+        CategoryWord.isWord(categoryEntry, positions: sectionCategories.map(\.number))
     }
 
     /// ← → at the category stage, mirroring what they do between benches.
@@ -535,10 +619,7 @@ extension AppState {
                 status = "Pick a clip first."
                 return
             }
-            guard !flowCategories.isEmpty else {
-                status = "No categories left to choose from."
-                return
-            }
+            // No guard on the list being empty: you can type one now.
             numberEntry = ""
             categoryEntry = ""
             subjectsOnly = false
@@ -556,7 +637,10 @@ extension AppState {
             // Works from here too, not just at the player step. This is the resting
             // position, so it's where the key gets reached for.
             cycleFocus(forward: key == "right")
-        default:       break
+        default:
+            // Straight to the categories with nobody armed: the things that need a typed
+            // word are usually the ones with no player in them.
+            if Shortcuts.shared.isBound(key, to: .quickTag) { go(to: .categories) }
         }
     }
 
@@ -684,6 +768,12 @@ extension AppState {
 
         switch key {
         case "escape":
+            // A word goes first, so a typo doesn't also cost you the step you were on.
+            if !categoryEntry.isEmpty {
+                categoryEntry = ""
+                categoryCursor = 0
+                return
+            }
             // Back a step, keeping whoever was picked, so a wrong category is one key to fix.
             go(to: .players)
         case "tab":
@@ -698,6 +788,13 @@ extension AppState {
             // Between sections, exactly as they move between benches a stage earlier. They
             // used to duplicate ↑ ↓, which left the app using the same keys for two
             // different jobs depending on which stage you were in.
+            //
+            // Not while typing: a word searches every section, and switching would throw it
+            // away.
+            guard !isTypingCategory else {
+                status = "Typing searches every section. Esc clears the word."
+                return
+            }
             cycleCategorySection(forward: key == "right")
         case "return":
             // Return files it and moves on; ⇧Return files it and comes back to the players
@@ -710,39 +807,27 @@ extension AppState {
             categoryEntry.removeLast()
             categoryCursor = 0
         default:
-            guard let character = key.first else { return }
-            if character.isNumber {
-                // Narrows by position rather than jumping, so it behaves like the bench and
-                // copes with a section holding more than nine categories.
-                let attempt = categoryEntry + key
-                guard sectionCategories.contains(where: { String($0.number).hasPrefix(attempt) })
-                else {
-                    status = "No \(attempt) in \(currentCategorySection?.name ?? "this section")."
-                    return
-                }
-                categoryEntry = attempt
-                categoryCursor = 0
-            } else if character.isLetter {
-                jumpCategory(startingWith: character)
+            // "space" has to be turned back into one: its first letter would otherwise be
+            // typed as an s. A shifted key arrives as its character — see `FlowKeyState.sent`.
+            let typed = key == "space" ? " " : key
+            guard typed.count == 1, let character = typed.first else { return }
+            guard CategoryWord.canType(character) else {
+                status = "\(typed) can't go in a tag."
+                return
             }
-        }
-    }
-
-    /// First letter jumps, and pressing it again moves to the next match — so S goes Save,
-    /// then Shot, then back to Save.
-    private func jumpCategory(startingWith character: Character) {
-        let categories = flowCategories
-        guard !categories.isEmpty else { return }
-        let wanted = String(character).lowercased()
-
-        let matches = categories.indices.filter {
-            categories[$0].lowercased().hasPrefix(wanted)
-        }
-        guard !matches.isEmpty else { return }
-        if let after = matches.first(where: { $0 > categoryCursor }) {
-            categoryCursor = after
-        } else {
-            categoryCursor = matches[0]
+            let attempt = categoryEntry + typed
+            // Digits narrow by position, so it behaves like the bench and copes with a section
+            // holding more than nine categories. Ones that fit nothing are refused, so a fat
+            // finger can't file "47" — unless a word starts that way, which is how `3pt` is
+            // found from a section too short to have a third.
+            if attempt.allSatisfy(\.isNumber),
+               CategoryWord.isWord(attempt, positions: sectionCategories.map(\.number)),
+               !library.allCategories.contains(where: { $0.hasPrefix(attempt) }) {
+                status = "No \(attempt) in \(currentCategorySection?.name ?? "this section")."
+                return
+            }
+            categoryEntry = attempt
+            categoryCursor = 0
         }
     }
 
@@ -809,7 +894,8 @@ extension AppState {
     var flowPrompt: String {
         switch tagStage {
         case .clips:
-            return "↑ ↓ clips · Return to the roster · Tab moves between sections"
+            return "↑ ↓ clips · Return to the roster · "
+                + "\(Shortcuts.shared.display(.quickTag)) tags with no player"
         case .players:
             let bench = activeTeams.count > 1 ? " · ← → bench" : ""
             guard !numberEntry.isEmpty else {
@@ -822,7 +908,11 @@ extension AppState {
             // Names the target, because Tab can now reach here without a player and a
             // tag with nobody against it would otherwise look identical.
             let who = flowPlayer.map { $0.label } ?? "this clip, no player"
-            return "↑ ↓ or first letter · Return tags \(who) · ⇧Return keeps this clip"
+            if !categoryEntry.isEmpty, let category = cursorCategory {
+                let new = library.allCategories.contains(category) ? "" : "New tag: "
+                return "\(new)\(category) · Return tags \(who) · Space types a space"
+            }
+            return "Type a tag, or ↑ ↓ · Return tags \(who) · ⇧Return keeps this clip"
         }
     }
 }

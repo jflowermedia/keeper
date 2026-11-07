@@ -4,7 +4,7 @@
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 1.0.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 1.1.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a goal celebration playing in the middle, and the tagging panel on the right with a roster and numbered categories](docs/keeper.png)
 
@@ -23,7 +23,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 - **Tags clips** to players, subjects (mascot, crowd, anthem) and categories (Goal, Save, or your own). Several tags per clip.
 - **Rosters** by CSV import, NHL download, or typed in.
 - **Keyboard tagging**: clip, shirt number, category, done, with no mouse.
-- **Filters** by team, player, position and category.
+- **Filters** by team, player, position, category and subject.
 - **Renames** to your own filename presets, one per client.
 - **Exports** to one folder, a folder per player or per category, or splits picks and unpicked into two folders.
 - **Checks copies** against the card by the camera's clip ID, so renamed copies still match.
@@ -123,7 +123,7 @@ To change a flag:
 
 ## Rosters
 
-Import a CSV with ⌘I. Only `number` and `name` are required:
+Import a CSV with ⌘I. Pick several at once if you like. Only `number` and `name` are required:
 
 ```csv
 league,team,code,number,name,position
@@ -134,13 +134,15 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
 - `league` groups teams in the menus.
 - Without a `team` column, the filename is the team name.
 
-**File → Download a Roster…** imports NHL teams. Importing a team you already have shows the changes and lets you **Merge**, **Replace** or **Skip**.
+Before anything is written, Keeper shows which columns it read from each file and the code each team will get. A team you already have whose players, code, league or name differ is held for you to choose: **Merge** keeps yours and adds new players, **Replace** uses the file, **Skip** leaves it alone. So a `code` column can't quietly undo a code you changed in the roster editor.
+
+**File → Download a Roster…** imports NHL teams, with the same review for teams you already have.
 
 ![The Download a Roster sheet: a league menu set to NHL and a list of teams with tick boxes and Select All](docs/roster_download.png)
 
 **⇧⌘R** edits rosters. Player numbers must be unique within a team, and team names must be unique. Removed players keep their tags, marked **Not on roster**.
 
-**Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams.
+**Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams. A clip row shows the subject with its tag, like `Mascot · Goal`, where a player shows `17 · Goal`. Hover over a tag for the full name and team. The **Any subject** menu in the filter bar finds them. A subject you've removed stays in that menu while clips still carry it.
 
 ## Tagging
 
@@ -149,6 +151,7 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
 - **Both teams** puts two rosters from the same league in play. ← → switch between them.
 - Categories are grouped in sections. **+** adds one; right-click to move or remove.
 - **+** by the categories adds a one-off tag. One-offs collect under **Recent**.
+- A one-off with 10 or more tags moves up to **Most Used**. Right-click to keep it in a section or forget it.
 - **Move On After Tagging** (View menu) goes to the next clip after each tag.
 
 ### Keyboard tagging
@@ -160,14 +163,17 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
 Return     on to the roster
 17         type the shirt number
 Return     on to the categories
-G          jump to Goal (or type its number)
+go         type to find Goal (or type its number)
 Return     tag it and move to the next clip
 ```
 
 - **⇧Return** tags and stays on the clip, for a second player.
 - **Tab** / **⇧Tab** move between clips, roster and categories.
 - **Escape** goes back a step.
-- **O** marks OK at the clip step only. At the categories it jumps to a category.
+- **O** marks OK at the clip step only. At the categories it's a letter like any other.
+- **T** at the clip step goes straight to the categories, for a tag with no player.
+
+Typing at the categories searches every section. If nothing matches, Return tags the clip with your word. If something does, ↓ reaches your exact word at the end of the list. A **Typing** bar replaces the section pills while you do, and Space adds a space instead of playing the clip. Escape clears the word, and Space plays again.
 
 ## Exporting
 

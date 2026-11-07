@@ -252,17 +252,24 @@ enum WelcomeTour {
         Step(title: "Load your roster",
              body: "File → Download a Roster… fetches today's numbers for a league — the NHL, "
                  + "for now.\n\n"
-                 + "Any other league: import a CSV with a number and a name per player.\n\n"
-                 + "Already have the team? Keeper shows what's changed and asks before it "
-                 + "touches your roster.",
+                 + "Any other league: import a CSV with a number and a name per player — "
+                 + "several files at once if you like. Keeper shows what it read from each "
+                 + "before anything is written.\n\n"
+                 + "Already have the team? Keeper shows what's changed, its code included, "
+                 + "and asks before it touches your roster.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 
         Step(title: "Tag your clips",
              body: "Pick a clip, then a player and a category in the panel on the right. "
-                 + "Shooting a game? Tick Both teams and add the other bench.\n\n"
+                 + "Shooting a game? Tick Both teams and add the other bench. The mascot, the "
+                 + "crowd and anything else off the roster are on the Subjects pill.\n\n"
+                 + "Each clip then shows who and what, like 17 · Goal or Mascot · Goal. Hover over "
+                 + "one for the full name and team. The filter bar finds them again by player "
+                 + "or subject.\n\n"
                  + "To skip the mouse: Tab moves between the list, the bench and the "
-                 + "categories, and typing a shirt number jumps to that player.",
+                 + "categories, and typing a shirt number jumps to that player. At the "
+                 + "categories, type a word to find a tag, or to add one nobody planned for.",
              key: .keyboardFlow),
 
         Step(title: "Export",

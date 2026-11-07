@@ -176,7 +176,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
     // Keyboard tagging only, and only at one step of it. Its own group because a key that
     // works in one place and nowhere else needs saying, and because being outside `.review`
     // keeps it away from the transport keys entirely.
-    case subjectsOnly
+    case subjectsOnly, quickTag
 
     var id: String { rawValue }
 
@@ -187,7 +187,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .playPause, .shuttleBack, .shuttleForward, .previousClip, .nextClip, .clearTags,
              .toggleOK:
             return .review
-        case .subjectsOnly:
+        case .subjectsOnly, .quickTag:
             return .flow
         default:
             return .menu
@@ -218,6 +218,7 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .debugLog:        return "Debug log"
         case .clearTags:       return "Clear tags on selected clips"
         case .subjectsOnly:    return "Subjects pill"
+        case .quickTag:        return "Tag with no player"
         }
     }
 
@@ -272,7 +273,8 @@ final class Shortcuts: ObservableObject {
         // The key left of 1 on a British keyboard. A US layout has ` there instead, which
         // is why this one is worth rebinding rather than assuming — and why it's bindable
         // at all rather than hard-coded.
-        .subjectsOnly:   [KeyCombo(key: "§")]
+        .subjectsOnly:   [KeyCombo(key: "§")],
+        .quickTag:       [KeyCombo(key: "t")]
     ]
 
     /// Defaults a later version moved. Up to 0.9.4 every binding was saved, changed or not,

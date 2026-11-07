@@ -49,10 +49,10 @@ struct TagPanel: View {
         Set(currentTags.map(\.category))
     }
 
-    /// Players already tagged on the clip in the viewer. `Tag.playerID` is built the same way
-    /// as `Player.id`, so the two compare directly.
+    /// Players and subjects already tagged on the clip in the viewer. `Tag.benchID` is built
+    /// the same way as `Player.id`, so the two compare directly.
     private var playersOnClip: Set<String> {
-        Set(currentTags.compactMap(\.playerID))
+        Set(currentTags.compactMap(\.benchID))
     }
 
     /// Accent means "picked, about to be tagged". Green means "already on this clip". Picking
@@ -532,6 +532,8 @@ struct TagPanel: View {
                     Button("Remove \"\(player.name)\"", role: .destructive) {
                         selectedPlayerIDs.remove(player.id)
                         library.removeSubject(player.name)
+                        // Untagged, it leaves the filter menu too.
+                        state.dropDanglingFilters()
                     }
                 }
             }
@@ -619,7 +621,9 @@ struct TagPanel: View {
                 ForEach(Array(state.flowCategoryItems.enumerated()), id: \.element.id) { index, item in
                     let category = item.name
                     let applied = onThisClip.contains(category)
-                    let oneOff = library.recentCategories.contains(category)
+                    // The word being typed, before it's a tag: nothing yet to keep or forget.
+                    let isNew = !library.allCategories.contains(category)
+                    let oneOff = isNew || library.isOneOff(category)
                     Button { tag(with: category) } label: {
                         TagChip(tint: applied ? Color.green : nil, alignment: .center) {
                             HStack(spacing: 4) {
@@ -630,7 +634,12 @@ struct TagPanel: View {
                                 // Only while the keyboard flow is on. A positional number
                                 // is a way of typing at a chip, so it's clutter to anyone
                                 // reaching for the mouse.
-                                if state.keyboardFlow {
+                                //
+                                // Not against a word, where a digit types rather than points.
+                                if isNew {
+                                    Image(systemName: "plus")
+                                        .font(.caption2.weight(.bold))
+                                } else if state.keyboardFlow && !state.isTypingCategory {
                                     Text("\(item.number)")
                                         .font(.caption2.weight(.bold).monospacedDigit())
                                         .foregroundStyle(.secondary)
@@ -656,9 +665,13 @@ struct TagPanel: View {
                     .help(applied
                           ? "\(category) is already on this clip. Clicking again adds it for "
                             + "whoever you've got selected."
-                          : "Tag this clip as \(category)")
+                          : isNew
+                            ? "Tag this clip as \(category), a new word that goes in Recent"
+                            : "Tag this clip as \(category)")
                     .contextMenu {
-                        if oneOff {
+                        if isNew {
+                            EmptyView()
+                        } else if oneOff {
                             Menu("Keep \"\(category)\" in") {
                                 ForEach(library.categorySections) { target in
                                     Button(target.name) {
@@ -714,7 +727,13 @@ struct TagPanel: View {
     private var sectionPills: some View {
         let sections = state.categorySections
         return VStack(alignment: .leading, spacing: 6) {
-            pillRow(sections)
+            // In the pills' place rather than beside them: Space has stopped being play, which
+            // needs saying louder than a small chip, and a word searches every section anyway.
+            if state.categoryEntry.isEmpty {
+                pillRow(sections)
+            } else {
+                typingBar
+            }
             // Its own row rather than an overlay. As an overlay it floated down across the
             // first line of chips, covering the categories you were about to look at.
             if addingSection {
@@ -729,6 +748,30 @@ struct TagPanel: View {
                 }
             }
         }
+    }
+
+    private var typingBar: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "keyboard")
+            Text("Typing").fontWeight(.bold)
+            // The caret also shows a trailing space, which would otherwise look like Space
+            // had done nothing.
+            Text(state.categoryEntry + "▏")
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .truncationMode(.head)
+            Spacer(minLength: 4)
+            Text("Esc to stop")
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        .font(.caption2)
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Color.accentColor.opacity(0.16))
+        .clipShape(Capsule())
+        .help("Space and letters are going into the tag. Esc clears it, and Space plays again.")
     }
 
     private func pillRow(_ sections: [CategorySection]) -> some View {
@@ -752,12 +795,14 @@ struct TagPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help(section.id == CategorySection.reservedID
-                      ? "Words you've used once. The last \(TagLibrary.recentLimit) are kept."
-                      : "\(section.items.count) categor\(section.items.count == 1 ? "y" : "ies")")
+                      ? "Words you've typed. The last \(TagLibrary.recentLimit) are kept."
+                      : section.id == CategorySection.mostUsedID
+                        ? "Typed words with \(TagLibrary.mostUsedThreshold) or more tags."
+                        : "\(section.items.count) categor\(section.items.count == 1 ? "y" : "ies")")
                 .contextMenu {
                     // Recent isn't a real section — it's a view of the one-offs — so it has
-                    // nothing to rename, reorder or delete.
-                    if section.id != CategorySection.reservedID {
+                    // nothing to rename, reorder or delete. Nor has Most Used.
+                    if !CategorySection.isReserved(section.id) {
                         // The index follows the section. Without this, moving the one
                         // you're looking at leaves you looking at whatever took its place.
                         Button("Move Left") { moveSection(section.id, by: -1) }
@@ -790,16 +835,7 @@ struct TagPanel: View {
 
             Spacer(minLength: 0)
 
-            if !state.categoryEntry.isEmpty {
-                Text(state.categoryEntry)
-                    .font(.caption2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.16))
-                    .clipShape(Capsule())
-                    .help("Showing categories starting \(state.categoryEntry) · ⌫ to go back")
-            } else if state.keyboardFlow && sections.count > 1 {
+            if state.keyboardFlow && sections.count > 1 {
                 Text("← →")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -828,8 +864,8 @@ struct TagPanel: View {
         guard library.categorySections.count > before,
               let index = library.categorySections.firstIndex(where: { $0.id == wanted })
         else {
-            state.status = wanted == CategorySection.reservedID
-                ? "\"Recent\" is kept for the one-off tags — pick another name."
+            state.status = CategorySection.isReserved(wanted)
+                ? "\"\(clean)\" is kept for the one-off tags — pick another name."
                 : wanted.isEmpty
                     ? "A section needs a name with letters or numbers in it."
                     : "There's already a section called \"\(clean)\"."
@@ -975,6 +1011,8 @@ struct TagPanel: View {
                                      // The bench on screen — see the note in `applyFlowTag`.
                                      fallbackTeam: state.shownTeams.first,
                                      category: category)
+        // A click on a match ends the typing as surely as Return does.
+        state.categoryEntry = ""
 
         if chosen.isEmpty {
             state.status = result.clipTag
@@ -1066,13 +1104,14 @@ struct TagChips: View {
         if !tags.isEmpty {
             HStack(spacing: 4) {
                 ForEach(tags.prefix(3)) { tag in
-                    Text(chipText(tag))
+                    Text(tag.chipText)
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.22))
                         .clipShape(Capsule())
                         .lineLimit(1)
+                        .help(tag.chipDetail)
                 }
                 if tags.count > 3 {
                     Text("+\(tags.count - 3)")
@@ -1081,12 +1120,5 @@ struct TagChips: View {
                 }
             }
         }
-    }
-
-    private func chipText(_ tag: Tag) -> String {
-        if let number = tag.playerNumber, !number.isEmpty {
-            return "\(number) · \(tag.category)"
-        }
-        return tag.category
     }
 }

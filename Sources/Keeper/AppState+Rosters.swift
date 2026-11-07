@@ -3,6 +3,34 @@ import AppKit
 // Roster downloads, the review of a re-import, and the CSV import that shares it.
 // Split out of AppState.swift; the stored state these read stays on the class.
 
+/// What one chosen file turned out to hold, shown before anything is written.
+struct RosterFileReport: Identifiable {
+    let id = UUID()
+    let file: String
+    var layout: TagLibrary.RosterLayout?
+    var teams: [String] = []
+    /// Why some or all of this file isn't going in.
+    var problem: String?
+}
+
+/// An import held for you to look at. A download writes its new teams straight away and
+/// only holds the ones you have, so `files`, `new` and `unchanged` are empty for it.
+struct RosterImportReview {
+    var files: [RosterFileReport] = []
+    var new: [TagLibrary.IncomingTeam] = []
+    var unchanged: [TagLibrary.RosterConflict] = []
+    var conflicts: [TagLibrary.RosterConflict] = []
+
+    var fromFiles: Bool { !files.isEmpty }
+    /// New and unchanged teams aren't in the modes, so they go in as Replace, which for them
+    /// only adds or fills blanks. One that's identical stays out: writing it reports an import
+    /// that changed nothing, and moves the benches onto it.
+    var toWrite: [TagLibrary.IncomingTeam] {
+        new + unchanged.filter { !$0.changesNothing }.map(\.incoming) + conflicts.map(\.incoming)
+    }
+    var writesAnything: Bool { !toWrite.isEmpty }
+}
+
 extension AppState {
 
     func previewRoster(_ team: LeagueTeam) {
@@ -120,9 +148,9 @@ extension AppState {
     /// Writes what needs no asking — teams you don't have, and ones that come in identical —
     /// and holds the rest for review. Returns what to tell you.
     func stageImport(_ incoming: [TagLibrary.IncomingTeam], fromDownload: Bool) -> String {
-        let conflicts = library.conflicts(in: incoming)
-        let held = Set(conflicts.map(\.id))
-        let straight = incoming.filter { !held.contains($0.slug) }
+        let sorted = TagLibrary.sortImport(incoming, against: library.teams)
+        let straight = RosterImportReview(new: sorted.new, unchanged: sorted.unchanged).toWrite
+        let conflicts = sorted.conflicts
 
         var parts: [String] = []
         if !straight.isEmpty {
@@ -136,31 +164,100 @@ extension AppState {
         if !conflicts.isEmpty {
             rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
             rosterReviewFromDownload = fromDownload
-            rosterReview = conflicts
+            rosterReview = RosterImportReview(conflicts: conflicts)
             parts.append(conflicts.count == 1
                 ? "\(conflicts[0].existingName) is already here and has changed — choose what to do."
                 : "\(conflicts.count) teams you already have have changed — choose what to do.")
         }
+        if parts.isEmpty, !sorted.unchanged.isEmpty {
+            parts.append("Already up to date. Nothing changed.")
+        }
         return parts.joined(separator: " ")
     }
 
-    /// Apply or Skip All in the review. Anything not applied leaves your roster untouched.
+    /// Reads every chosen file and holds the lot for review, written or not. A file's
+    /// columns are where a code comes from, and a code arriving unseen from a column you'd
+    /// forgotten was there is the bug this exists for — so even a plain import of a brand
+    /// new team shows what was read before it's written.
+    func reviewRosterFiles(_ urls: [URL]) {
+        var files: [RosterFileReport] = []
+        // By position, not by name: two files called roster.csv from different folders are
+        // still two files.
+        var parsed: [(index: Int, teams: [TagLibrary.IncomingTeam])] = []
+
+        for url in urls {
+            var report = RosterFileReport(file: url.lastPathComponent)
+            guard let text = CSV.readText(url) else {
+                report.problem = TagLibrary.ImportError.unreadable.localizedDescription
+                files.append(report)
+                continue
+            }
+            report.layout = TagLibrary.rosterLayout(TagLibrary.rosterRows(text))
+            do {
+                let teams = try TagLibrary.parseRoster(
+                    csv: text, fallbackTeam: url.deletingPathExtension().lastPathComponent)
+                report.teams = teams.map(\.name)
+                parsed.append((files.count, teams))
+            } catch {
+                report.problem = error.localizedDescription
+            }
+            files.append(report)
+        }
+
+        let repeated = TagLibrary.repeatedTeams(parsed.map { (files[$0.index].file, $0.teams) },
+                                                against: library.teams)
+        var incoming: [TagLibrary.IncomingTeam] = []
+        for (index, teams) in parsed {
+            var notes: [String] = []
+            for team in teams {
+                guard let places = repeated[TagLibrary.importKey(team, against: library.teams)] else {
+                    incoming.append(team)
+                    continue
+                }
+                let listed = Array(Set(places)).sorted().joined(separator: ", ")
+                notes.append("\(team.name) is in more than one file (\(listed)), so it was left out.")
+            }
+            if !notes.isEmpty {
+                files[index].problem = (notes + ["Import those files one at a time."])
+                    .joined(separator: " ")
+            }
+        }
+
+        let sorted = TagLibrary.sortImport(incoming, against: library.teams)
+        rosterReviewModes = Dictionary(uniqueKeysWithValues: sorted.conflicts.map { ($0.id, .merge) })
+        rosterReviewFromDownload = false
+        rosterReview = RosterImportReview(files: files,
+                                          new: sorted.new,
+                                          unchanged: sorted.unchanged,
+                                          conflicts: sorted.conflicts)
+        status = "Check the import — nothing has changed yet."
+    }
+
+    /// Import or Cancel in the review. Anything not applied leaves your roster untouched.
     func finishRosterReview(apply: Bool) {
-        guard let conflicts = rosterReview else { return }
+        guard let review = rosterReview else { return }
         rosterReview = nil
-        guard apply else {
-            status = "Kept your rosters as they were."
+        guard apply, review.writesAnything else {
+            status = review.fromFiles ? "Nothing was imported." : "Kept your rosters as they were."
             rosterDownloadNote = status
+            if review.fromFiles { importMessage = status }
             return
         }
-        let result = library.applyImport(conflicts.map(\.incoming), modes: rosterReviewModes)
-        let skipped = conflicts.filter { rosterReviewModes[$0.id] == .skip }.count
-        var note = result.teamIDs.isEmpty
-            ? "Kept your rosters as they were."
-            : "Updated \(result.team)."
+        let result = library.applyImport(review.toWrite, modes: rosterReviewModes)
+        let skipped = review.conflicts.filter { rosterReviewModes[$0.id] == .skip }.count
+        var note: String
+        if result.teamIDs.isEmpty {
+            note = "Kept your rosters as they were."
+        } else if review.fromFiles {
+            note = "Imported \(result.team), \(result.players) players."
+            if result.tagsUpdated > 0 { note += " Updated \(result.tagsUpdated) existing tag(s)." }
+        } else {
+            note = "Updated \(result.team)."
+        }
         if skipped > 0, !result.teamIDs.isEmpty { note += " Left \(skipped) as they were." }
         status = note
         rosterDownloadNote = note
+        if review.fromFiles { importMessage = note }
         addLog(note)
         adoptImported(result.teamIDs)
         dropDanglingFilters()
@@ -227,6 +324,9 @@ extension AppState {
         if let category = filterCategory, !library.allCategories.contains(category) {
             filterCategory = nil
         }
+        if let subject = filterSubject, !library.filterableSubjects.contains(subject) {
+            filterSubject = nil
+        }
     }
 
     func importRoster() {
@@ -237,19 +337,10 @@ extension AppState {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [.commaSeparatedText, .plainText, .text]
-        panel.message = "Choose a roster CSV: team, number, name"
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose one or more roster CSVs: team, number, name"
         panel.prompt = "Import"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            guard let text = CSV.readText(url) else { throw TagLibrary.ImportError.unreadable }
-            let incoming = try TagLibrary.parseRoster(
-                csv: text, fallbackTeam: url.deletingPathExtension().lastPathComponent)
-            let note = stageImport(incoming, fromDownload: false)
-            importMessage = note
-            status = note
-        } catch {
-            importMessage = error.localizedDescription
-            status = "Roster import failed: \(error.localizedDescription)"
-        }
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        reviewRosterFiles(panel.urls)
     }
 }
