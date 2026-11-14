@@ -500,6 +500,13 @@ enum ClipFlag: String, CaseIterable {
     /// the one definition of a pick, so the list, the counts and the export split agree.
     var isPick: Bool { self != .ng }
 
+    /// What the KEEP key leaves a clip as. Any pick goes back to unpicked rather than
+    /// trading OK for KEEP: the key reads as "this one / not this one", and turning an OK
+    /// into a KEEP when you meant to drop it meant pressing it twice.
+    static func afterKeepKey(_ current: ClipFlag?) -> ClipFlag? {
+        current?.isPick == true ? nil : .keep
+    }
+
     /// What goes into the sidecar. KEEP is whatever word the scanner is set to look for, so
     /// a copy flagged here reads back as KEEP; OK and NG are Sony's own and don't vary.
     func word(keepWord: String) -> String {

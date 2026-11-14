@@ -294,7 +294,17 @@ struct TagPanel: View {
 
             // The typed number lives here, beside the bench it's filtering, because
             // this is where you're looking while you type it.
-            if !state.numberEntry.isEmpty {
+            if !state.nameEntry.isEmpty {
+                Text(state.nameEntry + "▏")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.16))
+                    .clipShape(Capsule())
+                    .help("Showing names with a word starting \u{201C}\(state.nameEntry)\u{201D}"
+                          + " · ⌫ to go back · Esc clears")
+            } else if !state.numberEntry.isEmpty {
                 Text("#\(state.numberEntry)")
                     .font(.caption2.weight(.bold).monospacedDigit())
                     .foregroundStyle(Color.accentColor)
@@ -456,7 +466,9 @@ struct TagPanel: View {
                     // with nobody in it. The first can't normally happen — a digit that
                     // would empty the grid is refused — but a roster edit underneath can
                     // do it, and "wears #." would be nonsense for the second.
-                    Text(state.subjectsOnly
+                    Text(!state.nameEntry.isEmpty
+                         ? "Nobody here matches \u{201C}\(state.nameEntry)\u{201D}."
+                         : state.subjectsOnly
                          ? "No subjects yet. + Subject adds one."
                          : state.numberEntry.isEmpty
                          ? "This roster has no players yet. ⌘⇧R to add some."

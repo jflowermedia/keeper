@@ -229,6 +229,7 @@ final class AppState: ObservableObject {
             // The cursor indexes the grid, and the grid just changed length.
             playerCursor = 0
             numberEntry = ""
+            nameEntry = ""
             categoryEntry = ""
             subjectsOnly = false
         }
@@ -270,6 +271,15 @@ final class AppState: ObservableObject {
     /// Digits typed at the player stage, shown on screen so a half-typed number is never
     /// a mystery.
     @Published var numberEntry = ""
+    /// Letters typed at the player stage, narrowing whichever pill is showing by name. Kept
+    /// apart from `numberEntry` rather than sharing it: a number matches the team bench even
+    /// from the Subjects pill, a name only ever matches what's on screen.
+    @Published var nameEntry = "" {
+        didSet {
+            FlowKeyState.shared.typingName = !nameEntry.isEmpty
+            if nameEntry != oldValue { playerCursor = 0 }
+        }
+    }
     /// Digits typed at the category stage, narrowing the grid by position the way
     /// `numberEntry` narrows the bench by shirt number.
     @Published var categoryEntry = "" {
@@ -284,7 +294,11 @@ final class AppState: ObservableObject {
     /// of their own beside the teams. Reached by the pill, by ← → past the last team, or by
     /// the key bound to `.subjectsOnly`. The team pills stay as they were underneath, which is
     /// what a subject's tag records as its team.
-    @Published var subjectsOnly = false
+    @Published var subjectsOnly = false {
+        // A name was matched against the pill it was typed on. Carried to the other one it
+        // would empty the grid, or worse, narrow it to someone you never searched for.
+        didSet { if subjectsOnly != oldValue { nameEntry = "" } }
+    }
 
     /// Whether the subjects key is held down rather than pressed to toggle. Off by default:
     /// a toggle is the gentler of the two, and a hold is only better once you know the key
@@ -682,7 +696,10 @@ final class AppState: ObservableObject {
         }
         // Only moves on if the flag actually changed. A clip with no UMID can't be marked,
         // and advancing anyway would walk silently past it.
-        guard toggle(flag, on: clip) else { return }
+        let changed = flag == .keep
+            ? set(ClipFlag.afterKeepKey(self.flag(clip)), on: clip)
+            : toggle(flag, on: clip)
+        guard changed else { return }
         if advanceAfterMark { advanceAfterAction() }
     }
 

@@ -412,6 +412,19 @@ struct ContentView: View {
     // MARK: List
 
     private var clipList: some View {
+        // The same guard as `PreviewPane`. A rescan empties the list, so this flips to the
+        // welcome and back — after every in-place rename, which rescans to pick up the new
+        // names — and without a full-size layer underneath, the split re-measured the pane
+        // across the flip and left it at its minimum.
+        ZStack {
+            Color.clear
+            clipListContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var clipListContent: some View {
         Group {
             if state.visible.isEmpty {
                 if state.clips.isEmpty {
@@ -1079,7 +1092,8 @@ final class Playback: ObservableObject {
             // while you tag.
             let flow = FlowKeyState.shared
             if flow.active, FlowKeyState.claims(key, stage: flow.stage, shift: shift,
-                                                typingEntry: flow.typingEntry) {
+                                                typingEntry: flow.typingEntry,
+                                                typingName: flow.typingName) {
                 let sent = FlowKeyState.sent(key, characters: event.characters,
                                              stage: flow.stage, shift: shift)
                 Playback.shared.sendFlowKey(sent, shift: shift)

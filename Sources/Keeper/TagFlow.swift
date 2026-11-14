@@ -35,6 +35,9 @@ final class FlowKeyState {
     /// Something has been typed at the categories. Mirrored because Space only stops being
     /// play once it has, and the monitor has to know that before it hands the key over.
     var typingEntry = false
+    /// A name has been typed at the bench. Same reason: Space and a hyphen only join a name
+    /// once one has begun.
+    var typingName = false
 
     private init() {
         // The toggle is stored, so the monitor has to start out agreeing with it — the
@@ -47,11 +50,14 @@ final class FlowKeyState {
     /// claim falls through to the ordinary review keys, which is what keeps Space playing
     /// the clip while you tag.
     static func claims(_ key: String, stage: TagStage, shift: Bool,
-                       typingEntry: Bool = false) -> Bool {
+                       typingEntry: Bool = false, typingName: Bool = false) -> Bool {
         // Every key, once something's been typed, so Space still plays the clip until then.
         // A digit counts: it's how `2 on 1` starts. Every key because what isn't claimed goes
         // on to the review keys, and the `/` in `W/L` is Clear Tags.
         if typingEntry, stage == .categories, key == "space" || key.count == 1 { return true }
+        // The bench's version: `Isabella J` has a space in it, but a name can't start with
+        // one, so Space plays until a letter has been typed.
+        if typingName, stage == .players, key == "space" || key.count == 1 { return true }
 
         // ⇧↑ and ⇧↓ extend the clip selection — that's the list's own gesture, and the one
         // you use to pick a range before exporting. Taking it collapsed the selection to a
@@ -93,9 +99,11 @@ final class FlowKeyState {
                 //
                 // The OK key is claimed too, though the bench has no use for it. Left out, it
                 // fell through to the review keys and marked the clip OK while you were
-                // picking a player. Only that key: a play key you've moved onto a letter
-                // still works here, the way Space does.
-                return character.isNumber
+                // picking a player.
+                //
+                // Letters search the bench by name, so a review key moved onto a letter
+                // types here rather than firing — the same trade the categories make.
+                return character.isNumber || character.isLetter
                     || Shortcuts.shared.isBound(key, to: .subjectsOnly)
                     || Shortcuts.shared.isBound(key, to: .toggleOK)
             case .categories: return character.isLetter || character.isNumber
@@ -158,6 +166,35 @@ enum CategoryWord {
             !same($0) && !$0.lowercased().hasPrefix(needle) && $0.lowercased().contains(needle)
         }
         return exact + starts + inside + (exact.isEmpty ? [word] : [])
+    }
+}
+
+/// Typing a name at the bench. Every word of the name is a way in, because the one you
+/// remember off the back of a shirt is the surname and the one on a subject is its only one.
+enum NameSearch {
+    /// What can go in a name after its first letter. The first is always a letter: a name
+    /// can't start with a space, and a digit at the bench is a shirt number.
+    static func canType(_ character: Character) -> Bool {
+        character.isLetter || " -'.".contains(character)
+    }
+
+    /// Whether every word typed starts some word of the name. `joh` finds Johnston and
+    /// Johnston-Krulicki, `isa j` narrows to Isabella Johnston, and `munro-f` works either way
+    /// round a hyphen. Case and accents don't count, so `zoe` finds Zoë.
+    static func matches(_ name: String, _ entry: String) -> Bool {
+        let wanted = words(entry)
+        guard !wanted.isEmpty else { return true }
+        let have = words(name)
+        return wanted.allSatisfy { part in have.contains { $0.hasPrefix(part) } }
+    }
+
+    /// Apostrophes vanish rather than splitting, so `obrien` and `o'b` both find O'Brien.
+    private static func words(_ text: String) -> [String] {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
     }
 }
 
@@ -283,6 +320,11 @@ extension AppState {
         // Subjects only, when asked for. The two filters are never on together — typing a
         // number means you want a person, and asking for subjects means you don't — so they
         // turn each other off rather than combining into an empty grid.
+        //
+        // A name searches whichever pill is showing, the Subjects one included.
+        if !nameEntry.isEmpty {
+            return rosterPlayers.filter { NameSearch.matches($0.name, nameEntry) }
+        }
         if subjectsOnly { return rosterPlayers }
         guard !numberEntry.isEmpty else { return rosterPlayers }
         return rosterPlayers.filter { $0.number.hasPrefix(numberEntry) }
@@ -303,6 +345,7 @@ extension AppState {
         case .subjects:
             subjectsOnly = true
             numberEntry = ""
+            nameEntry = ""
         case .team(let id):
             focusedTeamID = id
             subjectsOnly = false
@@ -535,6 +578,7 @@ extension AppState {
     func resetFlow() {
         tagStage = .clips
         numberEntry = ""
+        nameEntry = ""
         categoryEntry = ""
         subjectsOnly = false
         flowPlayerID = nil
@@ -585,6 +629,7 @@ extension AppState {
             // shouldn't still be the one a later tag lands on.
             flowPlayerID = nil
             numberEntry = ""
+            nameEntry = ""
             categoryEntry = ""
             subjectsOnly = false
             tagStage = .clips
@@ -597,6 +642,7 @@ extension AppState {
             // Cleared first, then checked: the roster is only empty-looking while a
             // number from last time is still narrowing it.
             numberEntry = ""
+            nameEntry = ""
             categoryEntry = ""
             subjectsOnly = false
             guard !rosterPlayers.isEmpty || !library.subjectEntries.isEmpty else {
@@ -620,6 +666,7 @@ extension AppState {
             }
             // No guard on the list being empty: you can type one now.
             numberEntry = ""
+            nameEntry = ""
             categoryEntry = ""
             subjectsOnly = false
             tagStage = .categories
@@ -648,6 +695,14 @@ extension AppState {
 
         switch key {
         case "escape":
+            // What's typed goes first, the same as at the categories, so a misspelt name
+            // doesn't also cost you the step.
+            if !nameEntry.isEmpty || !numberEntry.isEmpty {
+                nameEntry = ""
+                numberEntry = ""
+                playerCursor = 0
+                return
+            }
             go(to: .clips)
         case "tab":
             // Navigation only. Tabbing past the roster without picking anyone is a real
@@ -668,7 +723,11 @@ extension AppState {
             // With one roster in play there's nowhere to go and this does nothing.
             cycleFocus(forward: key == "right")
         case "delete":
-            // One digit at a time, the way backspace works everywhere else.
+            // One character at a time, the way backspace works everywhere else.
+            if !nameEntry.isEmpty {
+                nameEntry.removeLast()
+                return
+            }
             guard !numberEntry.isEmpty else { return }
             numberEntry.removeLast()
             playerCursor = 0
@@ -677,17 +736,26 @@ extension AppState {
             flowPlayerID = player.id
             go(to: .categories)
         default:
-            if Shortcuts.shared.isBound(key, to: .subjectsOnly) {
+            let typed = key == "space" ? " " : key
+            guard typed.count == 1, let character = typed.first else { return }
+            // A subjects key on a letter is the subjects key until a name has begun, and a
+            // letter of it after. The other way round, a name with that letter in it could
+            // never be finished.
+            if Shortcuts.shared.isBound(key, to: .subjectsOnly),
+               nameEntry.isEmpty || !NameSearch.canType(character) {
                 pressSubjectsKey()
                 return
             }
-            guard let character = key.first else { return }
+            if character.isLetter || !nameEntry.isEmpty {
+                typeName(character)
+                return
+            }
             guard character.isNumber else {
                 // The OK key, claimed only to keep it from marking the clip — see `claims`.
                 // Said rather than swallowed, because it works everywhere but here.
                 if Shortcuts.shared.isBound(key, to: .toggleOK) {
                     status = "\(key.uppercased()) marks OK at the Clips step. "
-                        + "At the bench, type a shirt number."
+                        + "At the bench, type a shirt number or a name."
                 }
                 return
             }
@@ -709,6 +777,39 @@ extension AppState {
             numberEntry = attempt
             playerCursor = 0
         }
+    }
+
+    /// One more character of a name at the bench, refused if nobody on the pill would be left
+    /// — the same rule as a digit, so the grid never empties and a typo costs one ⌫.
+    private func typeName(_ character: Character) {
+        // One search at a time. A digit in the middle of a name, or a letter after a number,
+        // is far likelier a slip than a change of mind, and either would throw away what's
+        // already typed.
+        if !numberEntry.isEmpty {
+            status = "Already narrowing to #\(numberEntry). ⌫ or Esc clears it to search by name."
+            return
+        }
+        guard NameSearch.canType(character) else {
+            status = character.isNumber
+                ? "Names don't have digits. ⌫ or Esc clears \u{201C}\(nameEntry)\u{201D} to type a number."
+                : "\(character) can't be in a name."
+            return
+        }
+        let attempt = nameEntry + String(character)
+        guard rosterPlayers.contains(where: { NameSearch.matches($0.name, attempt) }) else {
+            let here = subjectsOnly ? "the Subjects pill" : (shownTeams.first?.name ?? "this roster")
+            var note = "Nobody on \(here) matches \u{201C}\(attempt)\u{201D}."
+            // The likeliest reason: it's on the other pill.
+            if !subjectsOnly,
+               let subject = library.subjectEntries.first(where: {
+                   NameSearch.matches($0.name, attempt)
+               }) {
+                note += " \(subject.name) is on the Subjects pill."
+            }
+            status = note
+            return
+        }
+        nameEntry = attempt
     }
 
     /// The subjects key going down.
@@ -742,6 +843,7 @@ extension AppState {
         }
         subjectsOnly = true
         numberEntry = ""
+        nameEntry = ""
         playerCursor = 0
     }
 
@@ -759,6 +861,7 @@ extension AppState {
         // Said rather than silently ignored, the same rule as the rest of the flow.
         subjectsOnly = true
         numberEntry = ""
+        nameEntry = ""
         playerCursor = 0
     }
 
@@ -874,6 +977,7 @@ extension AppState {
 
         flowPlayerID = nil
         numberEntry = ""
+        nameEntry = ""
         categoryEntry = ""
         subjectsOnly = false
         if stayOnClip {
@@ -897,8 +1001,13 @@ extension AppState {
                 + "\(Shortcuts.shared.display(.quickTag)) tags with no player"
         case .players:
             let bench = activeTeams.count > 1 ? " · ← → bench" : ""
+            if !nameEntry.isEmpty {
+                let n = flowPlayers.count
+                return "\u{201C}\(nameEntry)\u{201D} — \(n) match\(n == 1 ? "" : "es")"
+                    + " · ⌫ to go back · Return picks"
+            }
             guard !numberEntry.isEmpty else {
-                return "Type a number to narrow the roster · ↑ ↓ · Return picks" + bench
+                return "Type a number or a name · ↑ ↓ · Return picks" + bench
             }
             let n = flowPlayers.count
             return "#\(numberEntry) — \(n) player\(n == 1 ? "" : "s")"

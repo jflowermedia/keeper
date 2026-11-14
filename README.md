@@ -84,7 +84,7 @@ See [DEVELOPING.md](DEVELOPING.md) for more.
 | Space or 2 | Play, pause |
 | 1, 3 | Shuttle back, forward (press again for 2x, 4x, 8x) |
 | ⌘F | Full screen (Escape to exit) |
-| ⌘Return | Toggle KEEP on the previewed clip |
+| ⌘Return | Mark the previewed clip KEEP, or unpick it if it's KEEP or OK |
 | O | Toggle OK on the previewed clip |
 | ⇧⌘Return | Mark selection KEEP |
 | ⌥⌘Return | Clear flags on selection |
@@ -171,7 +171,7 @@ Right-click the first clip of the second game and choose **New Game Starts Here*
 ```
 ↓ ↓        pick the clip
 Return     on to the roster
-17         type the shirt number
+17         type the shirt number (or a name: joh)
 Return     on to the categories
 go         type to find Goal (or type its number)
 Return     tag it and move to the next clip
@@ -179,8 +179,9 @@ Return     tag it and move to the next clip
 
 - **⇧Return** tags and stays on the clip, for a second player.
 - **Tab** / **⇧Tab** move between clips, roster and categories.
-- **Escape** goes back a step.
-- **O** marks OK at the clip step only. At the categories it's a letter like any other.
+- **At the roster**, letters search names on whichever pill is showing, Subjects included. Any word of the name works, so a surname is enough. ⌫ takes a letter back.
+- **Escape** clears what you've typed, then goes back a step.
+- **O** marks OK at the clip step only. At the roster and the categories it's a letter like any other.
 - **T** at the clip step goes straight to the categories, for a tag with no player.
 
 Typing at the categories searches every section. If nothing matches, Return tags the clip with your word. If something does, ↓ reaches your exact word at the end of the list. A **Typing** bar replaces the section pills while you do, and Space adds a space instead of playing the clip. Escape clears the word, and Space plays again.

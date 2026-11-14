@@ -742,8 +742,8 @@ enum SelfCheck {
                    !FlowKeyState.claims("3", stage: .clips, shift: false))
         expectTrue("a letter is taken at the categories",
                    FlowKeyState.claims("s", stage: .categories, shift: false))
-        expectTrue("a letter is not taken at the bench",
-                   !FlowKeyState.claims("s", stage: .players, shift: false))
+        expectTrue("a letter is taken at the bench too, to search by name",
+                   FlowKeyState.claims("s", stage: .players, shift: false))
         expectTrue("space is never taken, so it still plays and pauses",
                    !FlowKeyState.claims("space", stage: .categories, shift: false))
         expectTrue("delete is taken at the categories, to backspace a number",
@@ -1202,6 +1202,35 @@ enum SelfCheck {
                    !FlowKeyState.claims("/", stage: .categories, shift: false))
         expectTrue("a named key still isn't taken",
                    !FlowKeyState.claims("home", stage: .categories, shift: false, typingEntry: true))
+
+        section("Typed names at the bench")
+
+        expectTrue("a surname finds the player", NameSearch.matches("Isabella Johnston", "joh"))
+        expectTrue("so does a first name", NameSearch.matches("Isabella Johnston", "isa"))
+        expectTrue("two words narrow together", NameSearch.matches("Isabella Johnston", "isa j"))
+        expectTrue("and both have to fit", !NameSearch.matches("Isabella Lone", "isa j"))
+        expectTrue("either side of a hyphen", NameSearch.matches("Kailey Johnston-Krulicki", "kru"))
+        expectTrue("a hyphen typed works too", NameSearch.matches("Mackenzie Munro-Flora", "munro-f"))
+        expectTrue("only the start of a word", !NameSearch.matches("Taryn Cabak", "aba"))
+        expectTrue("accents don't count", NameSearch.matches("Zoë Brûlé", "zoe brul"))
+        expectTrue("an apostrophe can be left out", NameSearch.matches("Liam O'Brien", "obr"))
+        expectTrue("or typed", NameSearch.matches("Liam O'Brien", "o'b"))
+        expectTrue("a trailing space is harmless", NameSearch.matches("Mascot", "mas "))
+        expectTrue("a subject is found by its name", NameSearch.matches("Mascot", "m"))
+        expectTrue("a name can't hold a digit", !NameSearch.canType("7"))
+
+        expectTrue("a letter is claimed at the bench",
+                   FlowKeyState.claims("k", stage: .players, shift: false))
+        expectTrue("Space plays until a name has begun",
+                   !FlowKeyState.claims("space", stage: .players, shift: false))
+        expectTrue("then it joins the name",
+                   FlowKeyState.claims("space", stage: .players, shift: false, typingName: true))
+        expectTrue("a hyphen joins it too",
+                   FlowKeyState.claims("-", stage: .players, shift: false, typingName: true))
+        expectTrue("but a name doesn't leak into the categories",
+                   !FlowKeyState.claims("space", stage: .categories, shift: false, typingName: true))
+        expectTrue("and the clip step still leaves letters alone",
+                   !FlowKeyState.claims("k", stage: .clips, shift: false))
 
         let quickKey = Shortcuts.defaults[.quickTag]?.first?.key ?? ""
         expect("the quick key is a flow action", ShortcutAction.quickTag.group, .flow)
@@ -2249,6 +2278,11 @@ enum SelfCheck {
                Shortcuts.retiredDefaults[.toggleKeep] == Shortcuts.defaults[.toggleKeep], false)
         expect("toggle KEEP is ⌘Return", Shortcuts.defaults[.toggleKeep],
                [KeyCombo(key: "return", command: true)])
+        // ⌘Return on any pick unpicks it; it used to swap OK for KEEP.
+        expect("the KEEP key clears a KEEP", ClipFlag.afterKeepKey(.keep), nil)
+        expect("the KEEP key clears an OK", ClipFlag.afterKeepKey(.ok), nil)
+        expect("the KEEP key marks an NG KEEP", ClipFlag.afterKeepKey(.ng), .keep)
+        expect("the KEEP key marks an unflagged clip KEEP", ClipFlag.afterKeepKey(nil), .keep)
         // Right-click inside a selection marks all of it; outside, only the clip clicked.
         func clip(_ name: String) -> Clip {
             let url = URL(fileURLWithPath: "/Volumes/CARD/\(name).MP4")

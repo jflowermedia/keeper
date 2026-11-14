@@ -244,7 +244,7 @@ enum WelcomeTour {
                  + "order, with KEEP in green. Nothing under Picks? Check the Camera menu in the "
                  + "toolbar — Other… takes whatever word your camera uses.\n\n"
                  + "Arrow keys move between clips and Space plays. Changed your mind? "
-                 + "\(Shortcuts.shared.display(.toggleKeep)) toggles KEEP, "
+                 + "\(Shortcuts.shared.display(.toggleKeep)) marks KEEP or unpicks a pick, "
                  + "\(Shortcuts.shared.display(.toggleOK)) toggles OK, and ⌘Z undoes either. A "
                  + "flag you change is applied to your copy, never to the card.",
              key: .toggleKeep),
@@ -268,7 +268,7 @@ enum WelcomeTour {
                  + "one for the full name and team. The filter bar finds them again by player "
                  + "or subject.\n\n"
                  + "To skip the mouse: Tab moves between the list, the bench and the "
-                 + "categories, and typing a shirt number jumps to that player. At the "
+                 + "categories, and typing a shirt number or a name narrows the bench. At the "
                  + "categories, type a word to find a tag, or to add one nobody planned for.\n\n"
                  + "Two games on one card? Right-click the first clip of the second and choose "
                  + "New Game Starts Here. Each game gets a tab with its own teams.",
