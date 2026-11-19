@@ -69,13 +69,19 @@ extension AppState {
     /// One example of the renaming, for the sheet's preview.
     var exportNameExample: (from: String, to: String)? {
         guard let preset = activePreset, let clip = exportClips.first else { return nil }
-        let tags = library.tags(forUMID: clip.umid)
-        let rosterCode = library
-            .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
-            .flatMap(\.code)
-        let base = Renamer.baseName(for: clip, tags: tags, preset: preset,
-                                    priority: library.allCategories, rosterCode: rosterCode)
+        let base = exportBaseName(for: clip, preset: preset)
         return (clip.name, "\(base).\(clip.videoURL.pathExtension)")
+    }
+
+    /// What a clip is renamed to. The preview, the count, the copy and the rename all ask
+    /// here, so what the sheet shows is what lands on the drive.
+    func exportBaseName(for clip: Clip, preset: RenamePreset) -> String {
+        let tags = library.tags(forUMID: clip.umid)
+        let top = Renamer.topTag(of: tags, priority: library.allCategories)
+        return Renamer.baseName(for: clip, tags: tags, preset: preset,
+                                priority: library.allCategories,
+                                rosterCode: library.team(id: top?.teamID).flatMap(\.code),
+                                nickname: library.nickname(for: top))
     }
 
     /// Clips in this export that will carry the name of someone no longer on a roster, and
@@ -141,12 +147,7 @@ extension AppState {
     var exportRenameCount: Int {
         guard let preset = activePreset else { return 0 }
         return exportClips.filter { clip in
-            let tags = library.tags(forUMID: clip.umid)
-            let rosterCode = library
-                .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
-                .flatMap(\.code)
-            let base = Renamer.baseName(for: clip, tags: tags, preset: preset,
-                                        priority: library.allCategories, rosterCode: rosterCode)
+            let base = exportBaseName(for: clip, preset: preset)
             return base != clip.videoURL.deletingPathExtension().lastPathComponent
         }.count
     }
@@ -327,15 +328,7 @@ extension AppState {
 
             // The video and its sidecar must share a base name, or they stop pairing up
             // when this folder is scanned later.
-            let winningTeam = Renamer.topTag(of: tags, priority: library.allCategories)?.teamID
-            let rosterCode = library.team(id: winningTeam).flatMap(\.code)
-            let base = preset.map {
-                Renamer.baseName(for: clip,
-                                 tags: tags,
-                                 preset: $0,
-                                 priority: library.allCategories,
-                                 rosterCode: rosterCode)
-            }
+            let base = preset.map { exportBaseName(for: clip, preset: $0) }
 
             let sources = includeXML ? [clip.videoURL, clip.xmlURL] : [clip.videoURL]
             let override = isFlagChanged(clip) ? FlagMark(flag: flag(clip)) : nil
@@ -392,15 +385,7 @@ extension AppState {
         // is touched if there's nothing to do.
         var plan: [(clip: Clip, base: String)] = []
         for clip in scope {
-            let tags = library.tags(forUMID: clip.umid)
-            let rosterCode = library
-                .team(id: Renamer.topTag(of: tags, priority: library.allCategories)?.teamID)
-                .flatMap(\.code)
-            let base = Renamer.baseName(for: clip,
-                                        tags: tags,
-                                        preset: preset,
-                                        priority: library.allCategories,
-                                        rosterCode: rosterCode)
+            let base = exportBaseName(for: clip, preset: preset)
             if base != clip.videoURL.deletingPathExtension().lastPathComponent {
                 plan.append((clip, base))
             }

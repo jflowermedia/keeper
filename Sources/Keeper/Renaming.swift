@@ -96,11 +96,13 @@ enum Renamer {
     /// end up sharing a base name and still pair up on the next scan.
     /// `rosterCode` is the code on the team the winning tag belongs to. When a roster carries
     /// one it wins, so a single preset covers a club's men's and women's sides at once.
+    /// `nickname` is the winning tag's player's, from `TagLibrary.nickname(for:)`.
     static func baseName(for clip: Clip,
                          tags: [Tag],
                          preset: RenamePreset,
                          priority: [String],
-                         rosterCode: String?) -> String {
+                         rosterCode: String?,
+                         nickname: String?) -> String {
         let chosen = topTag(of: tags, priority: priority)
         let original = clip.videoURL.deletingPathExtension().lastPathComponent
         let date = clip.shotDate ?? fileDate(clip.videoURL)
@@ -118,9 +120,14 @@ enum Renamer {
                 return fromRoster.isEmpty ? preset.teamCode : fromRoster
             case .rosterTeam:
                 return chosen?.teamName ?? ""
+            // A subject's name isn't a first and last: "Mick E. Moose" cut to its last word
+            // is "Moose", and "Hat Trick" is "Trick". So it fills the surname whole and the
+            // first name not at all.
             case .playerSurname:
-                return surname(of: chosen?.playerName)
+                if let subject = chosen?.subjectName { return subject }
+                return nickname ?? surname(of: chosen?.playerName)
             case .playerFirstName:
+                if chosen?.subjectName != nil { return "" }
                 return firstName(of: chosen?.playerName)
             case .playerNumber:
                 return chosen?.playerNumber ?? ""

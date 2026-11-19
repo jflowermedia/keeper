@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "1.1.0"
+    static let version = "1.2.0"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -42,6 +42,7 @@ struct KeeperApp: App {
         if CommandLine.arguments.contains("--self-check") {
             exit(SelfCheck.run() ? 0 : 1)
         }
+        TagLibrary.shared.fillNHLMascotsOnce()
         NSApplication.shared.setActivationPolicy(.regular)
         // Milliseconds. The system's wait is a second or two, which is too long to read who a
         // tag's number means while going down a list of clips. Undocumented, and app-wide:

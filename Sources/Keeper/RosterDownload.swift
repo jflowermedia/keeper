@@ -193,13 +193,58 @@ enum RosterFeed {
 
     /// Rows as CSV, in the columns the importer reads.
     static func csv(rows: [Row], team: LeagueTeam, league: String) -> String {
-        var lines = ["league,team,code,number,name,position"]
-        for row in rows {
-            lines.append([league, team.name, team.code, row.number, row.name, row.position]
+        var lines = ["league,team,code,number,name,position,mascots"]
+        // Semicolons, because a comma would end the field. Only the first row carries them;
+        // the importer gathers the column across the team.
+        let mascots = (Self.mascots[team.code] ?? []).joined(separator: "; ")
+        for (i, row) in rows.enumerated() {
+            lines.append([league, team.name, team.code, row.number, row.name, row.position,
+                          i == 0 ? mascots : ""]
                 .map(field).joined(separator: ","))
         }
         return lines.joined(separator: "\n")
     }
+
+    /// Each team's mascots, by the code the API files it under.
+    ///
+    /// The API doesn't publish these, so they're kept here and are only as current as the
+    /// release. Checked November 2026 against the teams' own pages: the Rangers have none,
+    /// and Utah's Archie (a team dog) and Pittsburgh's Tux (their AHL affiliate's) aren't
+    /// counted. Anything that's gone stale is fixed in the roster editor, and a download
+    /// never overwrites mascots you've set without asking.
+    static let mascots: [String: [String]] = [
+        "ANA": ["Wild Wing"],
+        "BOS": ["Blades"],
+        "BUF": ["Sabretooth"],
+        "CGY": ["Harvey the Hound"],
+        "CAR": ["Stormy", "Caroline"],
+        "CHI": ["Tommy Hawk"],
+        "COL": ["Bernie", "Lil' Bern"],
+        "CBJ": ["Stinger"],
+        "DAL": ["Victor E. Green"],
+        "DET": ["Al"],
+        "EDM": ["Hunter"],
+        "FLA": ["Stanley C. Panther", "Viktor E. Ratt"],
+        "LAK": ["Bailey"],
+        "MIN": ["Nordy"],
+        "MTL": ["Youppi!", "METAL!"],
+        "NSH": ["Gnash"],
+        "NJD": ["NJ Devil"],
+        "NYI": ["Sparky", "Nyisles"],
+        "OTT": ["Spartacat"],
+        "PHI": ["Gritty"],
+        "PIT": ["Iceburgh"],
+        "SJS": ["S.J. Sharkie"],
+        "SEA": ["Buoy"],
+        "STL": ["Louie"],
+        "TBL": ["ThunderBug"],
+        "TOR": ["Carlton the Bear"],
+        "UTA": ["Tusky"],
+        "VAN": ["Fin"],
+        "VGK": ["Chance"],
+        "WSH": ["Slapshot", "Hat Trick"],
+        "WPG": ["Mick E. Moose", "Benny"],
+    ]
 
     static func csv(from data: Data, team: LeagueTeam, league: String = "NHL") -> String? {
         rows(from: data).map { csv(rows: $0, team: team, league: league) }

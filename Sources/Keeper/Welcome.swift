@@ -263,13 +263,15 @@ enum WelcomeTour {
         Step(title: "Tag your clips",
              body: "Pick a clip, then a player and a category in the panel on the right. "
                  + "Shooting a game? Tick Both teams and add the other bench. The mascot, the "
-                 + "crowd and anything else off the roster are on the Subjects pill.\n\n"
+                 + "crowd and anything else off the roster are on the Subjects pill, along with "
+                 + "the mascots of the teams in play.\n\n"
                  + "Each clip then shows who and what, like 17 · Goal or Mascot · Goal. Hover over "
                  + "one for the full name and team. The filter bar finds them again by player "
                  + "or subject.\n\n"
                  + "To skip the mouse: Tab moves between the list, the bench and the "
-                 + "categories, and typing a shirt number or a name narrows the bench. At the "
-                 + "categories, type a word to find a tag, or to add one nobody planned for.\n\n"
+                 + "categories, and typing a shirt number or a name narrows the bench. A name "
+                 + "finds subjects too. At the categories, type a word to find a tag, or to add "
+                 + "one nobody planned for.\n\n"
                  + "Two games on one card? Right-click the first clip of the second and choose "
                  + "New Game Starts Here. Each game gets a tab with its own teams.",
              key: .keyboardFlow),

@@ -238,7 +238,18 @@ struct RosterReviewSheet: View {
                             ForEach(changes.changed, id: \.new.number) { change in
                                 switch chosen {
                                 case .replace:
-                                    line("~", describe(change), .orange)
+                                    HStack(alignment: .firstTextBaseline) {
+                                        line("~", describe(change, in: conflict.id), .orange)
+                                        if renamed(change) {
+                                            Spacer()
+                                            Toggle("Same player", isOn: samePlayer(change, in: conflict.id))
+                                                .toggleStyle(.checkbox)
+                                                .help("Tick for a corrected spelling: clips tagged "
+                                                      + "\(change.old.name) take the new name. Leave it for "
+                                                      + "someone new in the number: those clips keep "
+                                                      + "\(change.old.name) and show Not on roster.")
+                                        }
+                                    }
                                 case .merge, .skip:
                                     line("=", "#\(change.old.number)  \(change.old.name) — kept as yours "
                                          + "(new list: \(change.new.name))", Color.secondary)
@@ -289,7 +300,25 @@ struct RosterReviewSheet: View {
         }
     }
 
-    private func describe(_ change: TagLibrary.RosterChanges.Change) -> String {
+    /// A new name on the number, not just a new position or a change of case.
+    private func renamed(_ change: TagLibrary.RosterChanges.Change) -> Bool {
+        !change.old.isNamed(change.new.name)
+    }
+
+    private func samePlayer(_ change: TagLibrary.RosterChanges.Change,
+                            in id: String) -> Binding<Bool> {
+        let number = change.new.number
+        return Binding(
+            get: { state.rosterReviewSamePlayer[id]?.contains(number) ?? false },
+            set: { on in
+                var numbers = state.rosterReviewSamePlayer[id] ?? []
+                if on { numbers.insert(number) } else { numbers.remove(number) }
+                state.rosterReviewSamePlayer[id] = numbers
+            }
+        )
+    }
+
+    private func describe(_ change: TagLibrary.RosterChanges.Change, in id: String) -> String {
         var parts: [String] = []
         if change.old.name != change.new.name {
             parts.append("\(change.old.name) → \(change.new.name)")
@@ -299,6 +328,11 @@ struct RosterReviewSheet: View {
         if !change.new.position.isEmpty, change.old.position != change.new.position {
             let was = change.old.position.isEmpty ? "no position" : change.old.position
             parts.append("\(was) → \(change.new.position)")
+        }
+        // Said here, since nothing else would show it going.
+        if !change.old.nickname.isEmpty, renamed(change),
+           state.rosterReviewSamePlayer[id]?.contains(change.new.number) != true {
+            parts.append("drops nickname “\(change.old.nickname)”")
         }
         return "#\(change.new.number)  " + parts.joined(separator: ", ")
     }
@@ -331,6 +365,12 @@ struct RosterReviewSheet: View {
             if gone > 0 {
                 text += " \(gone) player\(gone == 1 ? "" : "s") you have will be "
                     + "removed; clips already tagged with them keep their tags."
+            }
+            let renames = changes.changed.filter(renamed).count
+            if renames > 0 {
+                text += " \(renames) number\(renames == 1 ? " has" : "s have") a new name. "
+                    + "Clips keep the old name and show Not on roster, unless you tick Same "
+                    + "player under Show player changes for a corrected spelling."
             }
             return text
         case .skip:

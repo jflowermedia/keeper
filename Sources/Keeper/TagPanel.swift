@@ -540,7 +540,11 @@ struct TagPanel: View {
             // warning about their tags belongs. Removing a subject takes nothing away from
             // the clips already tagged with it — the name was recorded on the tag.
             .contextMenu {
-                if player.isSubject {
+                // A team's mascot is the roster's to change, not the pill's: removing it from
+                // your subjects would do nothing at all. Pointed at where it lives instead.
+                if player.isSubject, !library.subjects.contains(player.name) {
+                    Button("Edit Mascots in Rosters…") { state.showRosterEditor = true }
+                } else if player.isSubject {
                     Button("Remove \"\(player.name)\"", role: .destructive) {
                         selectedPlayerIDs.remove(player.id)
                         library.removeSubject(player.name)

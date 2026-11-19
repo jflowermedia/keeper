@@ -4,7 +4,7 @@
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 1.1.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 1.2.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a goal celebration playing in the middle, and the tagging panel on the right with a roster and numbered categories](docs/keeper.png)
 
@@ -126,23 +126,28 @@ To change a flag:
 Import a CSV with ⌘I. Pick several at once if you like. Only `number` and `name` are required:
 
 ```csv
-league,team,code,number,name,position
-MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward
+league,team,code,number,name,position,mascots
+MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward,
 ```
 
 - `code` is the short team name used in filenames.
 - `league` groups teams in the menus.
+- `mascots` is the team's own mascots, separated by semicolons. Any row can carry them.
 - Without a `team` column, the filename is the team name.
 
 Before anything is written, Keeper shows which columns it read from each file and the code each team will get. A team you already have whose players, code, league or name differ is held for you to choose: **Merge** keeps yours and adds new players, **Replace** uses the file, **Skip** leaves it alone. So a `code` column can't quietly undo a code you changed in the roster editor.
 
-**File → Download a Roster…** imports NHL teams, with the same review for teams you already have.
+If **Replace** puts a different name on a number you have, Keeper treats it as a new player: clips already tagged keep the old name and show **Not on roster**. For a corrected spelling, tick **Same player** next to it under **Show player changes**, and those clips take the new name.
+
+**File → Download a Roster…** imports NHL teams and their mascots, with the same review for teams you already have.
 
 ![The Download a Roster sheet: a league menu set to NHL and a list of teams with tick boxes and Select All](docs/roster_download.png)
 
-**⇧⌘R** edits rosters. Player numbers must be unique within a team, and team names must be unique. Removed players keep their tags, marked **Not on roster**.
+**⇧⌘R** edits rosters. Player numbers must be unique within a team, and team names must be unique. Removed players keep their tags, marked **Not on roster**. Editing a name on its row counts as the same player, so their clips follow the new name. Removing a player and adding someone new in that number doesn't.
 
-**Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams. A clip row shows the subject with its tag, like `Mascot · Goal`, where a player shows `17 · Goal`. Hover over a tag for the full name and team. The **Any subject** menu in the filter bar finds them. A subject you've removed stays in that menu while clips still carry it.
+To export a player under a nickname, click the speech bubble on their row. Filenames use the nickname in place of the surname; everywhere else keeps the real name. **Replace** keeps a nickname only while the player's name and number still match.
+
+**Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams, and typing a name on a team's bench finds them too. A team's own mascots join the pill while it's in play; set them in the roster editor's **Mascots** field. A clip row shows the subject with its tag, like `Mascot · Goal`, where a player shows `17 · Goal`. Hover over a tag for the full name and team. The **Any subject** menu in the filter bar finds them. A subject you've removed stays in that menu while clips still carry it.
 
 ## Tagging
 
@@ -179,7 +184,7 @@ Return     tag it and move to the next clip
 
 - **⇧Return** tags and stays on the clip, for a second player.
 - **Tab** / **⇧Tab** move between clips, roster and categories.
-- **At the roster**, letters search names on whichever pill is showing, Subjects included. Any word of the name works, so a surname is enough. ⌫ takes a letter back.
+- **At the roster**, letters search names on the team showing and the subjects together, or the subjects alone on their own pill. Any word of the name works, so a surname is enough. ⌫ takes a letter back.
 - **Escape** clears what you've typed, then goes back a step.
 - **O** marks OK at the clip step only. At the roster and the categories it's a letter like any other.
 - **T** at the clip step goes straight to the categories, for a tag with no player.

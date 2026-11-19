@@ -78,6 +78,9 @@ enum SelfCheck {
         keepSplit()
         flags()
         formerPlayers()
+        nicknames()
+        numbersChangingHands()
+        mascots()
 
         print("\n\(passes) passed, \(failures.count) failed")
         if !failures.isEmpty {
@@ -475,10 +478,11 @@ enum SelfCheck {
             let lines = csv.split(separator: "\n").map(String.init)
             expect("a header and three players", lines.count, 4)
             expect("the header is what the importer reads", lines[0],
-                   "league,team,code,number,name,position")
-            expect("a forward", lines[1], "NHL,Winnipeg Jets,WPG,26,Blake Wheeler,Forward")
-            expect("a defenceman", lines[2], "NHL,Winnipeg Jets,WPG,33,Dustin Byfuglien,Defence")
-            expect("a goalie", lines[3], "NHL,Winnipeg Jets,WPG,34,Michael Hutchinson,Goalie")
+                   "league,team,code,number,name,position,mascots")
+            expect("a forward, carrying the team's mascots", lines[1],
+                   "NHL,Winnipeg Jets,WPG,26,Blake Wheeler,Forward,Mick E. Moose; Benny")
+            expect("a defenceman", lines[2], "NHL,Winnipeg Jets,WPG,33,Dustin Byfuglien,Defence,")
+            expect("a goalie", lines[3], "NHL,Winnipeg Jets,WPG,34,Michael Hutchinson,Goalie,")
         } else {
             failures.append("the expected roster shape didn't parse")
             print("  FAIL the expected roster shape didn't parse")
@@ -492,7 +496,7 @@ enum SelfCheck {
         expect("a flat name and a numeric string still read",
                RosterFeed.csv(from: Data(flat.utf8), team: jets)?
                    .split(separator: "\n").last.map(String.init) ?? "none",
-               "NHL,Winnipeg Jets,WPG,9,Evander Kane,Forward")
+               "NHL,Winnipeg Jets,WPG,9,Evander Kane,Forward,Mick E. Moose; Benny")
 
         // A player with no number is dropped, not carried through — an import refuses a
         // blank number, so one unsigned call-up would otherwise cost the whole team.
@@ -1249,8 +1253,9 @@ enum SelfCheck {
         section("Most used categories")
 
         func tag(_ category: String, _ umid: String, player: String? = nil) -> Tag {
+            // A number, even an empty one, is what makes it a player's tag and not a subject's.
             Tag(umid: umid, clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
-                playerName: player, category: category)
+                playerNumber: player == nil ? nil : "27", playerName: player, category: category)
         }
         func clips(_ category: String, _ count: Int) -> [Tag] {
             (0..<count).map { tag(category, "clip\($0)") }
@@ -1305,7 +1310,7 @@ enum SelfCheck {
             Renamer.baseName(for: clip, tags: tags,
                              preset: RenamePreset(name: "t", teamCode: "", separator: "_",
                                                   tokens: [.originalName, .playerSurname, .topTag]),
-                             priority: ["Goal", "Dancing"], rosterCode: nil)
+                             priority: ["Goal", "Dancing"], rosterCode: nil, nickname: nil)
         }
         expect("a listed category is named",
                name([tag("Goal", "a", player: "Sam Marchetti")]), "C0001_Marchetti_Goal")
@@ -1590,6 +1595,168 @@ enum SelfCheck {
     // finish releases the hold the second still needs. Deriving the answer from both flags
     // rules both out, which is what's checked here.
 
+    private static func nicknames() {
+        section("Nicknames")
+
+        let sam = Player(teamID: "virden", number: "27", name: "Sam Marchetti", nickname: "Ketch")
+        let teams = [Team(id: "virden", name: "Virden Oil Capitals", code: nil, league: nil,
+                          players: [sam, Player(teamID: "virden", number: "9", name: "Jo Reid")])]
+        func tag(_ number: String, _ name: String) -> Tag {
+            Tag(umid: "a", clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                teamID: "virden", playerNumber: number, playerName: name, category: "Goal")
+        }
+        expect("a player's nickname is found", TagLibrary.nickname(for: tag("27", "Sam Marchetti"),
+                                                                   in: teams), "Ketch")
+        expect("none set is none", TagLibrary.nickname(for: tag("9", "Jo Reid"), in: teams), nil)
+        expect("a tag naming someone else in that number doesn't get it",
+               TagLibrary.nickname(for: tag("27", "Lee Kim"), in: teams), nil)
+        expect("nor does a clip with no tag", TagLibrary.nickname(for: nil, in: teams), nil)
+
+        let clip = Clip(id: URL(fileURLWithPath: "/C0001.MP4"),
+                        videoURL: URL(fileURLWithPath: "/C0001.MP4"),
+                        xmlURL: URL(fileURLWithPath: "/C0001M01.XML"),
+                        flag: nil, videoSize: 0, xmlSize: 0, umid: "a", shotDate: nil)
+        func name(_ nickname: String?) -> String {
+            Renamer.baseName(for: clip, tags: [tag("27", "Sam Marchetti")],
+                             preset: RenamePreset(name: "t", teamCode: "", separator: "_",
+                                                  tokens: [.playerFirstName, .playerSurname, .topTag]),
+                             priority: ["Goal"], rosterCode: nil, nickname: nickname)
+        }
+        expect("a nickname takes the surname's place", name("Ketch"), "Sam_Ketch_Goal")
+        expect("and without one, the surname", name(nil), "Sam_Marchetti_Goal")
+
+        let wearing = Team(id: "virden", name: "V", players: [sam])
+        func replaced(by name: String) -> String? {
+            let list = TagLibrary.IncomingTeam(slug: "virden", name: "V", code: nil, league: nil,
+                                               players: [Player(teamID: "x", number: "27", name: name)])
+            return TagLibrary.importedTeam(list, into: wearing, mode: .replace).players.first?.nickname
+        }
+        expect("Replace keeps the same person's nickname", replaced(by: "sam marchetti "), "Ketch")
+        expect("but not for someone new in the number", replaced(by: "Lee Kim"), "")
+        let merge = TagLibrary.IncomingTeam(slug: "virden", name: "V", code: nil, league: nil,
+                                            players: [Player(teamID: "x", number: "27", name: "Lee Kim")])
+        expect("Merge leaves yours alone",
+               TagLibrary.importedTeam(merge, into: wearing, mode: .merge).players.first?.nickname,
+               "Ketch")
+
+        let old = #"{"teamID":"virden","number":"27","name":"Sam Marchetti"}"#
+        expect("a player saved before nicknames still reads",
+               (try? JSONDecoder().decode(Player.self, from: Data(old.utf8)))?.nickname, "")
+    }
+
+    private static func mascots() {
+        section("Team mascots")
+
+        expect("commas or semicolons, blanks and repeats dropped",
+               Team.mascotList(" Stormy; Caroline,, stormy ;"), ["Stormy", "Caroline"])
+
+        let csv = "team,number,name,mascots\nJets,9,Adam Lowry,Mick E. Moose; Benny\n"
+            + "Jets,33,Dylan Samberg,\nJets,37,Connor Hellebuyck,Benny\n"
+        let read = try? TagLibrary.parseRoster(csv: csv, fallbackTeam: "x")
+        expect("a CSV's mascots are gathered across the team", read?.first?.mascots,
+               ["Mick E. Moose", "Benny"])
+        expectTrue("and the column isn't reported as ignored",
+                   TagLibrary.rosterLayout(TagLibrary.rosterRows(csv)).ignored.isEmpty)
+
+        let mine = Team(id: "jets", name: "Jets", code: nil, league: nil,
+                        players: [Player(teamID: "jets", number: "9", name: "Adam Lowry")],
+                        mascots: ["Mick E. Moose"])
+        func list(_ mascots: [String]) -> TagLibrary.IncomingTeam {
+            TagLibrary.IncomingTeam(slug: "jets", name: "Jets", code: nil, league: nil,
+                                    players: mine.players, mascots: mascots)
+        }
+        expect("Replace without mascots keeps yours",
+               TagLibrary.importedTeam(list([]), into: mine, mode: .replace).mascots, ["Mick E. Moose"])
+        expect("Replace with them takes the list's",
+               TagLibrary.importedTeam(list(["Benny"]), into: mine, mode: .replace).mascots, ["Benny"])
+        expect("Merge keeps yours",
+               TagLibrary.importedTeam(list(["Benny"]), into: mine, mode: .merge).mascots, ["Mick E. Moose"])
+        var bare = mine
+        bare.mascots = []
+        expect("Merge fills a blank",
+               TagLibrary.importedTeam(list(["Benny"]), into: bare, mode: .merge).mascots, ["Benny"])
+        expect("a different list is shown in the review",
+               TagLibrary.detailChanges(existing: mine, incoming: list(["Benny"])).map(\.field),
+               ["Mascots"])
+        expect("and filling a blank isn't asked about",
+               TagLibrary.sortImport([list(["Benny"])], against: [bare]).conflicts.count, 0)
+
+        let clip = Clip(id: URL(fileURLWithPath: "/C0001.MP4"),
+                        videoURL: URL(fileURLWithPath: "/C0001.MP4"),
+                        xmlURL: URL(fileURLWithPath: "/C0001M01.XML"),
+                        flag: nil, videoSize: 0, xmlSize: 0, umid: "a", shotDate: nil)
+        let onMoose = Tag(umid: "a", clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                          teamID: "jets", playerNumber: nil, playerName: "Mick E. Moose",
+                          category: "Goal")
+        expect("a subject's whole name goes in, not its last word",
+               Renamer.baseName(for: clip, tags: [onMoose],
+                                preset: RenamePreset(name: "t", teamCode: "", separator: "_",
+                                                     tokens: [.playerFirstName, .playerSurname, .topTag]),
+                                priority: ["Goal"], rosterCode: nil, nickname: nil),
+               "Mick-E.-Moose_Goal")
+
+        let nhl = Team(id: "winnipeg-jets", name: "Winnipeg Jets", code: "WPG", league: "NHL")
+        let alumni = Team(id: "alumni", name: "Winnipeg Jets Alumni", code: "WPG", league: "Alumni")
+        var typed = nhl
+        typed.mascots = ["Mick"]
+        expect("an NHL team from before mascots gets them",
+               TagLibrary.fillingNHLMascots([nhl]).first?.mascots, ["Mick E. Moose", "Benny"])
+        expect("a team outside the NHL sharing its code doesn't",
+               TagLibrary.fillingNHLMascots([alumni]).first?.mascots, [])
+        expect("and mascots you typed are left alone",
+               TagLibrary.fillingNHLMascots([typed]).first?.mascots, ["Mick"])
+
+        expect("every NHL team but the Rangers has one", RosterFeed.mascots.count, 31)
+        expectTrue("each with a name", RosterFeed.mascots.values.allSatisfy { !$0.isEmpty })
+
+        let old = #"{"id":"jets","name":"Jets","players":[]}"#
+        expect("a team saved before mascots still reads",
+               (try? JSONDecoder().decode(Team.self, from: Data(old.utf8)))?.mascots, [])
+    }
+
+    private static func numbersChangingHands() {
+        section("A number that changes hands")
+
+        let lee = Player(teamID: "virden", number: "27", name: "Lee Kim", position: "Defence")
+        let teams = [Team(id: "virden", name: "Virden Oil Capitals", code: nil, league: nil,
+                          players: [lee])]
+        let old = Tag(umid: "a", clipName: "C0001.MP4", volumeName: "SSD", path: "/C0001.MP4",
+                      teamID: "virden", teamName: "Virden", playerNumber: "27",
+                      playerName: "Sam Marchetti", playerPosition: "Forward", category: "Goal")
+
+        let left = TagLibrary.refreshed(old, from: teams)
+        expect("the last wearer's tags keep their name", left.playerName, "Sam Marchetti")
+        expect("and their position", left.playerPosition, "Forward")
+        expect("but take the team's new name", left.teamName, "Virden Oil Capitals")
+        expectTrue("and show as Not on roster", TagLibrary.isFormerPlayer(left, in: teams))
+
+        let respelled = TagLibrary.refreshed(old, from: teams, respelled: [
+            .init(teamID: "virden", number: "27", from: "sam marchetti")])
+        expect("ticked Same player, they take the new name", respelled.playerName, "Lee Kim")
+        expect("and position", respelled.playerPosition, "Defence")
+        expect("a respelling of someone else changes nothing",
+               TagLibrary.refreshed(old, from: teams, respelled: [
+                   .init(teamID: "virden", number: "27", from: "Jo Reid")]).playerName,
+               "Sam Marchetti")
+
+        var cased = old
+        cased.playerName = "LEE KIM"
+        expect("a change of case is the same person", TagLibrary.refreshed(cased, from: teams).playerName,
+               "Lee Kim")
+
+        let wearing = Team(id: "virden", name: "V", players: [
+            Player(teamID: "virden", number: "27", name: "Sam Marchetti", position: "Forward",
+                   nickname: "Ketch")])
+        let list = TagLibrary.IncomingTeam(slug: "virden", name: "V", code: nil, league: nil,
+                                           players: [Player(teamID: "x", number: "27", name: "Sam Marcheti")])
+        let ticked = TagLibrary.importedTeam(list, into: wearing, mode: .replace, sameAs: ["27"])
+            .players.first
+        expect("ticked, a respelling keeps the nickname", ticked?.nickname, "Ketch")
+        expect("and the position", ticked?.position, "Forward")
+        expect("unticked, it's someone new",
+               TagLibrary.importedTeam(list, into: wearing, mode: .replace).players.first?.nickname, "")
+    }
+
     private static func formerPlayers() {
         section("Tags for players no longer on a roster")
 
@@ -1602,7 +1769,10 @@ enum SelfCheck {
         }
 
         expect("a player still on the roster isn't flagged",
-               TagLibrary.isFormerPlayer(tag(team: "virden", number: "27"), in: teams), false)
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: "27", name: "ryan marchetti"),
+                                         in: teams), false)
+        expect("a tag on someone who's since handed the number on is",
+               TagLibrary.isFormerPlayer(tag(team: "virden", number: "27"), in: teams), true)
         expect("a number no longer on the roster is",
                TagLibrary.isFormerPlayer(tag(team: "virden", number: "99"), in: teams), true)
         expect("so is a player whose whole roster was deleted",

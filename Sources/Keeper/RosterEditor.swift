@@ -21,15 +21,21 @@ struct RosterEditor: View {
     @State private var draft: Draft?
     @State private var problem: String?
     @State private var note: String?
+    /// The row whose nickname popover is open.
+    @State private var nicknameRow: UUID?
 
     /// A player row with an identity of its own, so renumbering can be spotted. `wasNumber`
-    /// is what this row's player was called when the draft was made; nil means a new row.
+    /// and `wasName` are this row's player when the draft was made; nil means a new row.
+    /// A name edited on a row is the same person respelled, and their tags follow it; a row
+    /// removed and another added in its number is somebody new, and the old tags stay put.
     private struct Row: Identifiable {
         let id = UUID()
         var wasNumber: String?
+        var wasName: String?
         var number: String
         var name: String
         var position: String
+        var nickname = ""
     }
 
     private struct Draft {
@@ -37,6 +43,8 @@ struct RosterEditor: View {
         var name: String
         var code: String
         var league: String
+        /// As typed, comma-separated. Read with `Team.mascotList` on apply.
+        var mascots: String
         var rows: [Row]
     }
 
@@ -66,7 +74,12 @@ struct RosterEditor: View {
         }
         .frame(width: 760, height: 620)
         .onAppear {
-            if selectedTeamID == nil { select(library.teams.first?.id) }
+            // The bench you're looking at, which is the roster you came here to fix. Opening
+            // on the first team in the list meant hunting for it every time.
+            if selectedTeamID == nil {
+                let shown = library.team(id: state.shownTeamID)?.id
+                select(shown ?? library.teams.first?.id)
+            }
         }
     }
 
@@ -89,15 +102,22 @@ struct RosterEditor: View {
 
     private var teamList: some View {
         VStack(spacing: 0) {
-            List(selection: Binding(get: { selectedTeamID }, set: { select($0) })) {
-                if library.leaguesAreWorthShowing {
-                    ForEach(library.teamsByLeague) { group in
-                        Section(group.name) {
-                            ForEach(group.teams) { teamRow($0) }
+            ScrollViewReader { proxy in
+                List(selection: Binding(get: { selectedTeamID }, set: { select($0) })) {
+                    if library.leaguesAreWorthShowing {
+                        ForEach(library.teamsByLeague) { group in
+                            Section(group.name) {
+                                ForEach(group.teams) { teamRow($0) }
+                            }
                         }
+                    } else {
+                        ForEach(library.teams) { teamRow($0) }
                     }
-                } else {
-                    ForEach(library.teams) { teamRow($0) }
+                }
+                // Opening on a team halfway down a league's worth would otherwise select it
+                // out of sight. No anchor, so a click on a row already in view doesn't jump.
+                .onChange(of: selectedTeamID) { id in
+                    if let id { proxy.scrollTo(id) }
                 }
             }
 
@@ -135,6 +155,7 @@ struct RosterEditor: View {
                 .foregroundStyle(.secondary)
         }
         .tag(item.id)
+        .id(item.id)
     }
 
     // MARK: Team detail
@@ -187,6 +208,16 @@ struct RosterEditor: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            GridRow {
+                Text("Mascots").foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    TextField("None", text: binding(\.mascots))
+                    Text("On the Subjects pill while this team plays")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                }
+            }
         }
         .textFieldStyle(.roundedBorder)
         .padding(16)
@@ -197,7 +228,7 @@ struct RosterEditor: View {
             Text("#").frame(width: 54, alignment: .leading)
             Text("Name").frame(maxWidth: .infinity, alignment: .leading)
             Text("Position").frame(width: 130, alignment: .leading)
-            Spacer().frame(width: 24)
+            Spacer().frame(width: 40)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -216,13 +247,17 @@ struct RosterEditor: View {
                         TextField("Name", text: rowBinding(index, \.name))
                             .frame(maxWidth: .infinity)
                         positionField(index)
-                        Button {
-                            draft?.rows.remove(at: index)
-                        } label: {
-                            Image(systemName: "minus.circle")
+                        HStack(spacing: 6) {
+                            nicknameButton(row, index)
+                            Button {
+                                draft?.rows.remove(at: index)
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove this player")
                         }
-                        .buttonStyle(.borderless)
-                        .help("Remove this player")
+                        .frame(width: 40)
                     }
                     // A renumber moves every tag on that player, so it's worth seeing.
                     .background(renumbered(row) ? Color.orange.opacity(0.12) : Color.clear)
@@ -261,6 +296,40 @@ struct RosterEditor: View {
             .help("Pick a position you've used before, or type your own")
         }
         .frame(width: 130)
+    }
+
+    /// Out of the way on purpose: few players need one, and a column for it would be empty
+    /// down the whole roster. The filled bubble is how you spot the ones that have one.
+    private func nicknameButton(_ row: Row, _ index: Int) -> some View {
+        let nickname = row.nickname.trimmingCharacters(in: .whitespaces)
+        return Button {
+            nicknameRow = row.id
+        } label: {
+            Image(systemName: nickname.isEmpty ? "quote.bubble" : "quote.bubble.fill")
+                .foregroundStyle(nickname.isEmpty ? Color.secondary : Color.accentColor)
+        }
+        .buttonStyle(.borderless)
+        .help(nickname.isEmpty
+              ? "Give this player a nickname to use in filenames"
+              : "Filenames use “\(nickname)” in place of the surname")
+        .popover(isPresented: Binding(get: { nicknameRow == row.id },
+                                      set: { if !$0 { nicknameRow = nil } }),
+                 arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Nickname").font(.headline)
+                TextField("None", text: rowBinding(index, \.nickname))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 220)
+                    .onSubmit { nicknameRow = nil }
+                Text("Used in filenames in place of the surname. Everywhere else keeps "
+                     + "the real name.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 220, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+        }
     }
 
     private func renumbered(_ row: Row) -> Bool {
@@ -309,9 +378,9 @@ struct RosterEditor: View {
                          + (tags > 0 ? ", \(tags) tag\(tags == 1 ? "" : "s") moving with them" : ""))
         }
 
-        // Removing a player leaves their tags behind on a number that may now belong to
-        // somebody else — and the next roster refresh would rewrite those tags to that
-        // person's name. Renumbering carries the tags; removing abandons them.
+        // Removing a player leaves their tags behind, on a number that may now belong to
+        // somebody else. They keep the name they were made with and show as Not on roster.
+        // Renumbering carries the tags; removing abandons them.
         let kept = Set(draft.rows.compactMap(\.wasNumber))
         let dropped = (library.team(id: draft.teamID)?.players ?? [])
             .filter { !kept.contains($0.number) }
@@ -369,9 +438,10 @@ struct RosterEditor: View {
                       name: team.name,
                       code: team.code ?? "",
                       league: team.league ?? "",
+                      mascots: Team.mascotText(team.mascots),
                       rows: team.players.map {
-                          Row(wasNumber: $0.number, number: $0.number,
-                              name: $0.name, position: $0.position)
+                          Row(wasNumber: $0.number, wasName: $0.name, number: $0.number,
+                              name: $0.name, position: $0.position, nickname: $0.nickname)
                       })
     }
 
@@ -429,13 +499,19 @@ struct RosterEditor: View {
             name: draft.name,
             code: draft.code,
             league: draft.league,
+            mascots: Team.mascotList(draft.mascots),
             players: draft.rows.map {
-                Player(teamID: draft.teamID, number: $0.number, name: $0.name, position: $0.position)
+                Player(teamID: draft.teamID, number: $0.number, name: $0.name,
+                       position: $0.position, nickname: $0.nickname)
             },
             renumbered: draft.rows.compactMap {
                 guard let was = $0.wasNumber else { return nil }
                 let now = $0.number.trimmingCharacters(in: .whitespaces)
                 return was == now ? nil : (from: was, to: now)
+            },
+            respelled: draft.rows.compactMap {
+                guard let was = $0.wasName, !Player.sameName(was, $0.name) else { return nil }
+                return (number: $0.number.trimmingCharacters(in: .whitespaces), from: was)
             })
 
         do {

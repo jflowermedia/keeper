@@ -163,6 +163,7 @@ extension AppState {
         }
         if !conflicts.isEmpty {
             rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
+            rosterReviewSamePlayer = [:]
             rosterReviewFromDownload = fromDownload
             rosterReview = RosterImportReview(conflicts: conflicts)
             parts.append(conflicts.count == 1
@@ -225,6 +226,7 @@ extension AppState {
 
         let sorted = TagLibrary.sortImport(incoming, against: library.teams)
         rosterReviewModes = Dictionary(uniqueKeysWithValues: sorted.conflicts.map { ($0.id, .merge) })
+        rosterReviewSamePlayer = [:]
         rosterReviewFromDownload = false
         rosterReview = RosterImportReview(files: files,
                                           new: sorted.new,
@@ -243,7 +245,8 @@ extension AppState {
             if review.fromFiles { importMessage = status }
             return
         }
-        let result = library.applyImport(review.toWrite, modes: rosterReviewModes)
+        let result = library.applyImport(review.toWrite, modes: rosterReviewModes,
+                                         samePlayer: rosterReviewSamePlayer)
         let skipped = review.conflicts.filter { rosterReviewModes[$0.id] == .skip }.count
         var note: String
         if result.teamIDs.isEmpty {

@@ -385,6 +385,9 @@ final class AppState: ObservableObject {
     /// you already have that it would change. Nothing in here has been written yet.
     @Published var rosterReview: RosterImportReview?
     @Published var rosterReviewModes: [String: TagLibrary.ImportMode] = [:]
+    /// Per team, the renamed numbers ticked Same player. Empty by default: a new name on a
+    /// number is taken as a new person unless you say it isn't.
+    @Published var rosterReviewSamePlayer: [String: Set<String>] = [:]
     /// Which sheet shows the review. SwiftUI won't reliably put a sheet up over another from
     /// the window, so a review that comes out of the download sheet is shown from inside it.
     var rosterReviewFromDownload = false
@@ -551,7 +554,10 @@ final class AppState: ObservableObject {
         }
         if let filterPlayerID {
             list = list.filter { clip in
-                library.tags(forUMID: clip.umid).contains { $0.playerID == filterPlayerID }
+                // Numbers get handed on: the last wearer's clips aren't this player's.
+                library.tags(forUMID: clip.umid).contains {
+                    $0.playerID == filterPlayerID && library.rosterPlayer(for: $0) != nil
+                }
             }
         }
         if let filterCategory {

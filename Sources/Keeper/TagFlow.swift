@@ -294,9 +294,21 @@ extension AppState {
     /// lit, because it's nil until something is picked and the first roster shows anyway.
     var shownTeamID: String? { shownTeams.first?.id }
 
+    /// The Subjects pill: the mascots of the teams in play, then your own subjects. A team's
+    /// mascots only while it's on the bench, so one game's pill isn't crowded with every
+    /// other team's. Deduplicated by id, which is the slug — a mascot sharing a name with one
+    /// of your subjects would otherwise be two chips with one id.
+    var benchSubjects: [Player] {
+        (activeTeams.flatMap(\.mascots) + library.subjects)
+            .map(Subjects.entry)
+            .reduce(into: [Player]()) { list, entry in
+                if !list.contains(where: { $0.id == entry.id }) { list.append(entry) }
+            }
+    }
+
     /// Every player across the rosters in play, whichever bench is showing and whatever a
     /// typed number is hiding. What a hand-made selection is resolved against.
-    var allActivePlayers: [Player] { activeTeams.flatMap(\.players) + library.subjectEntries }
+    var allActivePlayers: [Player] { activeTeams.flatMap(\.players) + benchSubjects }
 
     /// The team bench on screen, without the subjects. What a typed number searches.
     var teamBenchPlayers: [Player] { shownTeams.flatMap(\.players) }
@@ -307,12 +319,17 @@ extension AppState {
     /// Subjects used to sit on the end of every bench. They have a pill of their own now,
     /// beside the teams, so a forty-chip bench isn't made longer by six things nobody's
     /// numbered — and the cursor, Return and the outline still work on them unchanged.
-    var rosterPlayers: [Player] { subjectsOnly ? library.subjectEntries : teamBenchPlayers }
+    var rosterPlayers: [Player] { subjectsOnly ? benchSubjects : teamBenchPlayers }
 
     /// Who a pick can resolve to, whichever pill is showing. A subject picked at the bench is
     /// still the pick once the flow has moved on to the categories and the bench has gone
     /// back to the team — `rosterPlayers` alone would lose it at that step.
-    var pickablePlayers: [Player] { teamBenchPlayers + library.subjectEntries }
+    var pickablePlayers: [Player] { teamBenchPlayers + benchSubjects }
+
+    /// What a typed name searches. On a team's pill the subjects come too, after the
+    /// players: the mascot shouldn't cost a trip to another pill and back. A number still
+    /// means a person, so it searches the team alone.
+    var nameSearchPlayers: [Player] { subjectsOnly ? rosterPlayers : pickablePlayers }
 
     /// What the grid shows: the roster narrowed to the number being typed. The cursor
     /// indexes this, so a filtered grid and the cursor can't drift apart.
@@ -321,9 +338,9 @@ extension AppState {
         // number means you want a person, and asking for subjects means you don't — so they
         // turn each other off rather than combining into an empty grid.
         //
-        // A name searches whichever pill is showing, the Subjects one included.
+        // A name searches the subjects as well as the team. See `nameSearchPlayers`.
         if !nameEntry.isEmpty {
-            return rosterPlayers.filter { NameSearch.matches($0.name, nameEntry) }
+            return nameSearchPlayers.filter { NameSearch.matches($0.name, nameEntry) }
         }
         if subjectsOnly { return rosterPlayers }
         guard !numberEntry.isEmpty else { return rosterPlayers }
@@ -645,7 +662,7 @@ extension AppState {
             nameEntry = ""
             categoryEntry = ""
             subjectsOnly = false
-            guard !rosterPlayers.isEmpty || !library.subjectEntries.isEmpty else {
+            guard !rosterPlayers.isEmpty || !benchSubjects.isEmpty else {
                 status = library.teams.isEmpty
                     ? "No roster yet — import one with ⌘I."
                     : "Choose this game's teams in the tagging panel first."
@@ -796,17 +813,10 @@ extension AppState {
             return
         }
         let attempt = nameEntry + String(character)
-        guard rosterPlayers.contains(where: { NameSearch.matches($0.name, attempt) }) else {
-            let here = subjectsOnly ? "the Subjects pill" : (shownTeams.first?.name ?? "this roster")
-            var note = "Nobody on \(here) matches \u{201C}\(attempt)\u{201D}."
-            // The likeliest reason: it's on the other pill.
-            if !subjectsOnly,
-               let subject = library.subjectEntries.first(where: {
-                   NameSearch.matches($0.name, attempt)
-               }) {
-                note += " \(subject.name) is on the Subjects pill."
-            }
-            status = note
+        guard nameSearchPlayers.contains(where: { NameSearch.matches($0.name, attempt) }) else {
+            let here = subjectsOnly ? "the Subjects pill"
+                : "\(shownTeams.first?.name ?? "this roster") or the subjects"
+            status = "Nobody on \(here) matches \u{201C}\(attempt)\u{201D}."
             return
         }
         nameEntry = attempt
@@ -837,7 +847,7 @@ extension AppState {
 
     private func showSubjectsOnly() {
         guard !subjectsOnly else { return }
-        guard !library.subjectEntries.isEmpty else {
+        guard !benchSubjects.isEmpty else {
             status = "No subjects yet — click the Subjects pill to add one."
             return
         }
@@ -854,7 +864,7 @@ extension AppState {
             playerCursor = 0
             return
         }
-        guard !library.subjectEntries.isEmpty else {
+        guard !benchSubjects.isEmpty else {
             status = "No subjects yet — click the Subjects pill to add one."
             return
         }
