@@ -228,12 +228,6 @@ Typing at the categories searches every section. If nothing matches, Return tags
 
 **Theme** recolours Keeper with one of [Catppuccin](https://catppuccin.com/palette/)'s four flavours: Latte (light), Frappé, Macchiato or Mocha. **Accent** picks one of its fourteen accent colours for highlights; it's greyed under System, which uses the accent from System Settings. Native controls such as dropdowns, checkboxes and menus follow the theme's light or dark but keep the macOS look.
 
-| Latte | Frappé |
-|---|---|
-| ![Keeper in Catppuccin Latte, a light theme](docs/theme-latte.png) | ![Keeper in Catppuccin Frappé](docs/theme-frappe.png) |
-| **Macchiato** | **Mocha** |
-| ![Keeper in Catppuccin Macchiato](docs/theme-macchiato.png) | ![Keeper in Catppuccin Mocha, the darkest theme](docs/theme-mocha.png) |
-
 ## Troubleshooting
 
 - **No clips flagged?** Right-click a clip → **Show XML…** to see what the camera writes, then set **Camera → Other…** to that word.
