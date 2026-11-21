@@ -6,7 +6,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 > **Alpha, version 1.3.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
-![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a clip playing top right, and the tagging panel under it with the roster on the left and numbered categories across the rest](docs/keeper.png)
+![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a clip playing top right, and the tagging panel under it with the roster on the left and numbered categories across the rest](docs/keeper-1.3.png)
 
 ## How it works
 
