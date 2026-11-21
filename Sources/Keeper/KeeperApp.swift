@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "1.2.0"
+    static let version = "1.3.0"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -26,6 +26,7 @@ struct KeeperApp: App {
     // stay in step with each other.
     @AppStorage("showTagging") private var showTagging = true
     @AppStorage("advanceAfterTag") private var advanceAfterTag = false
+    @AppStorage("taggingBelow") private var taggingBelow = true
     /// Observed, not just read: changing a binding has to rebuild this scene, or the menu
     /// items keep the key equivalents they were built with until the next launch.
     @ObservedObject private var shortcuts = Shortcuts.shared
@@ -148,6 +149,9 @@ struct KeeperApp: App {
                 Toggle("Tagging Panel", isOn: $showTagging)
                     .keyboardShortcut(shortcuts.equivalent(.taggingPanel),
                                       modifiers: shortcuts.modifiers(.taggingPanel))
+                // A way back to the column, for a laptop screen where the band leaves the
+                // video too short to judge a clip by.
+                Toggle("Tagging Panel Below Video", isOn: $taggingBelow)
                 Button("Next Game") { state.nextGame() }
                     .keyboardShortcut(shortcuts.equivalent(.nextGame),
                                       modifiers: shortcuts.modifiers(.nextGame))

@@ -4,7 +4,7 @@
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 1.2.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 1.3.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a goal celebration playing in the middle, and the tagging panel on the right with a roster and numbered categories](docs/keeper.png)
 
@@ -151,7 +151,7 @@ To export a player under a nickname, click the speech bubble on their row. Filen
 
 ## Tagging
 
-**⌘E** opens the panel. Click a player, then a category.
+**⌘E** opens the panel. It sits under the video, with the bench on the left and the categories on the right. To put it back beside the video, turn off **Tagging Panel Below Video** in the View menu. Click a player, then a category.
 
 - **Both teams** puts two rosters from the same league in play. ← → switch between them.
 - Categories are grouped in sections. **+** adds one; right-click to move or remove.
@@ -188,6 +188,8 @@ Return     tag it and move to the next clip
 - **Escape** clears what you've typed, then goes back a step.
 - **O** marks OK at the clip step only. At the roster and the categories it's a letter like any other.
 - **T** at the clip step goes straight to the categories, for a tag with no player.
+
+With keyboard tagging on, shirt numbers and each category's number show on a coloured key. Type the number and press Return to tag it; **1** then Return is the first category in the section showing. ← → change section, and the numbers change with it.
 
 Typing at the categories searches every section. If nothing matches, Return tags the clip with your word. If something does, ↓ reaches your exact word at the end of the list. A **Typing** bar replaces the section pills while you do, and Space adds a space instead of playing the clip. Escape clears the word, and Space plays again.
 

@@ -64,7 +64,40 @@ struct TagPanel: View {
         return nil
     }
 
+    /// Beside the video, or in a band under it. Under is the default: the numbers you type are
+    /// only worth typing if you can read them, and a column on the far edge is where your eye
+    /// isn't while the clip plays.
+    enum Layout { case side, below }
+    var layout: Layout = .side
+
     var body: some View {
+        Group {
+            switch layout {
+            case .side:  sideBody
+            case .below: belowBody
+            }
+        }
+        .padding(12)
+        .frame(minWidth: layout == .side ? 280 : 0,
+               idealWidth: layout == .side ? 300 : nil,
+               maxWidth: layout == .side ? 380 : .infinity,
+               maxHeight: .infinity, alignment: .top)
+        // A picked player is armed for the clip you're looking at, so it doesn't follow you
+        // to the next one: the ring would sit on a player who has nothing to do with it,
+        // and hide the green of whoever is actually tagged on the clip now in view.
+        .onChange(of: clip?.id) { _ in
+            selectedPlayerIDs = []
+        }
+        // Which benches an import brings into play is `AppState.adoptImported`; all the
+        // panel has to do is let go of players picked from the roster before it.
+        .onChange(of: state.lastImportedTeamID) { _ in
+            selectedPlayerIDs = []
+        }
+    }
+
+    // MARK: Layouts
+
+    private var sideBody: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
 
@@ -75,11 +108,7 @@ struct TagPanel: View {
             if library.teams.isEmpty {
                 emptyRoster
             } else {
-                teamPicker
-                focusPills
-                if state.subjectsOnly { subjectField }
-                playerGrid
-                    .flowSection(.players, current: state.tagStage, active: state.keyboardFlow)
+                benchColumn
                 Divider()
                 categoryRow
                     .flowSection(.categories, current: state.tagStage, active: state.keyboardFlow)
@@ -92,32 +121,71 @@ struct TagPanel: View {
 
             Spacer(minLength: 0)
 
-            if !state.taggedInScope.isEmpty {
-                Divider()
-                Button(role: .destructive) {
-                    state.removeTagsInScope()
-                } label: {
-                    Label(state.removeTagsLabel, systemImage: "tag.slash")
-                        .font(.caption)
-                        .frame(maxWidth: .infinity)
+            clearTagsButton
+        }
+    }
+
+    /// The bench on the left, the categories filling the rest, so the category grid is wide
+    /// enough to read at a glance from the video above it.
+    private var belowBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                header
+                    .frame(width: 220)
+                if state.keyboardFlow {
+                    flowStrip
                 }
-                .help("Clears every tag from the clips you have selected · "
-                      + "\(Shortcuts.shared.display(.clearTags)) does the same")
+            }
+
+            if library.teams.isEmpty {
+                emptyRoster
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    benchColumn
+                        .frame(minWidth: 260, idealWidth: 340, maxWidth: 420,
+                               maxHeight: .infinity, alignment: .top)
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        categoryRow
+                            .flowSection(.categories, current: state.tagStage,
+                                         active: state.keyboardFlow)
+                        if !currentTags.isEmpty {
+                            Divider()
+                            tagList
+                        }
+                        Spacer(minLength: 0)
+                        clearTagsButton
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
             }
         }
-        .padding(12)
-        .frame(minWidth: 280, idealWidth: 300, maxWidth: 380,
-               maxHeight: .infinity, alignment: .top)
-        // A picked player is armed for the clip you're looking at, so it doesn't follow you
-        // to the next one: the ring would sit on a player who has nothing to do with it,
-        // and hide the green of whoever is actually tagged on the clip now in view.
-        .onChange(of: clip?.id) { _ in
-            selectedPlayerIDs = []
+    }
+
+    @ViewBuilder
+    private var benchColumn: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            teamPicker
+            focusPills
+            if state.subjectsOnly { subjectField }
+            playerGrid
+                .flowSection(.players, current: state.tagStage, active: state.keyboardFlow)
         }
-        // Which benches an import brings into play is `AppState.adoptImported`; all the
-        // panel has to do is let go of players picked from the roster before it.
-        .onChange(of: state.lastImportedTeamID) { _ in
-            selectedPlayerIDs = []
+    }
+
+    @ViewBuilder
+    private var clearTagsButton: some View {
+        if !state.taggedInScope.isEmpty {
+            Divider()
+            Button(role: .destructive) {
+                state.removeTagsInScope()
+            } label: {
+                Label(state.removeTagsLabel, systemImage: "tag.slash")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .help("Clears every tag from the clips you have selected · "
+                  + "\(Shortcuts.shared.display(.clearTags)) does the same")
         }
     }
 
@@ -479,7 +547,9 @@ struct TagPanel: View {
                         .padding(.vertical, 8)
                 }
             }
-            .frame(maxHeight: 190)
+            // Capped only in the column, where the categories have to fit under it. In the
+            // band the bench has its own column and the band's height is the limit.
+            .frame(maxHeight: layout == .side ? 190 : .infinity)
             .onChange(of: state.playerCursor) { _ in
                 guard state.keyboardFlow, state.tagStage == .players,
                       let target = state.cursorScrollID
@@ -506,9 +576,17 @@ struct TagPanel: View {
                 let tagged = onClip.contains(player.id)
                 TagChip(tint: playerTint(picked: picked, onClip: tagged)) {
                     HStack(spacing: 6) {
-                        Text(player.number.isEmpty ? "–" : player.number)
-                            .font(.caption.weight(.bold).monospacedDigit())
-                            .frame(minWidth: 22)
+                        // A key while the flow is on, matching the categories: it's what
+                        // you type to reach them. A blank number has nothing to type.
+                        Group {
+                            if state.keyboardFlow && !player.number.isEmpty {
+                                KeyCap(text: player.number)
+                            } else {
+                                Text(player.number.isEmpty ? "–" : player.number)
+                                    .font(.caption.weight(.bold).monospacedDigit())
+                            }
+                        }
+                        .frame(minWidth: 26)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(player.name)
                                 .font(.caption.weight(picked ? .semibold : .regular))
@@ -617,10 +695,11 @@ struct TagPanel: View {
 
             sectionPills
 
-            // 96, not 84: an adaptive grid packs in as many columns of at least the minimum
+            // 110, not 96: an adaptive grid packs in as many columns of at least the minimum
             // as will fit and only then widens them, so a wider panel gives *narrower*
-            // cells. At 84 a 300pt panel lands on 88pt cells, and the tick on an applied
-            // chip then costs a letter off "Celebration". 96 keeps three columns at worst.
+            // cells. The keycap number takes about 20pt, and at 96 the tick on an applied
+            // chip then cost a letter off "Celebration". 110 keeps two columns in the side
+            // panel at its narrowest.
             if state.flowCategories.isEmpty {
                 Text(!state.categoryEntry.isEmpty
                      ? "Nothing numbered \(state.categoryEntry) here."
@@ -633,7 +712,8 @@ struct TagPanel: View {
                     .padding(.vertical, 8)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
+            let grid = LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)],
+                                 spacing: 6) {
                 ForEach(Array(state.flowCategoryItems.enumerated()), id: \.element.id) { index, item in
                     let category = item.name
                     let applied = onThisClip.contains(category)
@@ -656,9 +736,7 @@ struct TagPanel: View {
                                     Image(systemName: "plus")
                                         .font(.caption2.weight(.bold))
                                 } else if state.keyboardFlow && !state.isTypingCategory {
-                                    Text("\(item.number)")
-                                        .font(.caption2.weight(.bold).monospacedDigit())
-                                        .foregroundStyle(.secondary)
+                                    KeyCap(text: "\(item.number)")
                                 }
                                 Text(category)
                                     .font(.caption.weight(applied ? .semibold : .medium))
@@ -677,6 +755,7 @@ struct TagPanel: View {
                     .buttonStyle(.plain)
                     .disabled(clip == nil)
                     .opacity(clip == nil ? 0.4 : 1)
+                    .id(item.id)
                     .overlay(cursorRing(on: isCursor(.categories, index)))
                     .help(applied
                           ? "\(category) is already on this clip. Clicking again adds it for "
@@ -719,6 +798,25 @@ struct TagPanel: View {
                         }
                     }
                 }
+            }
+
+            // Scrolls only in the band, which is shorter than a long section. In the column
+            // the panel grows downward and nothing is lost.
+            if layout == .below {
+                ScrollViewReader { proxy in
+                    ScrollView { grid }
+                        .onChange(of: state.categoryCursor) { _ in
+                            guard state.keyboardFlow, state.tagStage == .categories,
+                                  state.flowCategoryItems.indices.contains(state.categoryCursor)
+                            else { return }
+                            let target = state.flowCategoryItems[state.categoryCursor].id
+                            withAnimation(.easeOut(duration: 0.1)) {
+                                proxy.scrollTo(target, anchor: .center)
+                            }
+                        }
+                }
+            } else {
+                grid
             }
         }
     }
@@ -1109,6 +1207,23 @@ private struct TagChip<Content: View>: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(tint ?? .clear, lineWidth: 2)
             )
+    }
+}
+
+/// What you'd type to reach a chip — a category's position or a shirt number — drawn as a
+/// key rather than a footnote. Category numbers were grey caption text for releases, and
+/// went unused because they couldn't be read from the video.
+private struct KeyCap: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.callout.weight(.bold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 20, minHeight: 20)
+            // Accent even on a green chip: the number has to read the same on every chip.
+            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
     }
 }
 

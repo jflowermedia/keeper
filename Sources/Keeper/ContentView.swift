@@ -13,6 +13,8 @@ struct ContentView: View {
     /// which read as the arrows moving without selecting anything.
     @FocusState private var listFocused: Bool
     @AppStorage("showTagging") private var showTagging = true
+    /// Same key as the View menu's toggle. See `TagPanel.Layout` for why under is the default.
+    @AppStorage("taggingBelow") private var taggingBelow = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,9 +32,22 @@ struct ContentView: View {
                 clipList
                     .flowSection(.clips, current: state.tagStage, active: state.keyboardFlow)
                     .frame(minWidth: 400, idealWidth: 460, maxHeight: .infinity)
-                PreviewPane(clip: state.previewClip)
-                    .frame(minWidth: 300, maxHeight: .infinity)
-                if showTagging {
+                // The split is there either way, so the preview stays the same view when the
+                // panel moves or ⌘E hides it. Two branches would rebuild the player and drop
+                // the clip you were halfway through.
+                VSplitView {
+                    PreviewPane(clip: state.previewClip)
+                        .frame(minHeight: 220, maxHeight: .infinity)
+                    if showTagging && taggingBelow {
+                        TagPanel(state: state, layout: .below)
+                            .frame(minHeight: 200, idealHeight: 260, maxHeight: .infinity)
+                    }
+                }
+                // Wider with the band in it: the bench column alone takes 260, and without
+                // room for the categories beside it, dragging the clip list wider squeezed
+                // them to nothing.
+                .frame(minWidth: showTagging && taggingBelow ? 600 : 300, maxHeight: .infinity)
+                if showTagging && !taggingBelow {
                     TagPanel(state: state)
                 }
             }

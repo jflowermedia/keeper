@@ -1030,7 +1030,8 @@ extension AppState {
                 let new = library.allCategories.contains(category) ? "" : "New tag: "
                 return "\(new)\(category) · Return tags \(who) · Space types a space"
             }
-            return "Type a tag, or ↑ ↓ · Return tags \(who) · ⇧Return keeps this clip"
+            // Numbers first: they're the quick way in, and went unused while nothing said so.
+            return "Type a number or a tag, or ↑ ↓ · Return tags \(who) · ⇧Return keeps this clip"
         }
     }
 }
