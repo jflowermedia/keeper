@@ -129,7 +129,7 @@ private extension Color {
 /// Every chip, badge and key asks for its colour as it draws, and moving down one clip redraws
 /// the whole list. Reading UserDefaults on each of those asks made the app noticeably slower
 /// the day themes went in; this is the fix. Main thread only, like `FlowKeyState`.
-final class ThemeColors {
+final class ThemeColors: NSObject {
     static let shared = ThemeColors()
 
     private(set) var flavor = ThemeFlavor.system
@@ -142,21 +142,27 @@ final class ThemeColors {
     private(set) var secondary = Color.secondary
     private(set) var text = Color.primary
 
-    private init() {
+    private override init() {
+        super.init()
         reload()
-        // Posted synchronously by the write itself, so the cache is current before the
-        // `.id` change that follows rebuilds the window.
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
-                                               object: nil, queue: nil) { [weak self] _ in
-            self?.reloadIfChanged()
+        // Observing the two keys rather than `didChangeNotification`, which only fires for
+        // writes made inside the app: a theme set any other way left the window repainted by
+        // `@AppStorage` but every chip still in the old theme's colours. KVO is also what
+        // `@AppStorage` itself uses, and it reports synchronously, so the cache is current
+        // before the `.id` change that rebuilds the window.
+        for key in [ThemeFlavor.storageKey, ThemeAccent.storageKey] {
+            UserDefaults.standard.addObserver(self, forKeyPath: key, context: nil)
         }
     }
 
-    /// The notification fires for every default anyone writes, so it only re-resolves when
-    /// one of these two actually moved.
-    private func reloadIfChanged() {
-        guard ThemeFlavor.stored != flavor || ThemeAccent.stored != accent else { return }
-        reload()
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?,
+                               change: [NSKeyValueChangeKey: Any]?,
+                               context: UnsafeMutableRawPointer?) {
+        if Thread.isMainThread {
+            reload()
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.reload() }
+        }
     }
 
     private func reload() {

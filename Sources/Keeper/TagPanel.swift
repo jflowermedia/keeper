@@ -15,9 +15,6 @@ struct TagPanel: View {
     @State private var showingSubjectField = false
     @State private var newSection = ""
     @State private var addingSection = false
-    /// The category grid's own height, measured, so the band's scroll view can stop there
-    /// rather than taking all the room it's offered.
-    @State private var categoryGridHeight: CGFloat = .infinity
     /// Same key as the menu item's, so the two stay in step.
     @AppStorage("advanceAfterTag") private var advanceAfterTag = false
 
@@ -140,17 +137,38 @@ struct TagPanel: View {
                         .frame(minWidth: 260, idealWidth: 340, maxWidth: 420,
                                maxHeight: .infinity, alignment: .top)
                     Divider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        categoryRow
-                            .flowSection(.categories, current: state.tagStage,
-                                         active: state.keyboardFlow)
-                        if showsTagList {
-                            Divider()
-                            tagList
-                        }
-                        Spacer(minLength: 0)
+                    categoryColumn
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+            }
+        }
+    }
+
+    /// The whole column scrolls, not the grid inside it, so the outline round the categories
+    /// ends where they do without anything being measured. Two tries at scrolling the grid
+    /// alone each cost something: ViewThatFits built it twice per redraw, and capping a lazy
+    /// grid at its measured height let one zero reading hide every category for good.
+    private var categoryColumn: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    categoryRow
+                        .flowSection(.categories, current: state.tagStage,
+                                     active: state.keyboardFlow)
+                    if showsTagList {
+                        Divider()
+                        tagList
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: state.categoryCursor) { _ in
+                guard state.keyboardFlow, state.tagStage == .categories,
+                      state.flowCategoryItems.indices.contains(state.categoryCursor)
+                else { return }
+                let target = state.flowCategoryItems[state.categoryCursor].id
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
         }
@@ -744,8 +762,7 @@ struct TagPanel: View {
                     .padding(.vertical, 8)
             }
 
-            let grid = LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)],
-                                 spacing: 6) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], spacing: 6) {
                 ForEach(Array(state.flowCategoryItems.enumerated()), id: \.element.id) { index, item in
                     let category = item.name
                     let applied = onThisClip.contains(category)
@@ -830,37 +847,6 @@ struct TagPanel: View {
                         }
                     }
                 }
-            }
-
-            // Scrolls only in the band, which is shorter than a long section. In the column
-            // the panel grows downward and nothing is lost.
-            //
-            // And only as tall as it has to be: a bare ScrollView takes every point it's
-            // offered, which left a short section at the top of an outlined box stretching to
-            // the bottom. Capped at the grid's measured height rather than with ViewThatFits,
-            // which built the whole grid twice on every redraw.
-            if layout == .below {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        grid.background(GeometryReader { geometry in
-                            Color.clear.preference(key: GridHeightKey.self,
-                                                   value: geometry.size.height)
-                        })
-                    }
-                    .frame(maxHeight: categoryGridHeight)
-                    .onPreferenceChange(GridHeightKey.self) { categoryGridHeight = $0 }
-                    .onChange(of: state.categoryCursor) { _ in
-                        guard state.keyboardFlow, state.tagStage == .categories,
-                              state.flowCategoryItems.indices.contains(state.categoryCursor)
-                        else { return }
-                        let target = state.flowCategoryItems[state.categoryCursor].id
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(target, anchor: .center)
-                        }
-                    }
-                }
-            } else {
-                grid
             }
         }
     }
@@ -1253,11 +1239,6 @@ private struct TagChip<Content: View>: View {
                     .strokeBorder(tint ?? .clear, lineWidth: 2)
             )
     }
-}
-
-private struct GridHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// What you'd type to reach a chip — a category's position or a shirt number — drawn as a
