@@ -74,7 +74,7 @@ struct WelcomeSheet: View {
                 .font(.callout.weight(.medium))
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.12))
+                .background(Color.keeperAccent.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 // The count comes from the array, not from a number typed into the
@@ -136,7 +136,7 @@ struct WelcomeSheet: View {
                             .font(.system(.callout, design: .monospaced).weight(.medium))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .background(Color.secondary.opacity(0.15))
+                            .background(Color.keeperSecondary.opacity(0.15))
                             .clipShape(RoundedRectangle(cornerRadius: 5))
                         Text(action.title)
                             .font(.callout)

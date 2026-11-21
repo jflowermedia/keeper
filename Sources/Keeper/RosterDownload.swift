@@ -312,7 +312,7 @@ struct RosterDownloadSheet: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .background(previewing ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(previewing ? Color.keeperAccent.opacity(0.15) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -337,7 +337,7 @@ struct RosterDownloadSheet: View {
                           + "it in a CSV and import that instead.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.keeperOrange)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
@@ -365,7 +365,7 @@ struct RosterDownloadSheet: View {
                                     Text("#\(row.number)")
                                         .font(.callout.monospacedDigit())
                                         .foregroundStyle(shared.contains(row.number)
-                                                         ? Color.orange : Color.secondary)
+                                                         ? Color.keeperOrange : Color.keeperSecondary)
                                         .frame(width: 36, alignment: .trailing)
                                     Text(row.name)
                                     Spacer(minLength: 0)
@@ -518,6 +518,7 @@ struct RosterDownloadSheet: View {
             set: { if !$0 { state.finishRosterReview(apply: false) } }
         )) {
             RosterReviewSheet(state: state)
+                .keeperThemed()
         }
         .onAppear { state.loadLeagueTeams() }
         // Ticks are team codes, and codes from one league mean nothing in another.

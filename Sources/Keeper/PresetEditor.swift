@@ -109,7 +109,7 @@ struct PresetEditor: View {
                     .textSelection(.enabled)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.12))
+                    .background(Color.keeperSecondary.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 7))
 
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -171,7 +171,7 @@ struct PresetEditor: View {
                       + "becomes \"name 2\" — but they'll be hard to tell apart.",
                       systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
             }
 
             ForEach(Array(preset.tokens.enumerated()), id: \.offset) { index, token in
@@ -201,7 +201,7 @@ struct PresetEditor: View {
                 .buttonStyle(.borderless)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.08))
+                .background(Color.keeperSecondary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
@@ -233,7 +233,7 @@ struct PresetEditor: View {
                 .buttonStyle(.borderless)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.06))
+                .background(Color.keeperSecondary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }

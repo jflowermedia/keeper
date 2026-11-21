@@ -100,7 +100,7 @@ struct RosterReviewSheet: View {
         VStack(alignment: .leading, spacing: 3) {
             Label(file.file, systemImage: file.problem == nil ? "doc.text" : "exclamationmark.triangle")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(file.problem == nil && !file.teams.isEmpty ? Color.primary : Color.orange)
+                .foregroundStyle(file.problem == nil && !file.teams.isEmpty ? Color.keeperText : Color.keeperOrange)
             if let layout = file.layout {
                 Text(describe(layout))
                     .font(.caption)
@@ -120,7 +120,7 @@ struct RosterReviewSheet: View {
             if let problem = file.problem {
                 Text(problem)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -221,25 +221,25 @@ struct RosterReviewSheet: View {
                             ForEach(changes.added, id: \.number) { player in
                                 switch chosen {
                                 case .skip:
-                                    line("·", "#\(player.number)  \(player.name) — not added", Color.secondary)
+                                    line("·", "#\(player.number)  \(player.name) — not added", Color.keeperSecondary)
                                 case .merge, .replace:
-                                    line("+", "#\(player.number)  \(player.name)", .green)
+                                    line("+", "#\(player.number)  \(player.name)", .keeperGreen)
                                 }
                             }
                             ForEach(changes.removed, id: \.number) { player in
                                 switch chosen {
                                 case .replace:
-                                    line("−", "#\(player.number)  \(player.name)", .red)
+                                    line("−", "#\(player.number)  \(player.name)", .keeperRed)
                                 case .merge, .skip:
                                     line("=", "#\(player.number)  \(player.name) — not in the new list, kept",
-                                         Color.secondary)
+                                         Color.keeperSecondary)
                                 }
                             }
                             ForEach(changes.changed, id: \.new.number) { change in
                                 switch chosen {
                                 case .replace:
                                     HStack(alignment: .firstTextBaseline) {
-                                        line("~", describe(change, in: conflict.id), .orange)
+                                        line("~", describe(change, in: conflict.id), .keeperOrange)
                                         if renamed(change) {
                                             Spacer()
                                             Toggle("Same player", isOn: samePlayer(change, in: conflict.id))
@@ -252,7 +252,7 @@ struct RosterReviewSheet: View {
                                     }
                                 case .merge, .skip:
                                     line("=", "#\(change.old.number)  \(change.old.name) — kept as yours "
-                                         + "(new list: \(change.new.name))", Color.secondary)
+                                         + "(new list: \(change.new.name))", Color.keeperSecondary)
                                 }
                             }
                         }
@@ -279,14 +279,14 @@ struct RosterReviewSheet: View {
                             mode: TagLibrary.ImportMode) -> some View {
         switch (detail.overwrites, mode) {
         case (true, .replace):
-            return line("~", "\(detail.field): \(detail.old) → \(detail.new)", .orange)
+            return line("~", "\(detail.field): \(detail.old) → \(detail.new)", .keeperOrange)
         case (true, _):
             return line("=", "\(detail.field): keeps \(detail.old) (new list: \(detail.new))",
-                        Color.secondary)
+                        Color.keeperSecondary)
         case (false, .skip):
-            return line("·", "\(detail.field) \(detail.new) — not added", Color.secondary)
+            return line("·", "\(detail.field) \(detail.new) — not added", Color.keeperSecondary)
         case (false, _):
-            return line("+", "\(detail.field): \(detail.new)", .green)
+            return line("+", "\(detail.field): \(detail.new)", .keeperGreen)
         }
     }
 

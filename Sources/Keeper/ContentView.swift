@@ -66,31 +66,39 @@ struct ContentView: View {
                minHeight: 620, maxHeight: .infinity)
         .sheet(item: $inspecting) { clip in
             XMLInspector(clip: clip, keepWord: state.keepWord)
+            .keeperThemed()
         }
         .sheet(isPresented: $state.showExportSheet) {
             ExportSheet(state: state)
+            .keeperThemed()
         }
         // The export sheet opens this itself. This is the route from the menu, so presets
         // are still reachable without going through an export.
         .sheet(isPresented: $state.showPresetEditor) {
             PresetEditor()
+            .keeperThemed()
         }
         .sheet(isPresented: $state.showRosterEditor) {
             RosterEditor(state: state)
+            .keeperThemed()
         }
         .sheet(isPresented: $state.showVerifySheet) {
             VerifySheet(state: state)
+            .keeperThemed()
         }
         .sheet(isPresented: $state.showShortcutsSheet) {
             ShortcutsSheet()
+            .keeperThemed()
         }
         // `onDismiss` rather than a button inside the sheet: both of the things the tutorial
         // offers to do open a modal file picker, which needs the sheet to be gone first.
         .sheet(isPresented: $state.showWelcome, onDismiss: { state.runPendingWelcomeAction() }) {
             WelcomeSheet(state: state)
+            .keeperThemed()
         }
         .sheet(isPresented: $state.showRosterDownload) {
             RosterDownloadSheet(state: state)
+            .keeperThemed()
         }
         // A CSV import's review. One from a download is shown by the download sheet itself.
         .sheet(isPresented: Binding(
@@ -98,6 +106,7 @@ struct ContentView: View {
             set: { if !$0 { state.finishRosterReview(apply: false) } }
         )) {
             RosterReviewSheet(state: state)
+            .keeperThemed()
         }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
@@ -246,7 +255,7 @@ struct ContentView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.8))
+                    .background(Color.keeperRed.opacity(0.8))
             }
         }
     }
@@ -280,8 +289,8 @@ struct ContentView: View {
                 .font(.caption.weight(on ? .bold : .regular))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 3)
-                .background(on ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1))
-                .foregroundStyle(on ? Color.accentColor : .secondary)
+                .background(on ? Color.keeperAccent.opacity(0.18) : Color.keeperSecondary.opacity(0.1))
+                .foregroundStyle(on ? Color.keeperAccent : .keeperSecondary)
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -546,7 +555,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.18))
+                    .background(Color.keeperOrange.opacity(0.18))
                     .clipShape(Capsule())
 
                 Text(state.status)
@@ -629,7 +638,7 @@ struct ContentView: View {
                             .font(.callout.weight(.medium).monospacedDigit())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.14))
+                            .background(Color.keeperSecondary.opacity(0.14))
                             .clipShape(Capsule())
                             .help(state.sizeBreakdown)
                     }
@@ -638,7 +647,7 @@ struct ContentView: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.25))
+                            .background(Color.keeperOrange.opacity(0.25))
                             .clipShape(Capsule())
                             .help("Flags you changed. They're written into the XML on export, never onto the card.")
                     }
@@ -752,7 +761,7 @@ struct ClipRow: View {
                 .padding(.vertical, 3)
                 .background(badgeFill)
                 .overlay(
-                    Capsule().strokeBorder(isChanged ? Color.orange.opacity(0.9) : .clear,
+                    Capsule().strokeBorder(isChanged ? Color.keeperOrange.opacity(0.9) : .clear,
                                            lineWidth: 1)
                 )
                 .clipShape(Capsule())
@@ -772,9 +781,9 @@ struct ClipRow: View {
     /// turn a KEEP you set yourself orange, and those are exactly the ones you'd look for.
     private var badgeFill: Color {
         switch flag {
-        case .keep: return .green.opacity(0.25)
-        case .ok:   return .yellow.opacity(0.3)
-        case .ng:   return .red.opacity(0.22)
+        case .keep: return .keeperGreen.opacity(0.25)
+        case .ok:   return .keeperYellow.opacity(0.3)
+        case .ng:   return .keeperRed.opacity(0.22)
         case nil:   return .clear
         }
     }

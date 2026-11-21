@@ -121,7 +121,7 @@ struct ShortcutsSheet: View {
             if let message = recorder.message {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -212,7 +212,7 @@ struct ShortcutsSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay(
                     RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(listening ? Color.accentColor : .clear, lineWidth: 1.5)
+                        .strokeBorder(listening ? Color.keeperAccent : .clear, lineWidth: 1.5)
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 5))
         }
@@ -221,13 +221,13 @@ struct ShortcutsSheet: View {
     }
 
     private func labelColour(listening: Bool, combo: KeyCombo?) -> Color {
-        if listening { return .accentColor }
-        return combo == nil ? .secondary : .primary
+        if listening { return .keeperAccent }
+        return combo == nil ? .keeperSecondary : .keeperText
     }
 
     private func fill(listening: Bool, combo: KeyCombo?) -> Color {
-        if listening { return .accentColor.opacity(0.12) }
-        return combo == nil ? .clear : Color.secondary.opacity(0.14)
+        if listening { return .keeperAccent.opacity(0.12) }
+        return combo == nil ? .clear : Color.keeperSecondary.opacity(0.14)
     }
 
     // MARK: The ones that don't move

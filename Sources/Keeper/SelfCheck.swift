@@ -81,6 +81,7 @@ enum SelfCheck {
         nicknames()
         numbersChangingHands()
         mascots()
+        themes()
 
         print("\n\(passes) passed, \(failures.count) failed")
         if !failures.isEmpty {
@@ -1642,6 +1643,22 @@ enum SelfCheck {
         let old = #"{"teamID":"virden","number":"27","name":"Sam Marchetti"}"#
         expect("a player saved before nicknames still reads",
                (try? JSONDecoder().decode(Player.self, from: Data(old.utf8)))?.nickname, "")
+    }
+
+    private static func themes() {
+        section("Themes")
+
+        // A stored value has to come back as the same theme, or a relaunch quietly resets it.
+        for flavor in ThemeFlavor.allCases {
+            expect("\(flavor.title) survives being stored", ThemeFlavor(rawValue: flavor.rawValue), flavor)
+        }
+        expect("System has no palette, so nothing is repainted", ThemeFlavor.system.palette == nil, true)
+        expect("every flavour has every accent", ThemeFlavor.allCases.compactMap(\.palette)
+            .allSatisfy { $0.accents.count == ThemeAccent.allCases.count }, true)
+        // Latte is the light one; the rest are dark, and native controls have to agree.
+        expect("Latte is light", ThemeFlavor.latte.colorScheme, .light)
+        expect("Mocha is dark", ThemeFlavor.mocha.colorScheme, .dark)
+        expect("System follows the Mac", ThemeFlavor.system.colorScheme, nil)
     }
 
     private static func mascots() {

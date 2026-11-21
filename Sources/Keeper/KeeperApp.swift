@@ -27,6 +27,8 @@ struct KeeperApp: App {
     @AppStorage("showTagging") private var showTagging = true
     @AppStorage("advanceAfterTag") private var advanceAfterTag = false
     @AppStorage("taggingBelow") private var taggingBelow = true
+    @AppStorage(ThemeFlavor.storageKey) private var themeFlavor = ThemeFlavor.system.rawValue
+    @AppStorage(ThemeAccent.storageKey) private var themeAccent = ThemeAccent.mauve.rawValue
     /// Observed, not just read: changing a binding has to rebuild this scene, or the menu
     /// items keep the key equivalents they were built with until the next launch.
     @ObservedObject private var shortcuts = Shortcuts.shared
@@ -54,6 +56,11 @@ struct KeeperApp: App {
     var body: some Scene {
         WindowGroup("Keeper") {
             ContentView(state: state)
+                .keeperThemed()
+                // The theme's colours are read as views draw, so the window is rebuilt when
+                // it changes rather than every view having to observe it. Open sheets close;
+                // nothing else is lost, because the state lives in `AppState`.
+                .id("\(themeFlavor)-\(themeAccent)")
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -152,6 +159,17 @@ struct KeeperApp: App {
                 // A way back to the column, for a laptop screen where the band leaves the
                 // video too short to judge a clip by.
                 Toggle("Tagging Panel Below Video", isOn: $taggingBelow)
+                Divider()
+                Picker("Theme", selection: $themeFlavor) {
+                    ForEach(ThemeFlavor.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                // Greyed under System, whose accent is the one in System Settings — a menu
+                // that took the click and changed nothing would be worse.
+                Picker("Accent", selection: $themeAccent) {
+                    ForEach(ThemeAccent.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .disabled(themeFlavor == ThemeFlavor.system.rawValue)
+                Divider()
                 Button("Next Game") { state.nextGame() }
                     .keyboardShortcut(shortcuts.equivalent(.nextGame),
                                       modifiers: shortcuts.modifiers(.nextGame))

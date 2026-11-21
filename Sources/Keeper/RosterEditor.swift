@@ -260,7 +260,7 @@ struct RosterEditor: View {
                         .frame(width: 40)
                     }
                     // A renumber moves every tag on that player, so it's worth seeing.
-                    .background(renumbered(row) ? Color.orange.opacity(0.12) : Color.clear)
+                    .background(renumbered(row) ? Color.keeperOrange.opacity(0.12) : Color.clear)
                 }
             }
             .textFieldStyle(.roundedBorder)
@@ -306,7 +306,7 @@ struct RosterEditor: View {
             nicknameRow = row.id
         } label: {
             Image(systemName: nickname.isEmpty ? "quote.bubble" : "quote.bubble.fill")
-                .foregroundStyle(nickname.isEmpty ? Color.secondary : Color.accentColor)
+                .foregroundStyle(nickname.isEmpty ? Color.keeperSecondary : Color.keeperAccent)
         }
         .buttonStyle(.borderless)
         .help(nickname.isEmpty
@@ -347,7 +347,7 @@ struct RosterEditor: View {
                 if let problem {
                     Text(problem)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.keeperOrange)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let note {
                     Text(note).font(.caption).foregroundStyle(.secondary)

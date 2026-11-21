@@ -65,11 +65,11 @@ struct VerifySheet: View {
                           + " that this check can't account for either way. ⌘D lists them by name.",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.keeperOrange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text("Scan a card first.").font(.caption).foregroundStyle(.orange)
+                Text("Scan a card first.").font(.caption).foregroundStyle(.keeperOrange)
             }
         }
     }
@@ -132,7 +132,7 @@ struct VerifySheet: View {
             Label(report.summary,
                   systemImage: report.allAccountedFor ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.callout.weight(.medium))
-                .foregroundStyle(report.allAccountedFor ? Color.green : Color.orange)
+                .foregroundStyle(report.allAccountedFor ? Color.keeperGreen : Color.keeperOrange)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(FileUtil.sizeText(report.sourceBytes) + " in these clips · "
@@ -163,7 +163,7 @@ struct VerifySheet: View {
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.secondary.opacity(0.08))
+            .background(Color.keeperSecondary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             if report.allAccountedFor {
@@ -195,7 +195,7 @@ struct VerifySheet: View {
                       + "nothing left in them to prove it. Check by hand before formatting.",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -204,7 +204,7 @@ struct VerifySheet: View {
                       + report.emptyDestinations.map(\.lastPathComponent).joined(separator: ", "),
                       systemImage: "questionmark.folder")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -224,7 +224,7 @@ struct VerifySheet: View {
                              _ items: [Verifier.ClipResult],
                              detail: @escaping (Verifier.ClipResult) -> String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.orange)
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.keeperOrange)
             ForEach(items) { item in
                 HStack(spacing: 8) {
                     Text(item.name).font(.system(.caption, design: .monospaced))
@@ -235,7 +235,7 @@ struct VerifySheet: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.1))
+        .background(Color.keeperOrange.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -247,7 +247,7 @@ struct VerifySheet: View {
                 ProgressView().controlSize(.small)
                 Text("Scanning the folders…").font(.caption).foregroundStyle(.secondary)
             } else if let blocker {
-                Text(blocker).font(.caption).foregroundStyle(.orange)
+                Text(blocker).font(.caption).foregroundStyle(.keeperOrange)
             }
             Spacer()
             Button("Done") { dismiss() }

@@ -227,7 +227,7 @@ struct UpdateBanner: View {
 
     var body: some View {
         if let release = updates.available {
-            strip(tint: Color.accentColor.opacity(0.18)) {
+            strip(tint: Color.keeperAccent.opacity(0.18)) {
                 Image(systemName: "arrow.down.circle.fill")
                 Text("\(release.title) is available. You're on \(AppInfo.version).")
                     .lineLimit(1)
@@ -244,7 +244,7 @@ struct UpdateBanner: View {
                     .help("Hide until the next check")
             }
         } else if let result = updates.manualResult {
-            strip(tint: Color.secondary.opacity(0.15)) {
+            strip(tint: Color.keeperSecondary.opacity(0.15)) {
                 Text(result).lineLimit(1)
                 Spacer(minLength: 0)
                 Button { updates.manualResult = nil } label: { Image(systemName: "xmark") }

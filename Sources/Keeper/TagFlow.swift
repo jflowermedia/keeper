@@ -240,11 +240,11 @@ extension View {
         return padding(3)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(here ? Color.accentColor.opacity(0.85) : .clear, lineWidth: 2)
+                    .strokeBorder(here ? Color.keeperAccent.opacity(0.85) : .clear, lineWidth: 2)
             )
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(here ? Color.accentColor.opacity(0.05) : .clear)
+                    .fill(here ? Color.keeperAccent.opacity(0.05) : .clear)
             )
     }
 }

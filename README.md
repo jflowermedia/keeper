@@ -217,11 +217,16 @@ Typing at the categories searches every section. If nothing matches, Return tags
 | Camera | Toolbar | Sony |
 | Move On After Marking | Mark menu | On |
 | Move On After Tagging | View menu | Off |
+| Tagging Panel Below Video | View menu | On |
+| Theme | View menu | System |
+| Accent | View menu | Mauve |
 | Warn Before Clearing Tags | View menu | On |
 | Hold for Subjects Only | View menu | Off |
 | Include XML Sidecars | View menu | On |
 | Keep the Mac Awake While Transferring | View menu | On |
 | Check for Updates Automatically | Help menu | On |
+
+**Theme** recolours Keeper with one of [Catppuccin](https://catppuccin.com/palette/)'s four flavours: Latte (light), Frappé, Macchiato or Mocha. **Accent** picks one of its fourteen accent colours for highlights; it's greyed under System, which uses the accent from System Settings. Native controls such as dropdowns, checkboxes and menus follow the theme's light or dark but keep the macOS look.
 
 ## Troubleshooting
 
@@ -243,6 +248,8 @@ Keeper checks GitHub once a day and shows a notice when a new version is out. No
 ## Credits
 
 Built by **JFlowerMedia** · [jflowermedia.com](https://jflowermedia.com/) · [@jflowermedia](https://www.instagram.com/jflowermedia/)
+
+Themes use the [Catppuccin](https://github.com/catppuccin/catppuccin) palette, MIT.
 
 ## License
 

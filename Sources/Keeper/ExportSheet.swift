@@ -37,6 +37,7 @@ struct ExportSheet: View {
         .frame(width: 580, height: 640)
         .sheet(isPresented: $editingPresets) {
             PresetEditor()
+                .keeperThemed()
         }
     }
 
@@ -105,7 +106,7 @@ struct ExportSheet: View {
                 .font(.system(.caption, design: .monospaced))
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.1))
+                .background(Color.keeperSecondary.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 Text("Files keep the names the camera gave them.")
@@ -203,7 +204,7 @@ struct ExportSheet: View {
             if let caution = state.exportCaution {
                 Label(caution, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -248,7 +249,7 @@ struct ExportSheet: View {
             }
             Label(inPlaceNote, systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(.keeperOrange)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -283,7 +284,7 @@ struct ExportSheet: View {
             if state.exportFlagChanges > 0 {
                 Label(flagNote, systemImage: flagsWillTravel ? "pencil" : "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(flagsWillTravel ? Color.secondary : Color.orange)
+                    .foregroundStyle(flagsWillTravel ? Color.keeperSecondary : Color.keeperOrange)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -324,7 +325,7 @@ struct ExportSheet: View {
                 if let note = state.exportBlocker ?? state.exportCaution {
                     Text(note)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.keeperOrange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

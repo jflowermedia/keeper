@@ -15,6 +15,9 @@ struct TagPanel: View {
     @State private var showingSubjectField = false
     @State private var newSection = ""
     @State private var addingSection = false
+    /// The category grid's own height, measured, so the band's scroll view can stop there
+    /// rather than taking all the room it's offered.
+    @State private var categoryGridHeight: CGFloat = .infinity
     /// Same key as the menu item's, so the two stay in step.
     @AppStorage("advanceAfterTag") private var advanceAfterTag = false
 
@@ -59,8 +62,8 @@ struct TagPanel: View {
     /// wins the fill when a player is both, because that's the state you're about to act on —
     /// the tick keeps the other half visible.
     private func playerTint(picked: Bool, onClip: Bool) -> Color? {
-        if picked { return .accentColor }
-        if onClip { return .green }
+        if picked { return .keeperAccent }
+        if onClip { return .keeperGreen }
         return nil
     }
 
@@ -114,14 +117,12 @@ struct TagPanel: View {
                     .flowSection(.categories, current: state.tagStage, active: state.keyboardFlow)
             }
 
-            if !currentTags.isEmpty {
+            if showsTagList {
                 Divider()
                 tagList
             }
 
             Spacer(minLength: 0)
-
-            clearTagsButton
         }
     }
 
@@ -129,13 +130,7 @@ struct TagPanel: View {
     /// enough to read at a glance from the video above it.
     private var belowBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                header
-                    .frame(width: 220)
-                if state.keyboardFlow {
-                    flowStrip
-                }
-            }
+            topBar
 
             if library.teams.isEmpty {
                 emptyRoster
@@ -149,12 +144,11 @@ struct TagPanel: View {
                         categoryRow
                             .flowSection(.categories, current: state.tagStage,
                                          active: state.keyboardFlow)
-                        if !currentTags.isEmpty {
+                        if showsTagList {
                             Divider()
                             tagList
                         }
                         Spacer(minLength: 0)
-                        clearTagsButton
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
@@ -173,20 +167,50 @@ struct TagPanel: View {
         }
     }
 
+    /// Either half is reason enough: several clips selected can carry tags to clear while the
+    /// one in the viewer has none.
+    private var showsTagList: Bool {
+        !currentTags.isEmpty || !state.taggedInScope.isEmpty
+    }
+
+    /// Small and beside what it removes. As a full-width bar at the foot of the panel it was
+    /// the biggest button there, for the action you'd least want to hit by accident.
     @ViewBuilder
     private var clearTagsButton: some View {
         if !state.taggedInScope.isEmpty {
-            Divider()
             Button(role: .destructive) {
                 state.removeTagsInScope()
             } label: {
                 Label(state.removeTagsLabel, systemImage: "tag.slash")
                     .font(.caption)
-                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .help("Clears every tag from the clips you have selected · "
                   + "\(Shortcuts.shared.display(.clearTags)) does the same")
         }
+    }
+
+    /// The band's single top row: the title, where the keyboard is and what the next press
+    /// does, then the controls. Spread over a header and a strip beside it, the prompt ended
+    /// up the faintest text in the panel.
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            Label("Tagging", systemImage: "number").font(.headline)
+            if state.keyboardFlow {
+                stageSteps
+                promptText
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if state.keyboardFlow { offButton }
+            headerMenu
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(state.keyboardFlow ? Color.keeperAccent.opacity(0.07) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     // MARK: Keyboard flow
@@ -197,41 +221,58 @@ struct TagPanel: View {
     private var flowStrip: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
-                ForEach([TagStage.clips, .players, .categories], id: \.rawValue) { stage in
-                    let here = state.tagStage == stage
-                    Text(stage.title)
-                        .font(.caption2.weight(here ? .bold : .regular))
-                        .foregroundStyle(here ? Color.accentColor : .secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(here ? Color.accentColor.opacity(0.14) : .clear)
-                        .clipShape(Capsule())
-                    if stage != .categories {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+                stageSteps
                 Spacer(minLength: 0)
-                Button {
-                    state.keyboardFlow = false
-                } label: {
-                    Text("Off").font(.caption2)
-                }
-                .buttonStyle(.link)
-                .help("Give the keyboard back — Tab, Return and the arrows go back to normal")
+                offButton
             }
 
-            Text(state.flowPrompt)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            promptText
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.07))
+        .background(Color.keeperAccent.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+
+    private var stageSteps: some View {
+        HStack(spacing: 4) {
+            ForEach([TagStage.clips, .players, .categories], id: \.rawValue) { stage in
+                let here = state.tagStage == stage
+                Text(stage.title)
+                    .font(.caption.weight(here ? .bold : .regular))
+                    .foregroundStyle(here ? Color.keeperAccent : .keeperSecondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(here ? Color.keeperAccent.opacity(0.14) : .clear)
+                    .clipShape(Capsule())
+                if stage != .categories {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .fixedSize()
+    }
+
+    /// Secondary, not tertiary: it says what every key does, and it was the faintest text in
+    /// the panel.
+    private var promptText: some View {
+        Text(state.flowPrompt)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private var offButton: some View {
+        Button {
+            state.keyboardFlow = false
+        } label: {
+            Text("Off").font(.caption)
+        }
+        .buttonStyle(.link)
+        .help("Give the keyboard back — Tab, Return and the arrows go back to normal")
     }
 
     // MARK: Header
@@ -240,49 +281,54 @@ struct TagPanel: View {
         HStack {
             Label("Tagging", systemImage: "number").font(.headline)
             Spacer()
-            Menu {
-                Button("Import Roster CSV…") { importRoster() }
-                // No shortcut here: the File menu owns ⌘⇧R, and declaring it twice leaves
-                // two views competing for the same key.
-                Button("Edit Rosters…") { state.showRosterEditor = true }
-                Button("Update Tags from Roster") {
-                    let n = library.refreshTagsFromRoster()
-                    state.status = n == 0
-                        ? "Tags already match the roster."
-                        : "Updated \(n) tag(s) from the roster."
-                }
-                .disabled(library.teams.isEmpty)
-
-                Divider()
-                Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
-                    .help("Tab from the clips to the players, type a number, Return, "
-                          + "Return. See the Keeper guide.")
-                Toggle("Move On After Tagging", isOn: $advanceAfterTag)
-                    .help("Go to the next clip as soon as a tag lands. Leave it off when a "
-                          + "clip gets more than one tag — a goal and an assist, say.")
-
-                // Only with one roster in play: with two it would be ambiguous which this
-                // means, and deleting the wrong roster takes its tags' names with it.
-                if let team = soleTeam {
-                    Divider()
-                    Button("Remove \(team.name)", role: .destructive) {
-                        // Clear any filter pointing at it, or the list goes empty with no
-                        // way to see why: the menus no longer offer what's filtering it.
-                        if state.filterTeamID == team.id { state.filterTeamID = nil }
-                        if state.filterPlayerID?.hasPrefix("\(team.id)/") == true {
-                            state.filterPlayerID = nil
-                        }
-                        library.deleteTeam(id: team.id)
-                        state.setActiveTeams([])
-                        selectedPlayerIDs = []
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            headerMenu
         }
+    }
+
+    private var headerMenu: some View {
+        Menu {
+            Button("Import Roster CSV…") { importRoster() }
+            // No shortcut here: the File menu owns ⌘⇧R, and declaring it twice leaves
+            // two views competing for the same key.
+            Button("Edit Rosters…") { state.showRosterEditor = true }
+            Button("Update Tags from Roster") {
+                let n = library.refreshTagsFromRoster()
+                state.status = n == 0
+                    ? "Tags already match the roster."
+                    : "Updated \(n) tag(s) from the roster."
+            }
+            .disabled(library.teams.isEmpty)
+
+            Divider()
+            Toggle("Keyboard Tagging", isOn: $state.keyboardFlow)
+                .help("Tab from the clips to the players, type a number, Return, "
+                      + "Return. See the Keeper guide.")
+            Toggle("Move On After Tagging", isOn: $advanceAfterTag)
+                .help("Go to the next clip as soon as a tag lands. Leave it off when a "
+                      + "clip gets more than one tag — a goal and an assist, say.")
+
+            // Only with one roster in play: with two it would be ambiguous which this
+            // means, and deleting the wrong roster takes its tags' names with it.
+            if let team = soleTeam {
+                Divider()
+                Button("Remove \(team.name)", role: .destructive) {
+                    // Clear any filter pointing at it, or the list goes empty with no
+                    // way to see why: the menus no longer offer what's filtering it.
+                    if state.filterTeamID == team.id { state.filterTeamID = nil }
+                    if state.filterPlayerID?.hasPrefix("\(team.id)/") == true {
+                        state.filterPlayerID = nil
+                    }
+                    library.deleteTeam(id: team.id)
+                    state.setActiveTeams([])
+                    selectedPlayerIDs = []
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Rosters and tagging settings")
     }
 
     private var emptyRoster: some View {
@@ -365,20 +411,20 @@ struct TagPanel: View {
             if !state.nameEntry.isEmpty {
                 Text(state.nameEntry + "▏")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.keeperAccent)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.16))
+                    .background(Color.keeperAccent.opacity(0.16))
                     .clipShape(Capsule())
                     .help("Showing names with a word starting \u{201C}\(state.nameEntry)\u{201D}"
                           + " · ⌫ to go back · Esc clears")
             } else if !state.numberEntry.isEmpty {
                 Text("#\(state.numberEntry)")
                     .font(.caption2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.keeperAccent)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.16))
+                    .background(Color.keeperAccent.opacity(0.16))
                     .clipShape(Capsule())
                     .help("Showing numbers starting \(state.numberEntry) · ⌫ to go back")
             } else if state.keyboardFlow {
@@ -395,17 +441,7 @@ struct TagPanel: View {
         return Button {
             state.show(.subjects)
         } label: {
-            Text("Subjects")
-                .font(.caption2.weight(on ? .bold : .regular))
-                .italic()
-                .foregroundStyle(on ? Color.accentColor : .secondary)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(on ? Color.accentColor.opacity(0.16)
-                               : Color.secondary.opacity(0.1))
-                .clipShape(Capsule())
-                .contentShape(Capsule())
+            PillLabel(title: "Subjects", on: on, italic: true)
         }
         .buttonStyle(.plain)
         .help("The mascot, the crowd, the anthem — things you shoot that aren't on a roster · "
@@ -419,16 +455,7 @@ struct TagPanel: View {
         return Button {
             state.show(.team(team.id))
         } label: {
-            Text(state.focusLabel(for: team))
-                .font(.caption2.weight(on ? .bold : .regular))
-                .foregroundStyle(on ? Color.accentColor : .secondary)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(on ? Color.accentColor.opacity(0.16)
-                               : Color.secondary.opacity(0.1))
-                .clipShape(Capsule())
-                .contentShape(Capsule())
+            PillLabel(title: state.focusLabel(for: team), on: on)
         }
         .buttonStyle(.plain)
         .help("Show \(team.name)")
@@ -606,7 +633,7 @@ struct TagPanel: View {
                         if tagged {
                             Image(systemName: "checkmark")
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(Color.green)
+                                .foregroundStyle(Color.keeperGreen)
                         }
                     }
                 }
@@ -649,15 +676,20 @@ struct TagPanel: View {
     private func cursorRing(on showing: Bool) -> some View {
         if showing {
             RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(Color.accentColor, lineWidth: 2.5)
+                .strokeBorder(Color.keeperAccent, lineWidth: 2.5)
         }
     }
 
     // MARK: Categories
 
     private var categoryRow: some View {
-        // Resolved once for the whole grid rather than per chip.
+        // Resolved once for the whole grid rather than per chip. Each of these is a search —
+        // the viewer's clip re-filters every clip on the card — and asking per chip, twice
+        // over, is what made arrowing through clips crawl in 1.3.
         let onThisClip = categoriesOnClip
+        let noClip = clip == nil
+        let typing = state.isTypingCategory
+        let known = Set(library.allCategories)
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(hint)
@@ -718,10 +750,10 @@ struct TagPanel: View {
                     let category = item.name
                     let applied = onThisClip.contains(category)
                     // The word being typed, before it's a tag: nothing yet to keep or forget.
-                    let isNew = !library.allCategories.contains(category)
+                    let isNew = !known.contains(category)
                     let oneOff = isNew || library.isOneOff(category)
                     Button { tag(with: category) } label: {
-                        TagChip(tint: applied ? Color.green : nil, alignment: .center) {
+                        TagChip(tint: applied ? Color.keeperGreen : nil, alignment: .center) {
                             HStack(spacing: 4) {
                                 if applied {
                                     Image(systemName: "checkmark")
@@ -735,7 +767,7 @@ struct TagPanel: View {
                                 if isNew {
                                     Image(systemName: "plus")
                                         .font(.caption2.weight(.bold))
-                                } else if state.keyboardFlow && !state.isTypingCategory {
+                                } else if state.keyboardFlow && !typing {
                                     KeyCap(text: "\(item.number)")
                                 }
                                 Text(category)
@@ -753,8 +785,8 @@ struct TagPanel: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(clip == nil)
-                    .opacity(clip == nil ? 0.4 : 1)
+                    .disabled(noClip)
+                    .opacity(noClip ? 0.4 : 1)
                     .id(item.id)
                     .overlay(cursorRing(on: isCursor(.categories, index)))
                     .help(applied
@@ -802,18 +834,30 @@ struct TagPanel: View {
 
             // Scrolls only in the band, which is shorter than a long section. In the column
             // the panel grows downward and nothing is lost.
+            //
+            // And only as tall as it has to be: a bare ScrollView takes every point it's
+            // offered, which left a short section at the top of an outlined box stretching to
+            // the bottom. Capped at the grid's measured height rather than with ViewThatFits,
+            // which built the whole grid twice on every redraw.
             if layout == .below {
                 ScrollViewReader { proxy in
-                    ScrollView { grid }
-                        .onChange(of: state.categoryCursor) { _ in
-                            guard state.keyboardFlow, state.tagStage == .categories,
-                                  state.flowCategoryItems.indices.contains(state.categoryCursor)
-                            else { return }
-                            let target = state.flowCategoryItems[state.categoryCursor].id
-                            withAnimation(.easeOut(duration: 0.1)) {
-                                proxy.scrollTo(target, anchor: .center)
-                            }
+                    ScrollView {
+                        grid.background(GeometryReader { geometry in
+                            Color.clear.preference(key: GridHeightKey.self,
+                                                   value: geometry.size.height)
+                        })
+                    }
+                    .frame(maxHeight: categoryGridHeight)
+                    .onPreferenceChange(GridHeightKey.self) { categoryGridHeight = $0 }
+                    .onChange(of: state.categoryCursor) { _ in
+                        guard state.keyboardFlow, state.tagStage == .categories,
+                              state.flowCategoryItems.indices.contains(state.categoryCursor)
+                        else { return }
+                        let target = state.flowCategoryItems[state.categoryCursor].id
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(target, anchor: .center)
                         }
+                    }
                 }
             } else {
                 grid
@@ -880,10 +924,10 @@ struct TagPanel: View {
                 .fixedSize()
         }
         .font(.caption2)
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(Color.keeperAccent)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Color.accentColor.opacity(0.16))
+        .background(Color.keeperAccent.opacity(0.16))
         .clipShape(Capsule())
         .help("Space and letters are going into the tag. Esc clears it, and Space plays again.")
     }
@@ -899,13 +943,7 @@ struct TagPanel: View {
                     // the one you're leaving would quietly narrow the one you arrive at.
                     state.categoryEntry = ""
                 } label: {
-                    Text(section.name)
-                        .font(.caption2.weight(on ? .bold : .regular))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(on ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1))
-                        .foregroundStyle(on ? Color.accentColor : .secondary)
-                        .clipShape(Capsule())
+                    PillLabel(title: section.name, on: on)
                 }
                 .buttonStyle(.plain)
                 .help(section.id == CategorySection.reservedID
@@ -1038,7 +1076,14 @@ struct TagPanel: View {
 
     private var tagList: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("On this clip").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack {
+                if !currentTags.isEmpty {
+                    Text("On this clip").font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                clearTagsButton
+            }
             ForEach(currentTags) { tag in
                 HStack(spacing: 6) {
                     Text(tag.category)
@@ -1054,7 +1099,7 @@ struct TagPanel: View {
                             .font(.caption2.weight(.medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.18))
+                            .background(Color.keeperSecondary.opacity(0.18))
                             .clipShape(Capsule())
                             .lineLimit(1)
                             .help("Tagged under \(other). Switch the team picker to see it "
@@ -1077,7 +1122,7 @@ struct TagPanel: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
+                .background(Color.keeperSecondary.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
@@ -1090,10 +1135,10 @@ struct TagPanel: View {
             + "filenames on export. If they were never meant to be here, remove the tag."
         return Text("Not on roster")
             .font(.caption2.weight(.medium))
-            .foregroundStyle(.orange)
+            .foregroundStyle(.keeperOrange)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(Color.orange.opacity(0.15))
+            .background(Color.keeperOrange.opacity(0.15))
             .clipShape(Capsule())
             .lineLimit(1)
             .help(why)
@@ -1200,7 +1245,7 @@ private struct TagChip<Content: View>: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: alignment)
-            .background(tint?.opacity(0.28) ?? Color.secondary.opacity(0.12))
+            .background(tint?.opacity(0.28) ?? Color.keeperSecondary.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 6))
             // strokeBorder draws inside the shape, so the ring isn't half-clipped.
             .overlay(
@@ -1208,6 +1253,11 @@ private struct TagChip<Content: View>: View {
                     .strokeBorder(tint ?? .clear, lineWidth: 2)
             )
     }
+}
+
+private struct GridHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// What you'd type to reach a chip — a category's position or a shirt number — drawn as a
@@ -1219,11 +1269,37 @@ private struct KeyCap: View {
     var body: some View {
         Text(text)
             .font(.callout.weight(.bold).monospacedDigit())
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.keeperAccent)
             .padding(.horizontal, 5)
             .frame(minWidth: 20, minHeight: 20)
-            // Accent even on a green chip: the number has to read the same on every chip.
-            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
+            // Tinted, not solid. Solid on every chip made the bench a wall of accent, and
+            // accent is also what says "cursor" and "picked" — those have to stand out.
+            .background(Color.keeperAccent.opacity(0.2), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// One look for every pill that says "which set am I looking at": the benches, the subjects,
+/// the category sections. They were three slightly different capsules, too small to hit.
+private struct PillLabel: View {
+    let title: String
+    let on: Bool
+    var italic = false
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(on ? .semibold : .regular))
+            .italic(italic)
+            .foregroundStyle(on ? Color.keeperAccent : .keeperSecondary)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(on ? Color.keeperAccent.opacity(0.18) : Color.keeperSecondary.opacity(0.1),
+                        in: RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(on ? Color.keeperAccent.opacity(0.6) : .clear, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -1239,7 +1315,7 @@ struct TagChips: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.22))
+                        .background(Color.keeperAccent.opacity(0.22))
                         .clipShape(Capsule())
                         .lineLimit(1)
                         .help(tag.chipDetail)
