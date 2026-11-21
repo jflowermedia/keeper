@@ -6,7 +6,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 > **Alpha, version 1.3.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
-![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a goal celebration playing in the middle, and the tagging panel on the right with a roster and numbered categories](docs/keeper.png)
+![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a clip playing top right, and the tagging panel under it with the roster on the left and numbered categories across the rest](docs/keeper.png)
 
 ## How it works
 
@@ -227,6 +227,12 @@ Typing at the categories searches every section. If nothing matches, Return tags
 | Check for Updates Automatically | Help menu | On |
 
 **Theme** recolours Keeper with one of [Catppuccin](https://catppuccin.com/palette/)'s four flavours: Latte (light), Frappé, Macchiato or Mocha. **Accent** picks one of its fourteen accent colours for highlights; it's greyed under System, which uses the accent from System Settings. Native controls such as dropdowns, checkboxes and menus follow the theme's light or dark but keep the macOS look.
+
+| Latte | Frappé |
+|---|---|
+| ![Keeper in Catppuccin Latte, a light theme](docs/theme-latte.png) | ![Keeper in Catppuccin Frappé](docs/theme-frappe.png) |
+| **Macchiato** | **Mocha** |
+| ![Keeper in Catppuccin Macchiato](docs/theme-macchiato.png) | ![Keeper in Catppuccin Mocha, the darkest theme](docs/theme-mocha.png) |
 
 ## Troubleshooting
 
