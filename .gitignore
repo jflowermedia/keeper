@@ -24,3 +24,7 @@ __pycache__/
 CLAUDE.local.md
 
 .claude/settings.local.json
+
+# Sony LookProfile LUTs: no licence came with them and this repo is public.
+# Keeper imports them into Application Support instead of bundling them.
+SonyLookProfiles_*/
