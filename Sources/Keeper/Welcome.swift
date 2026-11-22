@@ -245,7 +245,8 @@ enum WelcomeTour {
                  + "toolbar — Other… takes whatever word your camera uses.\n\n"
                  + "Arrow keys move between clips and Space plays. Changed your mind? "
                  + "\(Shortcuts.shared.display(.toggleKeep)) marks KEEP or unpicks a pick, "
-                 + "\(Shortcuts.shared.display(.toggleOK)) toggles OK, and ⌘Z undoes either. A "
+                 + "\(Shortcuts.shared.display(.toggleOK)) toggles OK — on every selected clip if "
+                 + "you've picked several — and ⌘Z undoes either. A "
                  + "flag you change is applied to your copy, never to the card.",
              key: .toggleKeep),
 

@@ -700,6 +700,18 @@ final class AppState: ObservableObject {
             status = "Select a clip to mark it \(flag.rawValue)."
             return
         }
+        // With several clips picked out, the key acts on all of them — marking only the one
+        // in the viewer looked like it had ignored the rest. The previewed clip decides the
+        // direction and the others follow it, so a mixed selection ends up all one way
+        // rather than each flipping on its own. Never advances: see `advanceAfterAction`.
+        let selected = visible.filter { selection.contains($0.id) }
+        if selected.count > 1, selected.contains(where: { $0.id == clip.id }) {
+            let next = flag == .keep
+                ? ClipFlag.afterKeepKey(self.flag(clip))
+                : (self.flag(clip) == flag ? nil : flag)
+            setFlag(next, on: selected, scope: "selected")
+            return
+        }
         // Only moves on if the flag actually changed. A clip with no UMID can't be marked,
         // and advancing anyway would walk silently past it.
         let changed = flag == .keep

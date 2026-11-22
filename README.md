@@ -84,8 +84,8 @@ See [DEVELOPING.md](DEVELOPING.md) for more.
 | Space or 2 | Play, pause |
 | 1, 3 | Shuttle back, forward (press again for 2x, 4x, 8x) |
 | ⌘F | Full screen (Escape to exit) |
-| ⌘Return | Mark the previewed clip KEEP, or unpick it if it's KEEP or OK |
-| O | Toggle OK on the previewed clip |
+| ⌘Return | Mark the previewed clip KEEP, or unpick it if it's KEEP or OK. With several clips selected, all of them follow the previewed one |
+| O | Toggle OK on the previewed clip, or the whole selection |
 | ⇧⌘Return | Mark selection KEEP |
 | ⌥⌘Return | Clear flags on selection |
 | ⌘Z, ⇧⌘Z | Undo, redo |
@@ -116,6 +116,7 @@ To change a flag:
 
 - Click the badge to toggle KEEP.
 - ⌘Return (KEEP) or O (OK) on the previewed clip. It then moves to the next clip; turn that off in **Mark → Move On After Marking**.
+- With several clips selected, ⌘Return and O mark all of them the way the previewed clip goes, and stay put.
 - Right-click for KEEP, OK, NG, Clear or Revert. Right-clicking inside a selection changes the whole selection.
 - The **Mark** menu changes the selection.
 

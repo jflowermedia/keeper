@@ -82,14 +82,14 @@ struct KeeperApp: App {
             }
 
             CommandMenu("Mark") {
-                Button("Toggle KEEP on Previewed Clip") { state.toggleOnPreview(.keep) }
+                Button("Toggle KEEP on Previewed Clip or Selection") { state.toggleOnPreview(.keep) }
                     .keyboardShortcut(shortcuts.equivalent(.toggleKeep),
                                       modifiers: shortcuts.modifiers(.toggleKeep))
                     .disabled(state.previewClip == nil)
                 // No key equivalent on the item: OK's key is a bare press, and a menu item
                 // with one would fire while you typed an O into a roster. The key monitor
                 // handles it; the title says what it is.
-                Button("Toggle OK on Previewed Clip (\(shortcuts.display(.toggleOK)))") {
+                Button("Toggle OK on Previewed Clip or Selection (\(shortcuts.display(.toggleOK)))") {
                     state.toggleOnPreview(.ok)
                 }
                 .disabled(state.previewClip == nil)

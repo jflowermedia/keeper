@@ -207,8 +207,8 @@ enum ShortcutAction: String, CaseIterable, Codable, Identifiable {
         case .verify:          return "Check the Card Copied…"
         case .importRoster:    return "Import Roster CSV…"
         case .editRosters:     return "Edit Rosters…"
-        case .toggleKeep:      return "Toggle KEEP on previewed clip"
-        case .toggleOK:        return "Toggle OK on previewed clip"
+        case .toggleKeep:      return "Toggle KEEP on previewed clip or selection"
+        case .toggleOK:        return "Toggle OK on previewed clip or selection"
         case .markKeep:        return "Mark selection KEEP"
         // The case keeps its old name because it's the key bindings are stored under.
         case .markNotKeep:     return "Clear flags on selection"
