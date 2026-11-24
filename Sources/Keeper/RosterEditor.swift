@@ -23,7 +23,7 @@ struct RosterEditor: View {
     @State private var note: String?
     /// The row whose nickname popover is open.
     @State private var nicknameRow: UUID?
-    /// Off, because a tag says which shirt is in the clip. On is for a number that was wrong.
+    /// Off, because a tag says which jersey is in the clip. On is for a number that was wrong.
     @State private var moveTags = false
 
     /// A player row with an identity of its own, so renumbering can be spotted. `wasNumber`

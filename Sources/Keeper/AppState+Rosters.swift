@@ -139,11 +139,11 @@ extension AppState {
         var note = incoming.isEmpty
             ? (failed.isEmpty ? "Nothing was imported." : "")
             : stageImport(incoming, fromDownload: true)
-        let unshirted = incoming.map { TagLibrary.placed($0, existing: nil) }.filter { !$0.leftOut.isEmpty }
-        if !unshirted.isEmpty {
-            note += " Left out \(unshirted.reduce(0) { $0 + $1.leftOut.count }) with no shirt yet — "
+        let unnumbered = incoming.map { TagLibrary.placed($0, existing: nil) }.filter { !$0.leftOut.isEmpty }
+        if !unnumbered.isEmpty {
+            note += " Left out \(unnumbered.reduce(0) { $0 + $1.leftOut.count }) with no jersey number yet — "
                 + "the debug log names them."
-            for team in unshirted {
+            for team in unnumbered {
                 addLog("Left out of \(team.name): \(TagLibrary.IncomingTeam.list(team.leftOut))")
             }
         }

@@ -281,7 +281,7 @@ final class AppState: ObservableObject {
         }
     }
     /// Digits typed at the category stage, narrowing the grid by position the way
-    /// `numberEntry` narrows the bench by shirt number.
+    /// `numberEntry` narrows the bench by jersey number.
     @Published var categoryEntry = "" {
         didSet {
             FlowKeyState.shared.typingEntry = !categoryEntry.isEmpty

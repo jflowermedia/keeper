@@ -1,23 +1,23 @@
 import Foundation
 
-/// Shirt numbers as they're worn, sorted and typed.
+/// Jersey numbers as they're worn, sorted and typed.
 ///
 /// A player's id is their team and number, so two can't hold the same one. Where a list has
 /// them share, each gets a letter, the way a scoresheet would: 15 and 15b. The letter is
 /// Keeper's, so it's shown on the bench and left out of filenames.
-enum ShirtNumber {
+enum JerseyNumber {
 
     /// Whether the number carries one of Keeper's letters.
     static func isLettered(_ number: String) -> Bool {
         number.range(of: "^[0-9]+[a-z]$", options: .regularExpression) != nil
     }
 
-    /// What's on the shirt.
+    /// What's on the jersey.
     static func worn(_ number: String) -> String {
         isLettered(number) ? String(number.dropLast()) : number
     }
 
-    /// Three digits isn't a shirt. Feeds use them, and 999, for players with none yet.
+    /// Three digits isn't a jersey number. Feeds use them, and 999, for players with none yet.
     static func isPlaceholder(_ number: String) -> Bool {
         number.count > 2 && number.allSatisfy(\.isNumber)
     }

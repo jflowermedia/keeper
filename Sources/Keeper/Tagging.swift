@@ -206,7 +206,7 @@ struct Tag: Codable, Identifiable, Hashable {
     var folderSafePlayer: String? {
         guard let playerNumber, let playerName else { return nil }
         let clean = playerName.replacingOccurrences(of: "/", with: "-")
-        let worn = ShirtNumber.worn(playerNumber)
+        let worn = JerseyNumber.worn(playerNumber)
         return worn.isEmpty ? clean : "\(worn)-\(clean)"
     }
 }
@@ -755,7 +755,7 @@ final class TagLibrary: ObservableObject {
     /// from its players. So renaming a team changes `name` only, and the id stays put.
     ///
     /// A player's identity *is* their number, so renumbering genuinely moves them. Their tags
-    /// keep the number they were made with, since that's the shirt in the clip, unless
+    /// keep the number they were made with, since that's the jersey in the clip, unless
     /// `moveTags` says the number was wrong all along. Then they're carried over before the
     /// roster is replaced, which is why this is one call rather than a setter per field.
     struct RosterEdit {
@@ -1753,13 +1753,13 @@ final class TagLibrary: ObservableObject {
         var players: [Player]
         var mascots: [String] = []
         /// On the list, but with no number of their own to go in under. `placed` finds most of
-        /// them one; whoever's here after it has no shirt yet.
+        /// them one; whoever's here after it has no jersey number yet.
         var leftOut: [Player] = []
         /// The list as it came, kept by `placed`. Nil while `players` and `leftOut` still are it.
         var asListed: [Player]? = nil
 
         /// Given a letter to tell them apart.
-        var lettered: [Player] { players.filter { ShirtNumber.isLettered($0.number) } }
+        var lettered: [Player] { players.filter { JerseyNumber.isLettered($0.number) } }
 
         static func list(_ players: [Player]) -> String {
             players.map { "\($0.name) #\($0.number)" }.joined(separator: ", ")
@@ -1793,8 +1793,8 @@ final class TagLibrary: ObservableObject {
             let held = out.players.contains { $0.number == player.number }
             // Not a letter of yours either, though it's going: the last 15b's clips say 15b.
             let taken = Set(out.players.map(\.number) + yours.map(\.number))
-            guard !ShirtNumber.isPlaceholder(player.number),
-                  let number = ShirtNumber.lettered(player.number, taken: taken, plainIsHeld: held)
+            guard !JerseyNumber.isPlaceholder(player.number),
+                  let number = JerseyNumber.lettered(player.number, taken: taken, plainIsHeld: held)
             else {
                 out.leftOut.append(player)
                 continue
@@ -1859,7 +1859,7 @@ final class TagLibrary: ObservableObject {
 
     /// The order a roster is kept in: by number, numberless last, then by name.
     static func rosterOrder(_ a: Player, _ b: Player) -> Bool {
-        ShirtNumber.comesBefore(a, b)
+        JerseyNumber.comesBefore(a, b)
     }
 
     /// The reading half of an import, with the file-reading taken out — the same split

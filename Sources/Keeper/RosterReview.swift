@@ -207,7 +207,7 @@ struct RosterReviewSheet: View {
                  Color.keeperSecondary)
         }
         if !team.leftOut.isEmpty {
-            line("·", "Left out, no shirt yet: \(TagLibrary.IncomingTeam.list(team.leftOut))",
+            line("·", "Left out, no jersey number yet: \(TagLibrary.IncomingTeam.list(team.leftOut))",
                  Color.keeperSecondary)
         }
     }

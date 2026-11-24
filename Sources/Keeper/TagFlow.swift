@@ -170,10 +170,10 @@ enum CategoryWord {
 }
 
 /// Typing a name at the bench. Every word of the name is a way in, because the one you
-/// remember off the back of a shirt is the surname and the one on a subject is its only one.
+/// remember off the back of a jersey is the surname and the one on a subject is its only one.
 enum NameSearch {
     /// What can go in a name after its first letter. The first is always a letter: a name
-    /// can't start with a space, and a digit at the bench is a shirt number.
+    /// can't start with a space, and a digit at the bench is a jersey number.
     static func canType(_ character: Character) -> Bool {
         character.isLetter || " -'.".contains(character)
     }
@@ -344,7 +344,7 @@ extension AppState {
         }
         if subjectsOnly { return rosterPlayers }
         guard !numberEntry.isEmpty else { return rosterPlayers }
-        return rosterPlayers.filter { ShirtNumber.matches($0.number, typed: numberEntry) }
+        return rosterPlayers.filter { JerseyNumber.matches($0.number, typed: numberEntry) }
     }
 
     /// The pills in order: each team in play, then the subjects.
@@ -772,7 +772,7 @@ extension AppState {
                 // Said rather than swallowed, because it works everywhere but here.
                 if Shortcuts.shared.isBound(key, to: .toggleOK) {
                     status = "\(key.uppercased()) marks OK at the Clips step. "
-                        + "At the bench, type a shirt number or a name."
+                        + "At the bench, type a jersey number or a name."
                 }
                 return
             }
@@ -782,7 +782,7 @@ extension AppState {
             let attempt = numberEntry + key
             // The team bench, even from the Subjects pill: typing a number means a person,
             // and subjects have no numbers to match.
-            guard teamBenchPlayers.contains(where: { ShirtNumber.matches($0.number, typed: attempt) }) else {
+            guard teamBenchPlayers.contains(where: { JerseyNumber.matches($0.number, typed: attempt) }) else {
                 // Refused rather than applied, so the grid is never filtered to nothing
                 // and the digits already typed survive a fat finger.
                 status = "No #\(attempt) on \(shownTeams.first?.name ?? "this roster")."

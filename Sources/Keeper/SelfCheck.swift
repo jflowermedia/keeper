@@ -847,7 +847,7 @@ enum SelfCheck {
 
         // What may be bound to the subjects key. Its own group, with its own rules: a bare
         // press like a review key, but it also must not take a digit, because digits are the
-        // bench's shirt-number filter and the clash would be silent — the key would work and
+        // bench's jersey-number filter and the clash would be silent — the key would work and
         // the number it shadowed would quietly stop.
         func refused(_ combo: KeyCombo) -> Bool {
             Shortcuts.refusal(for: combo, group: .flow) != nil
@@ -2022,10 +2022,10 @@ enum SelfCheck {
         expect("someone you've numbered keeps it",
                kept.players.first { $0.name == "Nolan Brunel" }?.number, "(0)")
         expect("a call-up gets a letter, the regular doesn't",
-               kept.players.filter { ShirtNumber.worn($0.number) == "1" }.map(\.number), ["1", "1b"])
+               kept.players.filter { JerseyNumber.worn($0.number) == "1" }.map(\.number), ["1", "1b"])
         expect("nobody with the number plain, so the letters start at a",
                kept.players.first { $0.name == "Seth Hooper" }?.number, "0a")
-        expect("only someone with no shirt is left out", kept.leftOut.map(\.name), ["Nash Lenton"])
+        expect("only someone with no jersey is left out", kept.leftOut.map(\.name), ["Nash Lenton"])
         expect("Replace keeps them all and drops who the league has dropped",
                TagLibrary.importedTeam(kept, into: dauphin, mode: .replace).players.map(\.name).sorted(),
                ["Brady Shields", "Champ Vannus", "Cole Bell", "Nolan Brunel", "Seth Hooper"])
@@ -2047,18 +2047,18 @@ enum SelfCheck {
 
     private static func sharedNumbers() {
         section("Two players in one number")
-        expect("a letter isn't on the shirt", ShirtNumber.worn("15b"), "15")
-        expect("a number you've typed your own way is left be", ShirtNumber.worn("(15)"), "(15)")
-        expect("so is one that's only letters", ShirtNumber.worn("RS"), "RS")
+        expect("a letter isn't on the jersey", JerseyNumber.worn("15b"), "15")
+        expect("a number you've typed your own way is left be", JerseyNumber.worn("(15)"), "(15)")
+        expect("so is one that's only letters", JerseyNumber.worn("RS"), "RS")
         expectTrue("typing 15 finds all three",
-                   ["15", "15b", "(15)"].allSatisfy { ShirtNumber.matches($0, typed: "15") })
-        expectTrue("but not 5", !ShirtNumber.matches("15b", typed: "5"))
+                   ["15", "15b", "(15)"].allSatisfy { JerseyNumber.matches($0, typed: "15") })
+        expectTrue("but not 5", !JerseyNumber.matches("15b", typed: "5"))
         func p(_ number: String, _ name: String = "A") -> Player {
             Player(teamID: "t", number: number, name: name)
         }
         expect("they sit together, plain one first",
                ["RS", "16", "15b", "(15)", "2", "15"].map { p($0) }
-                   .sorted(by: ShirtNumber.comesBefore).map(\.number),
+                   .sorted(by: JerseyNumber.comesBefore).map(\.number),
                ["2", "15", "15b", "(15)", "16", "RS"])
 
         let csv = "number,name\n14,Anthony Peluso\n14,Tim Stapleton\n9,Evander Kane\n9,Evander Kane\n"
@@ -2077,7 +2077,7 @@ enum SelfCheck {
 
         var tag = Tag(umid: "u", clipName: "C.MP4", volumeName: "", path: "", teamID: "jets",
                       playerNumber: "14b", playerName: "Tim Stapleton", category: "Goal")
-        expect("a folder per player has the shirt", tag.folderSafePlayer, "14-Tim Stapleton")
+        expect("a folder per player has the jersey", tag.folderSafePlayer, "14-Tim Stapleton")
         expect("the chip says which of them", tag.chipText, "14b · Goal")
         tag.playerNumber = "14"
         expectTrue("numbered on their own later, their clips are still theirs",

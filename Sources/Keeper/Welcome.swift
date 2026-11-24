@@ -249,7 +249,7 @@ enum WelcomeTour {
              body: "Pick your team in the panel under the video, and tick Both teams for a game. "
                  + "Click a player, then what happened. The mascot, the crowd and the anthem are "
                  + "on the Subjects pill.\n\n"
-                 + "Faster, with keyboard tagging on: Return, the shirt number or a name, Return, "
+                 + "Faster, with keyboard tagging on: Return, the jersey number or a name, Return, "
                  + "the category or its number, Return. That tags it and moves to the next clip.\n\n"
                  + "Two games on one card? Right-click the first clip of the second and choose "
                  + "New Game Starts Here.",

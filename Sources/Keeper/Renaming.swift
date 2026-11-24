@@ -130,7 +130,7 @@ enum Renamer {
                 if chosen?.subjectName != nil { return "" }
                 return firstName(of: chosen?.playerName)
             case .playerNumber:
-                return ShirtNumber.worn(chosen?.playerNumber ?? "")
+                return JerseyNumber.worn(chosen?.playerNumber ?? "")
             case .topTag:
                 return chosen?.category ?? ""
             case .allTags:

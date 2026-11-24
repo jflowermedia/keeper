@@ -36,7 +36,7 @@ On a Sony, assign **Clip Flag** to custom buttons under **Custom Key Setting**: 
 
 Any other league or sport: <kbd>⌘I</kbd> imports a CSV with a number and a name per player, or type one in with <kbd>⇧⌘R</kbd>.
 
-<p align="center"><img src="docs/roster-download-1.4.png" width="600" alt="The Download a Roster sheet set to the MJHL, with the Dauphin Kings previewed and two call-ups who share a number shown in orange"></p>
+<p align="center"><img src="docs/roster-download-2.png" width="600" alt="The Download a Roster sheet set to the MJHL, with the Dauphin Kings previewed and two call-ups who share a number shown in orange"></p>
 
 ## 3. Open the card
 
@@ -62,7 +62,7 @@ Faster: turn on keyboard tagging with <kbd>⇧⌘T</kbd>.
 |:--|:--|
 | <kbd>↓</kbd> | pick the clip |
 | <kbd>Return</kbd> | go to the roster |
-| <kbd>1</kbd> <kbd>7</kbd> | find the shirt number (or type a name) |
+| <kbd>1</kbd> <kbd>7</kbd> | find the jersey number (or type a name) |
 | <kbd>Return</kbd> | go to the categories |
 | <kbd>g</kbd> <kbd>o</kbd> | find Goal (or type its number) |
 | <kbd>Return</kbd> | tag it and move to the next clip |
@@ -178,7 +178,7 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward,
 
 The lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you have aren't affected.
 
-**Two players in one number.** A regular keeps the number and a call-up gets a letter: **15** and **15b**. If it isn't clear whose it is, they're **15a** and **15b**. Typing 15 shows everyone in it, later downloads keep the letter, and filenames leave it out. Three-digit numbers mean no shirt yet, so those players are left out.
+**Two players in one number.** A regular keeps the number and a call-up gets a letter: **15** and **15b**. If it isn't clear whose it is, they're **15a** and **15b**. Typing 15 shows everyone in it, later downloads keep the letter, and filenames leave it out. Three-digit numbers mean no jersey number yet, so those players are left out.
 
 **Editing (<kbd>⇧⌘R</kbd>).** Numbers must be unique within a team. Changing one leaves old clips on the number worn in them, unless you tick **Change old tags too**. Editing a name on its row carries that player's clips to the new name.
 

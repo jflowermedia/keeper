@@ -21,7 +21,7 @@ tags who's in them and what happened, and copies them out named and sorted.
 
 | 1. Flag | 2. Tag | 3. Export | 4. Check |
 |:--|:--|:--|:--|
-| Press a button on the camera while you shoot. | Type a shirt number, then what happened. | Clips are copied out named from their tags. | Every copy is compared with the card. |
+| Press a button on the camera while you shoot. | Type a jersey number, then what happened. | Clips are copied out named from their tags. | Every copy is compared with the card. |
 
 <p align="center"><code>C7531.MP4</code> &nbsp;→&nbsp; <code>C7531_261003_WHKY_Marchetti_Goal.MP4</code></p>
 

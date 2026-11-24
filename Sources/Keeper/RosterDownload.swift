@@ -153,7 +153,7 @@ enum RosterFeed {
         enum CodingKeys: String, CodingKey { case `default` }
     }
 
-    /// A shirt number arrives as a number, but has been known to arrive as a string.
+    /// A jersey number arrives as a number, but has been known to arrive as a string.
     struct Number: Decodable, Hashable {
         let value: String?
 
@@ -326,7 +326,7 @@ enum RosterFeed {
         // A league can list one player twice, who'd otherwise clash with themselves.
         var listed: Set<String> = []
         let rows = rows.filter { listed.insert("\($0.number)|\($0.name.lowercased())").inserted }
-        let byNumber = Dictionary(grouping: rows.filter { !ShirtNumber.isPlaceholder($0.number) }, by: \.number)
+        let byNumber = Dictionary(grouping: rows.filter { !JerseyNumber.isPlaceholder($0.number) }, by: \.number)
         var keep: [Row] = [], leave: [Row] = []
         for row in rows {
             let wearers = byNumber[row.number] ?? []
@@ -429,7 +429,7 @@ struct RosterDownloadSheet: View {
                 let leftOut = Set(RosterFeed.usable(state.previewRows).leftOut)
                 if !leftOut.isEmpty {
                     Label("In orange: players sharing a number come in with a letter, like 15b. "
-                          + "Three digits means no shirt yet, so they're left out.",
+                          + "Three digits means no jersey number yet, so they're left out.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.keeperOrange)

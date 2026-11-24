@@ -1270,7 +1270,7 @@ private struct TagChip<Content: View>: View {
     }
 }
 
-/// What you'd type to reach a chip — a category's position or a shirt number — drawn as a
+/// What you'd type to reach a chip — a category's position or a jersey number — drawn as a
 /// key rather than a footnote. Category numbers were grey caption text for releases, and
 /// went unused because they couldn't be read from the video.
 private struct KeyCap: View {

@@ -493,9 +493,9 @@ final class Shortcuts: ObservableObject {
                 return "\(combo.display) already moves you around the tagging flow."
             }
             // Digits are the bench's own filter. Taking one would mean the key worked and
-            // the shirt number it shadowed quietly stopped.
+            // the jersey number it shadowed quietly stopped.
             if combo.key.count == 1, combo.key.first?.isNumber == true {
-                return "Digits pick a shirt number at the bench, so \(combo.display) can't "
+                return "Digits pick a jersey number at the bench, so \(combo.display) can't "
                      + "be used here."
             }
         }
