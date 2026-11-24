@@ -20,7 +20,8 @@ roster-*.csv
 # Python
 __pycache__/
 
-# Personal notes for Claude Code, kept off GitHub
+# Notes for Claude Code, kept off GitHub
+CLAUDE.md
 CLAUDE.local.md
 
 # Developer notes, kept off GitHub the same way
