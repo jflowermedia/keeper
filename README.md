@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.png" width="120" alt="">
+<img src="docs/icon-mocha.png" width="120" alt="">
 
 # Keeper
 
@@ -9,9 +9,9 @@
 Flag good clips on the camera as you shoot. Keeper starts you on those,<br>
 tags who's in them and what happened, and copies them out named and sorted.
 
-[![Latest release](https://img.shields.io/github/v/release/jflowermedia/keeper?include_prereleases&label=release&color=2fb96b)](../../releases)
-![macOS 13 or later](https://img.shields.io/badge/macOS-13%2B-24273a)
-![Free, MIT licence](https://img.shields.io/badge/licence-MIT-24273a)
+[![Latest release](https://img.shields.io/github/v/release/jflowermedia/keeper?include_prereleases&label=release&color=cba6f7)](../../releases)
+![macOS 13 or later](https://img.shields.io/badge/macOS-13%2B-1e1e2e)
+![Free, MIT licence](https://img.shields.io/badge/licence-MIT-1e1e2e)
 
 **[Download](../../releases)** &nbsp;·&nbsp; **[Guide](GUIDE.md)** &nbsp;·&nbsp; **[Report a problem](../../issues)**
 

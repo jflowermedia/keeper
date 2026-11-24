@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.png" width="80" alt="">
+<img src="docs/icon-mocha.png" width="80" alt="">
 
 # Keeper guide
 

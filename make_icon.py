@@ -8,24 +8,29 @@ Then rebuild with ./build_app.sh --install to put the new icon on the app.
 """
 import cairosvg
 
-PLATE = "#232834"
-CARD = "#eceef3"
-CONTACT = "#232834"
-CHECK = "#2fbf71"
+# Catppuccin Mocha: base and mauve. https://catppuccin.com/palette/
+BASE = "#1e1e2e"
+MAUVE = "#cba6f7"
+
+PLATE = BASE
+CARD = MAUVE
+CONTACT = BASE
+CHECK = BASE
 
 SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <rect x="92" y="92" width="840" height="840" rx="188" fill="{PLATE}"/>
 
-  <!-- SD card: a rounded rectangle with the bevelled top-left corner -->
-  <path d="M 452 268 L 660 268 Q 696 268 696 304 L 696 720 Q 696 756 660 756 L 364 756
-           Q 328 756 328 720 L 328 392 Z" fill="{CARD}"/>
+  <!-- SD card: a rounded rectangle with the bevelled top-left corner, softened at both ends -->
+  <path d="M 424 268 L 660 268 Q 696 268 696 304 L 696 720 Q 696 756 660 756 L 364 756
+           Q 328 756 328 720 L 328 364 Q 328 340 345 323 L 383 285 Q 400 268 424 268 Z"
+        fill="{CARD}"/>
 
   <!-- contacts -->
   <g fill="{CONTACT}">
-    <rect x="470" y="304" width="26" height="86" rx="12"/>
-    <rect x="516" y="304" width="26" height="86" rx="12"/>
-    <rect x="562" y="304" width="26" height="86" rx="12"/>
-    <rect x="608" y="304" width="26" height="86" rx="12"/>
+    <rect x="446" y="304" width="26" height="86" rx="12"/>
+    <rect x="492" y="304" width="26" height="86" rx="12"/>
+    <rect x="538" y="304" width="26" height="86" rx="12"/>
+    <rect x="584" y="304" width="26" height="86" rx="12"/>
   </g>
 
   <!-- keep mark -->
