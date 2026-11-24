@@ -2233,7 +2233,7 @@ enum CSV {
         var inQuotes = false
         var seen = false
         for character in text {
-            if character == "\n" {
+            if character == "\n", !inQuotes {
                 // Blank lines above the headings aren't the first line.
                 if seen { break }
                 continue

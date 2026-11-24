@@ -90,19 +90,34 @@ enum HockeyTechFeed {
     ///
     /// The newest that has started, because a season is listed months ahead with every roster
     /// in it empty. The one before follows as a fallback, for a season that has started on
-    /// paper and still has nobody in it. Not playoffs, which list only the teams left in, and
+    /// paper and still has nobody in it: a pre-season, or the first weeks of a regular one.
+    /// Never after that, or a feed that came back empty one day in January would offer last
+    /// year's team as this year's changes. Not playoffs, which list only the teams left in, and
     /// not all-star weekends and prospect series, which the feed calls seasons too.
     static func seasons(in data: Data, today: String) -> [String] {
         guard let decoded = try? JSONDecoder().decode(Kit<Seasons>.self, from: data) else { return [] }
-        let usable = (decoded.body.list ?? []).compactMap(\.value).compactMap { season -> (id: String, start: String)? in
+        let usable = (decoded.body.list ?? []).compactMap(\.value).compactMap { season -> (id: String, start: String, regular: Bool)? in
             guard let id = season.season_id?.value, !id.isEmpty,
                   let start = season.start_date, start.count == 10, start <= today,
                   season.playoff?.value != "1",
                   !isEvent(season.season_name ?? "")
             else { return nil }
-            return (id, start)
+            return (id, start, !isPreseason(season.season_name ?? ""))
         }
-        return usable.sorted { $0.start > $1.start }.prefix(2).map(\.id)
+        .sorted { $0.start > $1.start }
+        guard let newest = usable.first else { return [] }
+        let settled = newest.regular && daysBetween(newest.start, today) > 21
+        return usable.prefix(settled ? 1 : 2).map(\.id)
+    }
+
+    static func isPreseason(_ name: String) -> Bool {
+        name.range(of: "pre[- ]?season|exhibition", options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// A date that can't be read counts as long ago, the safe way round.
+    private static func daysBetween(_ start: String, _ end: String) -> Int {
+        guard let from = dates.date(from: start), let to = dates.date(from: end) else { return .max }
+        return Calendar(identifier: .gregorian).dateComponents([.day], from: from, to: to).day ?? .max
     }
 
     static func isEvent(_ name: String) -> Bool {
@@ -112,13 +127,15 @@ enum HockeyTechFeed {
 
     /// Today as the feed writes dates. Fixed calendar and locale, or a Mac set to another
     /// calendar would compare against the wrong year.
-    static func today(_ date: Date = Date()) -> String {
+    static func today(_ date: Date = Date()) -> String { dates.string(from: date) }
+
+    private static let dates: DateFormatter = {
         let format = DateFormatter()
         format.calendar = Calendar(identifier: .gregorian)
         format.locale = Locale(identifier: "en_US_POSIX")
         format.dateFormat = "yyyy-MM-dd"
-        return format.string(from: date)
-    }
+        return format
+    }()
 
     static func teams(in data: Data, seasons: [String]) -> [LeagueTeam] {
         guard let decoded = try? JSONDecoder().decode(Kit<Teams>.self, from: data) else { return [] }

@@ -388,6 +388,14 @@ final class AppState: ObservableObject {
     /// Per team, the renamed numbers ticked Same player. Empty by default: a new name on a
     /// number is taken as a new person unless you say it isn't.
     @Published var rosterReviewSamePlayer: [String: Set<String>] = [:]
+    /// Update All, while it's asking. In the review's own sheet from the start: opening one
+    /// when it finished put Return on Apply under someone in the middle of tagging.
+    @Published var rosterCheck: RosterCheck?
+    var rosterCheckTask: Task<Void, Never>?
+    var showsRosterReview: Bool {
+        (rosterReview != nil && !rosterReviewFromDownload) || rosterCheck != nil
+    }
+
     /// Which sheet shows the review. SwiftUI won't reliably put a sheet up over another from
     /// the window, so a review that comes out of the download sheet is shown from inside it.
     var rosterReviewFromDownload = false
@@ -553,11 +561,16 @@ final class AppState: ObservableObject {
             }
         }
         if let filterPlayerID {
+            let player = library.allPlayers.first { $0.id == filterPlayerID }
             list = list.filter { clip in
                 // Numbers get handed on: the last wearer's clips aren't this player's, and
                 // the ones from before they changed number are.
                 library.tags(forUMID: clip.umid).contains {
-                    library.rosterPlayer(for: $0)?.id == filterPlayerID
+                    // The name first: this runs for every tag on every redraw, and looking
+                    // each one up on its roster is a hundred times the work.
+                    $0.teamID == player?.teamID
+                        && $0.playerName.map { player?.isNamed($0) ?? false } ?? true
+                        && library.rosterPlayer(for: $0)?.id == filterPlayerID
                 }
             }
         }
@@ -638,7 +651,7 @@ final class AppState: ObservableObject {
     var aSheetIsUp: Bool {
         showExportSheet || showVerifySheet || showRosterEditor
             || showPresetEditor || showShortcutsSheet || showWelcome
-            || showRosterDownload || rosterReview != nil
+            || showRosterDownload || rosterReview != nil || rosterCheck != nil
     }
 
     @discardableResult

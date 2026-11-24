@@ -20,6 +20,8 @@ struct RosterImportReview {
     var new: [TagLibrary.IncomingTeam] = []
     var unchanged: [TagLibrary.RosterConflict] = []
     var conflicts: [TagLibrary.RosterConflict] = []
+    /// What Update All couldn't get, said in the review: the status line is behind it.
+    var missed: [String] = []
     /// Teams you have, asked after rather than imported. Leaves the benches where they are.
     var updating = false
 
@@ -31,6 +33,14 @@ struct RosterImportReview {
         new + unchanged.filter { !$0.changesNothing }.map(\.incoming) + conflicts.map(\.incoming)
     }
     var writesAnything: Bool { !toWrite.isEmpty }
+}
+
+/// Update All's progress, and what it came to when there was nothing to review.
+struct RosterCheck {
+    let total: Int
+    var done = 0
+    var name = ""
+    var result: String?
 }
 
 extension AppState {
@@ -154,8 +164,7 @@ extension AppState {
             status = "\(incoming.name) already matches the league's list."
             return
         }
-        rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
-        rosterReviewSamePlayer = [:]
+        startReviewChoices(conflicts)
         rosterReviewFromDownload = false
         rosterReview = RosterImportReview(conflicts: conflicts, updating: true)
     }
@@ -173,7 +182,25 @@ extension AppState {
             return
         }
         isFetchingRosters = true
-        Task { await fetchUpdates(teams) }
+        rosterCheck = RosterCheck(total: teams.count)
+        rosterCheckTask = Task { await fetchUpdates(teams) }
+    }
+
+    /// Every conflict starts on Merge. Not `uniqueKeysWithValues`, which is a crash if a league
+    /// ever lists two teams whose names come to the same thing.
+    private func startReviewChoices(_ conflicts: [TagLibrary.RosterConflict]) {
+        rosterReviewModes = Dictionary(conflicts.map { ($0.id, .merge) }, uniquingKeysWith: { first, _ in first })
+        rosterReviewSamePlayer = [:]
+    }
+
+    /// Escape, or the sheet's own close, whichever it's showing.
+    func closeRosterReview() {
+        if let check = rosterCheck {
+            rosterCheckTask?.cancel()
+            rosterCheck = nil
+            if check.result == nil { status = "Stopped checking rosters. Nothing has changed." }
+        }
+        finishRosterReview(apply: false)
     }
 
     private func fetchUpdates(_ teams: [Team]) async {
@@ -185,8 +212,10 @@ extension AppState {
         var unreachable: Set<RosterSource> = []
 
         for (index, team) in teams.enumerated() {
+            guard !Task.isCancelled else { return }
             guard let source = RosterWatchRule.source(for: team) else { continue }
-            status = "Checking \(index + 1) of \(teams.count) — \(team.name)…"
+            rosterCheck?.done = index
+            rosterCheck?.name = team.name
             if listed[source] == nil, !unreachable.contains(source) {
                 if let found = try? await source.fetchTeams(), !found.isEmpty {
                     listed[source] = found
@@ -212,30 +241,36 @@ extension AppState {
                 addLog("Couldn't update \(team.name): \(error.localizedDescription)")
             }
         }
-
-        // A sheet opened while this ran has to close first: SwiftUI won't reliably put a
-        // second one up from the window.
-        if aSheetIsUp { status = "Rosters checked. Close this to see what's changed." }
-        while aSheetIsUp { try? await Task.sleep(nanoseconds: 400_000_000) }
+        guard !Task.isCancelled, rosterCheck != nil else { return }
 
         let sorted = TagLibrary.sortImport(incoming, against: library.teams)
         RosterWatch.shared.markSeen(sorted.unchanged.map(\.incoming))
         if !unlisted.isEmpty { addLog("Not on their league's list: \(unlisted.joined(separator: ", "))") }
 
-        var note = sorted.conflicts.isEmpty
-            ? (incoming.isEmpty ? "" : "All \(incoming.count) rosters are up to date.")
-            : "\(sorted.conflicts.count) of \(incoming.count) rosters have changed — choose what to do."
-        if !unlisted.isEmpty {
-            note += " \(unlisted.count) aren't on their league's list — the debug log names them."
+        var parts: [String] = []
+        if !sorted.conflicts.isEmpty {
+            parts.append("\(sorted.conflicts.count) of \(incoming.count) rosters have changed — choose what to do.")
+        } else if !incoming.isEmpty {
+            parts.append(incoming.count == 1 ? "It's up to date."
+                                             : "All \(incoming.count) rosters are up to date.")
         }
-        if !failed.isEmpty { note += " Couldn't get \(failed.joined(separator: ", "))." }
-        status = note.trimmingCharacters(in: .whitespaces)
+        if !unlisted.isEmpty {
+            parts.append("\(unlisted.count) \(unlisted.count == 1 ? "isn't" : "aren't") on the league's "
+                         + "list — the debug log says which.")
+        }
+        if !failed.isEmpty { parts.append("Couldn't get \(failed.joined(separator: ", ")).") }
+        status = parts.joined(separator: " ")
 
-        guard !sorted.conflicts.isEmpty else { return }
-        rosterReviewModes = Dictionary(uniqueKeysWithValues: sorted.conflicts.map { ($0.id, .merge) })
-        rosterReviewSamePlayer = [:]
+        guard !sorted.conflicts.isEmpty else {
+            rosterCheck?.result = status
+            return
+        }
+        startReviewChoices(sorted.conflicts)
         rosterReviewFromDownload = false
-        rosterReview = RosterImportReview(conflicts: sorted.conflicts, updating: true)
+        // The review first, so the sheet swaps what it shows rather than closing and opening.
+        rosterReview = RosterImportReview(conflicts: sorted.conflicts,
+                                          missed: failed, updating: true)
+        rosterCheck = nil
     }
 
     /// Writes what needs no asking — teams you don't have, and ones that come in identical —
@@ -261,8 +296,7 @@ extension AppState {
             dropDanglingFilters()
         }
         if !conflicts.isEmpty {
-            rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
-            rosterReviewSamePlayer = [:]
+            startReviewChoices(conflicts)
             rosterReviewFromDownload = fromDownload
             rosterReview = RosterImportReview(conflicts: conflicts)
             parts.append(conflicts.count == 1
@@ -324,8 +358,7 @@ extension AppState {
         }
 
         let sorted = TagLibrary.sortImport(incoming, against: library.teams)
-        rosterReviewModes = Dictionary(uniqueKeysWithValues: sorted.conflicts.map { ($0.id, .merge) })
-        rosterReviewSamePlayer = [:]
+        startReviewChoices(sorted.conflicts)
         rosterReviewFromDownload = false
         rosterReview = RosterImportReview(files: files,
                                           new: sorted.new,

@@ -548,6 +548,8 @@ enum SelfCheck {
                CSV.parse("a,b,c\n1,x; y,3").last ?? [], ["1", "x; y", "3"])
         expect("a semicolon file still divides on them",
                CSV.parse("a;b\n1;x, y").last ?? [], ["1", "x, y"])
+        expect("a heading with a line break in it doesn't hide the rest of the first line",
+               CSV.parse("\"a;\nb\",c\n1,x; y").last ?? [], ["1", "x; y"])
         expect("a tab file on tabs", CSV.parse("a\tb\n1\t2").last ?? [], ["1", "2"])
         expect("a mascots column with several, unquoted, as the guide shows it",
                (try? TagLibrary.parseRoster(csv: "number,name,mascots,position\n1,A,Mick; Benny,Goalie",
@@ -1938,6 +1940,15 @@ enum SelfCheck {
                HockeyTechFeed.seasons(in: Data(seasons.utf8), today: "2026-12-04"), ["11", "10"])
         expect("in the playoffs, the season they follow",
                HockeyTechFeed.seasons(in: Data(seasons.utf8), today: "2026-05-01"), ["8"])
+        let january = """
+        {"SiteKit":{"Seasons":[
+          {"season_id":"94","season_name":"2026-27 Regular Season","playoff":"0","start_date":"2026-10-01"},
+          {"season_id":"90","season_name":"2025-26 Regular Season","playoff":"0","start_date":"2025-10-07"}]}}
+        """
+        expect("mid-season, an empty roster never becomes last year's",
+               HockeyTechFeed.seasons(in: Data(january.utf8), today: "2027-01-15"), ["94"])
+        expect("in its first weeks it may not be filled in yet",
+               HockeyTechFeed.seasons(in: Data(january.utf8), today: "2026-10-10"), ["94", "90"])
         expect("rubbish gives no seasons", HockeyTechFeed.seasons(in: Data("no".utf8), today: "2026-11-23"), [])
         expect("today is written the feed's way",
                HockeyTechFeed.today(Date(timeIntervalSince1970: 1_800_000_000)).count, 10)

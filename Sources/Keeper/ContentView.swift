@@ -102,8 +102,8 @@ struct ContentView: View {
         }
         // A CSV import's review. One from a download is shown by the download sheet itself.
         .sheet(isPresented: Binding(
-            get: { state.rosterReview != nil && !state.rosterReviewFromDownload },
-            set: { if !$0 { state.finishRosterReview(apply: false) } }
+            get: { state.showsRosterReview },
+            set: { if !$0 { state.closeRosterReview() } }
         )) {
             RosterReviewSheet(state: state)
             .keeperThemed()

@@ -16,6 +16,36 @@ struct RosterReviewSheet: View {
     private var review: RosterImportReview { state.rosterReview ?? RosterImportReview() }
 
     var body: some View {
+        if let check = state.rosterCheck {
+            progress(check)
+        } else {
+            reviewBody
+        }
+    }
+
+    private func progress(_ check: RosterCheck) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Update All Rosters").font(.headline)
+            if let result = check.result {
+                Text(result).fixedSize(horizontal: false, vertical: true)
+            } else {
+                ProgressView(value: Double(check.done), total: Double(max(1, check.total)))
+                Text("Checking \(check.done + 1) of \(check.total) — \(check.name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            HStack {
+                Spacer()
+                Button(check.result == nil ? "Cancel" : "Done") { state.closeRosterReview() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 420)
+    }
+
+    private var reviewBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
@@ -26,6 +56,12 @@ struct RosterReviewSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !review.missed.isEmpty {
+                    Text("Couldn't get \(review.missed.joined(separator: ", ")).")
+                        .font(.caption)
+                        .foregroundStyle(.keeperOrange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(16)
 
