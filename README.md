@@ -26,7 +26,7 @@ tags who's in them and what happened, and copies them out named and sorted.
 <p align="center"><code>C7531.MP4</code> &nbsp;→&nbsp; <code>C7531_261003_WHKY_Marchetti_Goal.MP4</code></p>
 
 > [!NOTE]
-> Alpha, version 1.4.0. Tested with one camera, a Sony A7S III, on one Mac. Keep a second copy of anything that matters.
+> Alpha, version 1.4.1. Tested with one camera, a Sony A7S III, on one Mac. Keep a second copy of anything that matters.
 
 ## Copy safety
 

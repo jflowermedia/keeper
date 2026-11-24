@@ -3,7 +3,7 @@ import AppKit
 
 enum AppInfo {
     static let name = "Keeper"
-    static let version = "1.4.0"
+    static let version = "1.4.1"
     static let stage = "alpha"
     static let versionLabel = "Version \(version) · \(stage)"
 
@@ -11,7 +11,7 @@ enum AppInfo {
     static let instagram = URL(string: "https://www.instagram.com/jflowermedia/")!
 
     static let repo = URL(string: "https://github.com/jflowermedia/keeper")!
-    /// Versions up to 1.4 open the README at its Guide heading, so that has to stay and go on
+    /// Versions up to 1.4.0 open the README at its Guide heading, so that has to stay and go on
     /// pointing here.
     static let guide = URL(string: "https://github.com/jflowermedia/keeper/blob/main/GUIDE.md")!
     static let issues = URL(string: "https://github.com/jflowermedia/keeper/issues")!
