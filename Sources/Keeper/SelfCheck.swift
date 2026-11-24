@@ -2577,13 +2577,15 @@ enum SelfCheck {
         expect("it ends by pointing at the guide",
                WelcomeTour.steps.last?.link?.url == AppInfo.guide, true)
 
-        // Choosing a folder is what gets you off a blank window, so it can't be buried. It's
-        // second now rather than first: setting up the KEEP flag happens in the camera before
-        // there's a card to choose, and skipping it is how a first scan comes up empty.
-        expect("choosing a folder is one of the first two steps",
-               WelcomeTour.steps.prefix(2).contains { $0.key == .chooseFolder }, true)
-        expect("and setting up the flag comes before it",
-               WelcomeTour.steps.first?.title, "Mark clips in camera")
+        // The flag is set up in the camera before there's a card to choose, and skipping it is
+        // how a first scan comes up empty. Choosing a folder is what gets you off a blank
+        // window, so it comes before anything that needs clips.
+        expect("setting up the flag comes first", titles.first, "Set up the camera")
+        let opening = WelcomeTour.steps.firstIndex { $0.key == .chooseFolder } ?? .max
+        expectTrue("choosing a folder comes before tagging and exporting",
+                   [.keyboardFlow, .export, .verify].allSatisfy { key in
+                       opening < WelcomeTour.steps.firstIndex { $0.key == key } ?? -1
+                   })
     }
 
     // MARK: - Pairing sidecars to videos

@@ -8,45 +8,15 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 
 ![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a clip playing top right, and the tagging panel under it with the roster on the left and numbered categories across the rest](docs/keeper-1.3.png)
 
-## How it works
-
-1. **Flag clips in camera.** KEEP for the best, OK for the rest worth keeping.
-2. **Open the card in Keeper.** It starts on your picks: every KEEP and OK clip.
-3. **Tag each clip** with a player and what happened.
-4. **Export.** Clips are copied out renamed from their tags, e.g. `C7531_261003_WHKY_Marchetti_Goal.MP4`.
-5. **Check Copied** confirms every clip made it before you format the card.
-
-## Features
-
-- **Reads camera flags** (KEEP, OK, NG) from the XML sidecars on a card, drive or folder.
-- **Previews clips** with keyboard playback, shuttle and full screen.
-- **Tags clips** to players, subjects (mascot, crowd, anthem) and categories (Goal, Save, or your own). Several tags per clip.
-- **Rosters** by CSV import, download from eleven hockey leagues, or typed in.
-- **Keyboard tagging**: clip, shirt number, category, done, with no mouse.
-- **Filters** by team, player, position, category and subject.
-- **Renames** to your own filename presets, one per client.
-- **Exports** to one folder, a folder per player or per category, or splits picks and unpicked into two folders.
-- **Checks copies** against the card by the camera's clip ID, so renamed copies still match.
-
-![The roster editor: NHL teams down the left with favourites starred, and on the right the Winnipeg Jets with their code, league and mascots above an editable list of numbers, names, positions and nickname buttons](docs/rosters-1.4.png)
+Flag clips as you shoot, then open the card: Keeper starts you on your picks, tags them against a roster, and copies them out renamed, e.g. `C7531_261003_WHKY_Marchetti_Goal.MP4`. **[The guide](#guide) is six short steps.**
 
 ## Copy safety
 
 - Nothing on a camera card is ever written, renamed or deleted. Flags you change are written to the copy only.
-- Free space is checked before copying, and every copy is size-checked after.
-- Existing files with the same name and size are skipped.
+- Free space is checked before copying, and every copy is size-checked after. Files already there with the same name and size are skipped.
 - Tags follow the clip's camera ID, so they survive renaming and copying.
 - The Mac stays awake during a copy (idle sleep only; closing the lid still sleeps it).
-- Tags are backed up automatically, ten versions deep.
-- ⌘Z undoes flag and tag changes, forty steps deep.
-
-## Which cameras
-
-Built and tested on a **Sony A7S III**. On a Sony, assign **Clip Flag** KEEP (and OK, if you want it) to custom buttons under **Custom Key Setting**, then press while recording or playing back. Press again to remove it. See [Sony's Clip Flag guide](https://helpguide.sony.net/ilc/2210/v1/en/contents/TP1001690663.html); the FX3 needs firmware 6.00 or later.
-
-The flag lives in the XML file beside each clip, so keep those files when you offload.
-
-Other cameras: choose **Other…** in the **Camera** menu and type the word your camera writes. **Show XML…** on a clip's right-click menu shows what's there.
+- Tags are backed up automatically, ten versions deep, and ⌘Z undoes flag and tag changes, forty steps deep.
 
 ## Install
 
@@ -74,9 +44,61 @@ See [DEVELOPING.md](DEVELOPING.md) for more.
 
 # Guide
 
-**Help → Welcome & Tutorial** walks through the basics. This is the reference.
+A shoot day in six steps. **Help → Welcome & Tutorial** walks through the same six in the app.
 
-## Shortcuts
+## 1. Set up the camera
+
+On a Sony, assign **Clip Flag** KEEP to a custom button under **Custom Key Setting**, and OK to another if you want it. Press it while recording or playing back; press again to take it off. KEEP is for the best, OK for the rest worth keeping. [Sony's Clip Flag guide](https://helpguide.sony.net/ilc/2210/v1/en/contents/TP1001690663.html) has the details; the FX3 needs firmware 6.00 or later.
+
+The flag is saved in the XML file beside each clip, so keep those files when you offload.
+
+## 2. Get your roster
+
+**File → Download a Roster…**, pick a league, tick your teams, **Import**. It has eleven hockey leagues: NHL, AHL, ECHL, PWHL, WHL, OHL, QMJHL, MJHL, SJHL, AJHL and BCHL.
+
+Any other league or sport: **⌘I** imports a CSV with a number and a name per player, or type one in with **⇧⌘R**.
+
+![The Download a Roster sheet set to the MJHL, with the Dauphin Kings previewed and two call-ups who share a number shown in orange](docs/roster-download-1.4.png)
+
+## 3. Open the card
+
+**⌘O** opens a card, drive or folder. You start on **Picks**, your KEEP and OK clips; **Unpicked** has the rest. ↑ ↓ move between clips and Space plays.
+
+Changed your mind? **⌘Return** marks KEEP or unpicks, **O** marks OK, and **⌘Z** undoes. The card isn't touched: the new flag goes on the copy.
+
+## 4. Tag
+
+Pick your team in the panel under the video, and tick **Both teams** for a game. Click a player, then what happened. Or turn on keyboard tagging with **⇧⌘T**:
+
+```
+↓ ↓        pick the clip
+Return     on to the roster
+17         type the shirt number (or a name: joh)
+Return     on to the categories
+go         type to find Goal (or type its number)
+Return     tag it and move to the next clip
+```
+
+**⇧Return** tags and stays on the clip, for a second player. The mascot, the crowd and the anthem are on the **Subjects** pill.
+
+## 5. Export
+
+**⌘S**. Pick a filename preset and a folder, and your picks are copied out, named from their tags. Run it again and anything already copied is skipped.
+
+![The Export sheet: a filename preset with a before-and-after name, copying split into Picks and Unpicked folders, one-folder layout, and the XML sidecar ticked](docs/export.png)
+
+## 6. Check, then format
+
+**Check Copied** (**⇧⌘V**) compares your copies with the card and lists anything missing or the wrong size. Add every folder you copied to. Only format the card once it's clean.
+
+---
+
+# Reference
+
+Everything else, to look up when you need it. Click a heading to open it.
+
+<details>
+<summary><b>Shortcuts</b></summary>
 
 | | |
 |---|---|
@@ -105,29 +127,26 @@ See [DEVELOPING.md](DEVELOPING.md) for more.
 | ⌘0, ⌘1 to ⌘9 | All games, or one of them |
 | ⌘, | Change any shortcut |
 
-## Clips and flags
+</details>
 
-**Choose Folder…** scans a card, drive or folder. The tabs show:
-
-- **Picks**: KEEP and OK clips
-- **Unpicked**: NG and unflagged clips
-- **All**
+<details>
+<summary><b>Clips and flags</b></summary>
 
 Badges show each clip's flag: **KEEP** green, **OK** yellow, **NG** red, **—** none. An orange outline means you changed it.
 
-To change a flag:
-
-- Click the badge to toggle KEEP.
-- ⌘Return (KEEP) or O (OK) on the previewed clip. It then moves to the next clip; turn that off in **Mark → Move On After Marking**.
-- With several clips selected, ⌘Return and O mark all of them the way the previewed clip goes, and stay put.
-- Right-click for KEEP, OK, NG, Clear or Revert. Right-clicking inside a selection changes the whole selection.
-- The **Mark** menu changes the selection.
+- Click the badge to toggle KEEP, or right-click for KEEP, OK, NG, Clear or Revert.
+- ⌘Return and O move to the next clip after marking. Turn that off in **Mark → Move On After Marking**.
+- With several clips selected, they mark all of them the way the previewed clip goes, and stay put. The right-click and **Mark** menus change the selection too.
+- The menus above the list filter by team, player, position, category and subject.
 
 ![Three selected clips with the right-click menu open, offering Mark 3 Clips KEEP, OK or NG, or Clear Flags on 3 Clips](docs/flags.png)
 
-## Rosters
+</details>
 
-Import a CSV with ⌘I. Pick several at once if you like. Only `number` and `name` are required:
+<details>
+<summary><b>Rosters</b></summary>
+
+**CSV files.** Only `number` and `name` are required:
 
 ```csv
 league,team,code,number,name,position,mascots
@@ -135,110 +154,88 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward,
 ```
 
 - `code` is the short team name used in filenames.
-- `league` groups teams in the menus. Past 20 teams, each league becomes a submenu. Click the star beside a team in **Edit Rosters** to put it under **Favourites** at the top of the team menus, or use **Add to Favourites** at the bottom of the tagging panel's.
-- `mascots` is the team's own mascots, separated by semicolons. Any row can carry them.
+- `league` groups teams in the menus.
+- `mascots` are separated by semicolons. Any row can carry them.
 - Without a `team` column, the filename is the team name.
 
-Before anything is written, Keeper shows which columns it read from each file and the code each team will get. A team you already have whose players, code, league or name differ is held for you to choose: **Merge** keeps yours and adds new players, **Replace** uses the file, **Skip** leaves it alone. So a `code` column can't quietly undo a code you changed in the roster editor.
+**Teams you already have** are held for you to choose, with every change shown first:
 
-If **Replace** puts a different name on a number you have, Keeper treats it as a new player: clips already tagged keep the old name, and show **Not on roster** if that player has gone. For a corrected spelling, tick **Same player** next to it under **Show player changes**, and those clips take the new name.
+- **Merge** keeps yours and adds new players. It doesn't remove anyone.
+- **Replace** uses the new list, and removes players who aren't on it. A new name on a number is a new player; tick **Same player** under **Show player changes** for a corrected spelling.
+- **Skip** leaves the team alone.
 
-**File → Download a Roster…** imports teams from these leagues, with the same review for teams you already have:
-
-| | |
-|---|---|
-| Professional | NHL, AHL, ECHL, PWHL |
-| Major Junior | WHL, OHL, QMJHL |
-| Junior A | MJHL, SJHL, AJHL, BCHL |
-
-NHL teams come with their mascots. Players listed with a three-digit number have no shirt yet and are left out; add them in **Edit Rosters** once you know it.
-
-**File → Update All Rosters…** checks every team you have from those leagues and shows what's changed in one list. **Set all** picks Merge, Replace or Skip for every team at once. Replace is the one that removes players who've left. A backup is saved before anything is written.
+**Keeping up to date.** **File → Update All Rosters…** checks every team you have from a league Keeper can download, with **Set all** at the top. A backup is saved first. An orange icon beside a team in play means its league has changed the list; Keeper asks once a day, and nothing changes until you click it and choose.
 
 ![The Update All Rosters review: Set all buttons for Merge, Replace and Skip above a list of changed teams, each with its own choice](docs/update-rosters-1.4.png)
 
-These lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you already have aren't affected.
+The lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you have aren't affected.
 
-An orange icon beside a team on the tagging panel means the league has changed that roster. Click it to see what's different and Merge, Replace or Skip. Nothing changes by itself, and the icon goes once you've looked, until the next change. Keeper asks once a day, and only about teams in play that are filed under one of the leagues above.
+**Two players in one number.** A regular keeps the number and a call-up gets a letter: **15** and **15b**. If it isn't clear whose it is, they're **15a** and **15b**. Typing 15 shows everyone in it, later downloads keep the letter, and filenames leave it out. Three-digit numbers mean no shirt yet, so those players are left out.
 
-![The Download a Roster sheet set to the MJHL, with the Dauphin Kings previewed and two call-ups who share a number shown in orange](docs/roster-download-1.4.png)
+**Editing (⇧⌘R).** Numbers must be unique within a team. Changing one leaves old clips on the number worn in them, unless you tick **Change old tags too**. Editing a name on its row carries that player's clips to the new name.
 
-**⇧⌘R** edits rosters. Player numbers must be unique within a team (add a letter if two share one), and team names must be unique. Changing a number leaves old clips on the number worn in them; tick **Change old tags too** if it was simply wrong. Removed players keep their tags, marked **Not on roster**. Editing a name on its row counts as the same player, so their clips follow the new name. Removing a player and adding someone new in that number doesn't.
+![The roster editor: NHL teams down the left with favourites starred, and on the right the Winnipeg Jets with their code, league and mascots above an editable list of numbers, names, positions and nickname buttons](docs/rosters-1.4.png)
 
-To export a player under a nickname, click the speech bubble on their row. Filenames use the nickname in place of the surname; everywhere else keeps the real name. **Replace** keeps a nickname only while the player's name and number still match.
+- **Favourites**: click a team's star and it's at the top of every team menu. Past 20 teams, the menus fold into leagues.
+- **Mascots**: a team's own join the Subjects pill while it's in play. NHL downloads include them.
+- **Nicknames**: the speech bubble on a player's row. Filenames use it in place of the surname. **Replace** keeps it only while the name and number both match.
 
-**Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams, and typing a name on a team's bench finds them too. A team's own mascots join the pill while it's in play; set them in the roster editor's **Mascots** field. A clip row shows the subject with its tag, like `Mascot · Goal`, where a player shows `17 · Goal`. Hover over a tag for the full name and team. The **Any subject** menu in the filter bar finds them. A subject you've removed stays in that menu while clips still carry it.
+**Old clips** keep the name, number, position and team they were tagged with. Someone who changes number keeps their old clips; someone who leaves stays named on theirs, marked **Not on roster**. Imports and updates never change a tag, except a name you tick as **Same player** or a position it didn't have.
 
-### Two players in one number
+</details>
 
-Junior leagues often list a call-up in a number a regular wears. The regular keeps it and the call-up gets a letter: **15** and **15b**. If it isn't clear whose number it is, they're **15a** and **15b**. Typing 15 on the bench shows everyone in it. A player keeps their letter on later downloads, or a number of your own if you've given them one. Letters are left out of filenames and folders. CSV files work the same way.
+<details>
+<summary><b>Tagging</b></summary>
 
-### Old clips
-
-A tag keeps the name, number, position and team it was made with. When a player changes number, their old clips keep the old one and still come up under their name. When they leave, the clips keep their name and show **Not on roster**. Importing, downloading and updating never change a tag, except a name you tick as **Same player**, or a position the tag didn't have.
-
-## Tagging
-
-**⌘E** opens the panel. It sits under the video, with the bench on the left and the categories on the right. To put it back beside the video, turn off **Tagging Panel Below Video** in the View menu. Click a player, then a category.
-
-- **Both teams** puts two rosters from the same league in play. ← → switch between them.
-- Categories are grouped in sections. **+** adds one; right-click to move or remove.
-- **+** by the categories adds a one-off tag. One-offs collect under **Recent**.
-- A one-off with 10 or more tags moves up to **Most Used**. Right-click to keep it in a section or forget it.
+- **⌘E** shows or hides the panel. Turn off **View → Tagging Panel Below Video** to put it beside the video.
+- **Both teams** puts two rosters from the same league in play; ← → switch between them.
+- Categories are in sections. **+** adds one; right-click to move or remove.
+- **+** by the categories adds a one-off tag. They collect under **Recent**, and one with 10 or more tags moves to **Most Used**. Right-click to keep it or forget it.
+- A tag shows as `17 · Goal`, or `Mascot · Goal` for a subject. Hover for the full name and team.
 - **Move On After Tagging** (View menu) goes to the next clip after each tag.
 
-### Two games on one card
+**With keyboard tagging on:**
 
-Right-click the first clip of the second game and choose **New Game Starts Here**. Each game gets a tab above the clip list, named from its teams, and remembers its own rosters. On **All**, the teams follow the clip you're on. **⌘1** to **⌘9** go to a game, **⌘0** goes to All, and **⌘]** steps through them.
+- **Tab** / **⇧Tab** move between clips, roster and categories. **Escape** clears what you've typed, then goes back a step.
+- At the roster, letters search names on the team showing and the subjects. Any word of the name works.
+- At the categories, type a word or a category's number, then Return. ← → change section, and the numbers change with it. Typing searches every section.
+- If no category matches, Return tags the clip with your word. If one does, ↓ reaches your exact word at the end of the list. Space types a space while you do.
+- **T** at the clip step goes straight to the categories, for a tag with no player.
+- **O** marks OK at the clip step only.
+
+</details>
+
+<details>
+<summary><b>Two games on one card</b></summary>
+
+Right-click the first clip of the second game and choose **New Game Starts Here**. Each game gets a tab, named from its teams, and remembers its own rosters. **⌘1** to **⌘9** go to a game, **⌘0** to All, and **⌘]** steps through them.
 
 - A clip in the wrong game: right-click, **Move to Game**.
 - **Remove This Game** on a tab puts its clips in the game beside it. Tags aren't touched.
-- The split is saved with your library, not on the card, so it comes back when the card does. New clips shot within 12 hours join the game beside them.
-- Anything else, like a clip with no ID, goes under a **No Game** tab so it can't be missed.
-- Exporting from a game's tab copies that game. From **All**, **Put each game in its own folder** does every game in one run, with a `No Game` folder for anything left over. With picks and unpicked split, each of those folders gets a folder per game.
+- The split is saved with your library, not on the card. New clips shot within 12 hours join the game beside them.
+- Clips in no game go under **No Game**, so they can't be missed.
+- Exporting from a tab copies that game. From **All**, **Put each game in its own folder** does every game in one run.
 
-### Keyboard tagging
+</details>
 
-**⇧⌘T** turns it on.
+<details>
+<summary><b>Exporting and filenames</b></summary>
 
-```
-↓ ↓        pick the clip
-Return     on to the roster
-17         type the shirt number (or a name: joh)
-Return     on to the categories
-go         type to find Goal (or type its number)
-Return     tag it and move to the next clip
-```
+- **Which clips**: the selection, or everything shown.
+- **Naming**: a filename preset, or the camera's names.
+- **Where**: copy to a folder, or rename in place (not allowed on a card).
+- **Layout**: one folder, per category, or per player.
+- **Split**: picks to one folder, unpicked to another.
+- **Sidecar**: whether the XML goes too. It's needed to carry flag changes.
 
-- **⇧Return** tags and stays on the clip, for a second player.
-- **Tab** / **⇧Tab** move between clips, roster and categories.
-- **At the roster**, letters search names on the team showing and the subjects together, or the subjects alone on their own pill. Any word of the name works, so a surname is enough. ⌫ takes a letter back.
-- **Escape** clears what you've typed, then goes back a step.
-- **O** marks OK at the clip step only. At the roster and the categories it's a letter like any other.
-- **T** at the clip step goes straight to the categories, for a tag with no player.
-
-With keyboard tagging on, shirt numbers and each category's number show on a coloured key. Type the number and press Return to tag it; **1** then Return is the first category in the section showing. ← → change section, and the numbers change with it.
-
-Typing at the categories searches every section. If nothing matches, Return tags the clip with your word. If something does, ↓ reaches your exact word at the end of the list. A **Typing** bar replaces the section pills while you do, and Space adds a space instead of playing the clip. Escape clears the word, and Space plays again.
-
-## Exporting
-
-**⌘S** opens the export sheet:
-
-- **Which clips**: the selection, or everything shown
-- **Naming**: a filename preset, or the camera's names
-- **Where**: copy to a folder, or rename in place (not allowed on a card)
-- **Layout**: one folder, per category, or per player
-- **Split**: picks to one folder, unpicked to another
-- **Sidecar**: whether the XML goes too (needed to carry flag changes)
-
-![The Export sheet: a filename preset with a before-and-after name, copying split into Picks and Unpicked folders, one-folder layout, and the XML sidecar ticked](docs/export.png)
-
-**Edit Presets…** builds filename presets from parts: original name, shoot date, team code, surname, category. The default gives `C7531_261003_YWP_Marchetti_Goal.MP4`.
+**Edit Presets…** builds names from parts: original name, shoot date, team code, surname, category. One preset per client.
 
 ![The Filename Presets editor: a list of presets on the left, and on the right the resulting filename, team code, separator, the name parts in order, and the tag priority list](docs/presets.png)
 
-## Settings
+</details>
+
+<details>
+<summary><b>Settings</b></summary>
 
 | Setting | Where | Default |
 |---|---|---|
@@ -257,23 +254,21 @@ Typing at the categories searches every section. If nothing matches, Return tags
 
 **Theme** recolours Keeper with one of [Catppuccin](https://catppuccin.com/palette/)'s four flavours: Latte (light), Frappé, Macchiato or Mocha. **Accent** picks one of its fourteen accent colours for highlights; it's greyed under System, which uses the accent from System Settings. Native controls such as dropdowns, checkboxes and menus follow the theme's light or dark but keep the macOS look.
 
-## Troubleshooting
+</details>
 
-- **No clips flagged?** Right-click a clip → **Show XML…** to see what the camera writes, then set **Camera → Other…** to that word.
-- **Before formatting a card**, run **Check Copied** (⇧⌘V) with every folder you copied to.
+<details>
+<summary><b>Troubleshooting and known gaps</b></summary>
+
+- **Other cameras**: built and tested on a Sony A7S III. For anything else, choose **Other…** in the **Camera** menu and type the word your camera writes.
+- **No clips flagged?** Right-click a clip → **Show XML…** to see that word.
+- **Clip not listed?** A clip needs its XML sidecar. Proxy files in `SUB` folders aren't handled.
 - **Debug log** (⌘D) shows how each clip was read and every copy result.
-- **Undo a roster edit**: **File → Restore Tags** rolls back to a backup.
+- **Undo a roster change**: **File → Restore Tags** rolls back to a backup, tags included.
 - Your library is at `~/Library/Application Support/Keeper/library.json`.
 
-## Updates
+Keeper uses the network for two things: checking GitHub once a day for a new version, and rosters (downloading one, and asking once a day whether the ones in play have changed). Nothing installs itself. Turn either check off in the **Help** menu.
 
-Keeper checks GitHub once a day and shows a notice when a new version is out. Nothing downloads automatically. Turn it off under **Help → Check for Updates Automatically**. The only other network use is rosters: downloading one, and asking once a day whether the ones in play have changed. Turn that off under **Help → Check Rosters for Changes**.
-
-## Known gaps
-
-- Proxy files in `SUB` folders aren't handled.
-- Clips without an XML sidecar aren't listed.
-- Only NHL downloads include mascots.
+</details>
 
 ## Credits
 

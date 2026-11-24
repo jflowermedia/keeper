@@ -213,98 +213,63 @@ enum WelcomeTour {
         var link: (label: String, url: URL)? = nil
     }
 
-    /// In the order the work actually happens on a shoot day, which is also the order the guide
-    /// in the README follows — so the two can't drift into describing different apps. Each step
-    /// is one job and a couple of lines; anything longer belongs in the README.
+    /// A shoot day in order, and the same six steps under the same headings as the guide in the
+    /// README, so the two can't drift into describing different apps. Change one, change both.
+    /// Each is one job and a few lines; anything longer belongs in the guide's Reference.
     static let steps: [Step] = [
         // First, because it happens in the camera before there's a card to point at — and
         // without it everything after ends at an empty Picks list with no clue why.
-        Step(title: "Mark clips in camera",
-             body: "Flag the good clips at the game, and back at the desk you start from those "
-                 + "instead of the whole card.\n\n"
-                 + "On a Sony, assign Clip Flag KEEP to a custom button with Custom Key Setting, "
-                 + "then press it while recording or playing back. Press it twice to take the "
-                 + "flag off. Clip Flag OK works the same way for clips that are worth keeping "
-                 + "but aren't the best.\n\n"
-                 + "The flag is saved in the XML file the camera writes beside each clip, not "
-                 + "in the video. Point Keeper at the card itself, or at a copy that kept the "
-                 + "XML files.",
+        Step(title: "Set up the camera",
+             body: "On a Sony, assign Clip Flag KEEP to a custom button with Custom Key Setting, and "
+                 + "OK to another if you want it. Press it while recording or playing back, and "
+                 + "again to take it off.\n\n"
+                 + "KEEP is for the best, OK for the rest worth keeping. The flag is saved in the "
+                 + "XML file beside each clip, so keep those files when you offload.",
              link: (label: "Sony's guide to Clip Flag", url: AppInfo.sonyClipFlag)),
 
-        Step(title: "Choose your card",
-             body: "Plug in the card and choose it, or any folder of camera clips. Keeper lists "
-                 + "each clip by its XML sidecar, so a video with no sidecar won't appear.\n\n"
-                 + "Keeper only reads. Nothing on the card is ever changed.",
-             key: .chooseFolder,
-             doIt: [.chooseFolder]),
-
-        Step(title: "Review your picks",
-             body: "The filter bar along the top splits the card into Picks and Unpicked, using "
-                 + "the flag your camera wrote. Picks are your KEEP and OK clips, in shooting "
-                 + "order, with KEEP in green. Nothing under Picks? Check the Camera menu in the "
-                 + "toolbar — Other… takes whatever word your camera uses.\n\n"
-                 + "Arrow keys move between clips and Space plays. Changed your mind? "
-                 + "\(Shortcuts.shared.display(.toggleKeep)) marks KEEP or unpicks a pick, "
-                 + "\(Shortcuts.shared.display(.toggleOK)) toggles OK — on every selected clip if "
-                 + "you've picked several — and ⌘Z undoes either. A "
-                 + "flag you change is applied to your copy, never to the card.",
-             key: .toggleKeep),
-
-        Step(title: "Load your roster",
-             body: "File → Download a Roster… fetches today's numbers for a league: the NHL, "
-                 + "AHL, ECHL, PWHL, the three major junior leagues and western Junior A. An "
-                 + "orange icon beside a team later on means its league has changed the list, and "
-                 + "File → Update All Rosters… checks every team at once.\n\n"
-                 + "Any other league: import a CSV with a number and a name per player — "
-                 + "several files at once if you like. Keeper shows what it read from each "
-                 + "before anything is written.\n\n"
-                 + "Already have the team? Keeper shows what's changed, its code included, "
-                 + "and asks before it touches your roster. Clips you've already tagged keep the "
-                 + "name and number they were tagged with.\n\n"
-                 + "Star the teams you shoot most in Edit Rosters, and they're at the top of every "
-                 + "team menu.",
+        Step(title: "Get your roster",
+             body: "Download a Roster has the NHL, AHL, ECHL, PWHL, the three major junior leagues "
+                 + "and western Junior A. Any other league or sport: import a CSV with a number and "
+                 + "a name per player.\n\n"
+                 + "Later, File → Update All Rosters… brings them up to date. Clips you've already "
+                 + "tagged don't change.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 
-        Step(title: "Tag your clips",
-             body: "Pick a clip, then a player and a category in the panel under the video. "
-                 + "Shooting a game? Tick Both teams and add the other bench. The mascot, the "
-                 + "crowd and anything else off the roster are on the Subjects pill, along with "
-                 + "the mascots of the teams in play.\n\n"
-                 + "Each clip then shows who and what, like 17 · Goal or Mascot · Goal. Hover over "
-                 + "one for the full name and team. The filter bar finds them again by player "
-                 + "or subject.\n\n"
-                 + "To skip the mouse: Tab moves between the list, the bench and the "
-                 + "categories, and typing a shirt number or a name narrows the bench. A name "
-                 + "finds subjects too. At the categories, type the number on a tag's key and "
-                 + "Return, or type a word to find a tag or add one nobody planned for.\n\n"
+        Step(title: "Open the card",
+             body: "Choose a card, drive or folder. Keeper only reads it: nothing on the card is "
+                 + "ever changed.\n\n"
+                 + "You start on Picks, your KEEP and OK clips. Arrow keys move between them and "
+                 + "Space plays. \(Shortcuts.shared.display(.toggleKeep)) marks KEEP or unpicks, "
+                 + "\(Shortcuts.shared.display(.toggleOK)) marks OK, and ⌘Z undoes.\n\n"
+                 + "Nothing under Picks? Check the Camera menu in the toolbar.",
+             key: .chooseFolder,
+             doIt: [.chooseFolder]),
+
+        Step(title: "Tag",
+             body: "Pick your team in the panel under the video, and tick Both teams for a game. "
+                 + "Click a player, then what happened. The mascot, the crowd and the anthem are "
+                 + "on the Subjects pill.\n\n"
+                 + "Faster, with keyboard tagging on: Return, the shirt number or a name, Return, "
+                 + "the category or its number, Return. That tags it and moves to the next clip.\n\n"
                  + "Two games on one card? Right-click the first clip of the second and choose "
-                 + "New Game Starts Here. Each game gets a tab with its own teams, and ⌘1 to ⌘9 "
-                 + "switch between them.",
+                 + "New Game Starts Here.",
              key: .keyboardFlow),
 
         Step(title: "Export",
-             body: "Export copies your picks to your drive. Pick a filename "
-                 + "preset in the sheet and each one is named from its tags; leave it and they "
-                 + "keep the camera's names.\n\n"
-                 + "Want the rest as well? Tick “Send picks and unpicked clips to separate "
-                 + "folders” and both go out in one copy.\n\n"
+             body: "Pick a filename preset and a folder, and your picks are copied out, named from "
+                 + "their tags.\n\n"
                  + "Run it again and anything already copied is skipped.",
              key: .export),
 
-        Step(title: "Check before you format",
-             body: "Check Copied compares your copies with the card and lists anything missing "
-                 + "or the wrong size. When an export finishes, a link beside the status line "
-                 + "opens it with that folder already added.\n\n"
-                 + "Only format the card once it's clean.",
-             key: .verify),
-
-        Step(title: "Where to go next",
-             body: "That's the whole shoot-day loop. The guide covers the rest: filename "
-                 + "presets for each client, every setting, rebinding keys, backups and "
-                 + "restoring your tags, and what to do when something's off.\n\n"
-                 + "It's always under Help → Keeper Guide. To change how Keeper looks, try "
-                 + "View → Theme.",
+        // Last, and with the guide's link: the step that stops someone wiping footage that
+        // didn't copy is the one to end on.
+        Step(title: "Check, then format",
+             body: "Check Copied compares your copies with the card and lists anything missing or "
+                 + "the wrong size. Only format the card once it's clean.\n\n"
+                 + "That's the whole day. The guide has the rest, and it's always under "
+                 + "Help → Keeper Guide.",
+             key: .verify,
              link: (label: "Open the Keeper Guide", url: AppInfo.guide))
     ]
 }
