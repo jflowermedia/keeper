@@ -23,6 +23,8 @@ struct RosterEditor: View {
     @State private var note: String?
     /// The row whose nickname popover is open.
     @State private var nicknameRow: UUID?
+    /// Off, because a tag says which shirt is in the clip. On is for a number that was wrong.
+    @State private var moveTags = false
 
     /// A player row with an identity of its own, so renumbering can be spotted. `wasNumber`
     /// and `wasName` are this row's player when the draft was made; nil means a new row.
@@ -259,7 +261,7 @@ struct RosterEditor: View {
                         }
                         .frame(width: 40)
                     }
-                    // A renumber moves every tag on that player, so it's worth seeing.
+                    // A renumber is easy to do by accident, so it's worth seeing.
                     .background(renumbered(row) ? Color.keeperOrange.opacity(0.12) : Color.clear)
                 }
             }
@@ -354,6 +356,13 @@ struct RosterEditor: View {
                 } else if let summary = pendingSummary {
                     Text(summary).font(.caption).foregroundStyle(.secondary)
                 }
+                if draft?.rows.contains(where: renumbered) == true {
+                    Toggle("Change old tags too", isOn: $moveTags)
+                        .toggleStyle(.checkbox)
+                        .font(.caption)
+                        .help("For a number that was wrong. Left off, clips already tagged keep "
+                              + "the number worn in them and stay with the player.")
+                }
                 Button("Apply") { commitIfPossible(thenDismiss: false) }
                     .disabled(draft == nil)
             }
@@ -366,7 +375,10 @@ struct RosterEditor: View {
         guard let draft else { return nil }
 
         func tagCount(_ number: String) -> Int {
-            library.tags.filter { $0.teamID == draft.teamID && $0.playerNumber == number }.count
+            // Theirs, not whoever wore it before.
+            library.tags.filter {
+                $0.teamID == draft.teamID && library.rosterPlayer(for: $0)?.number == number
+            }.count
         }
 
         var parts: [String] = []
@@ -375,7 +387,8 @@ struct RosterEditor: View {
         if !moved.isEmpty {
             let tags = moved.reduce(0) { $0 + tagCount($1) }
             parts.append("\(moved.count) renumbered"
-                         + (tags > 0 ? ", \(tags) tag\(tags == 1 ? "" : "s") moving with them" : ""))
+                         + (tags > 0 ? ", \(tags) tag\(tags == 1 ? "" : "s") "
+                            + (moveTags ? "moving with them" : "keeping the old number") : ""))
         }
 
         // Removing a player leaves their tags behind, on a number that may now belong to
@@ -433,6 +446,7 @@ struct RosterEditor: View {
     /// successful apply, and if that went through `select` the two would call each other
     /// forever.
     private func loadDraft(for id: String?) {
+        moveTags = false
         guard let team = library.team(id: id) else { draft = nil; return }
         draft = Draft(teamID: team.id,
                       name: team.name,
@@ -509,6 +523,7 @@ struct RosterEditor: View {
                 let now = $0.number.trimmingCharacters(in: .whitespaces)
                 return was == now ? nil : (from: was, to: now)
             },
+            moveTags: moveTags,
             respelled: draft.rows.compactMap {
                 guard let was = $0.wasName, !Player.sameName(was, $0.name) else { return nil }
                 return (number: $0.number.trimmingCharacters(in: .whitespaces), from: was)

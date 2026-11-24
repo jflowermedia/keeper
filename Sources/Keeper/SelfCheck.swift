@@ -76,6 +76,8 @@ enum SelfCheck {
         rosterDownload()
         hockeyTech()
         rosterWatch()
+        sharedNumbers()
+        oldClips()
         categorySections()
         keepSplit()
         flags()
@@ -581,8 +583,8 @@ enum SelfCheck {
         expect("empty standings give no teams",
                RosterFeed.teams(in: Data(#"{"standings":[]}"#.utf8)).count, 0)
 
-        // Duplicate numbers have to be refused by the *import*, not only by the roster
-        // editor. A player's id is team-and-number, so two players sharing one share an id,
+        // Duplicate numbers have to be caught by the *import*, not only by the roster
+        // editor: see `sharedNumbers` for what it does with them. A player's id is team-and-number, so two players sharing one share an id,
         // and the import used to accept that silently — which is how a downloaded or pasted
         // roster could leave a team that misbehaves in every list it appears in.
         func numbers(_ csv: String) -> [String] {
@@ -2004,18 +2006,145 @@ enum SelfCheck {
             failures.append("a HockeyTech roster didn't import")
             return
         }
-        let kept = TagLibrary.keepingYours(incoming, existing: dauphin)
-        expect("someone left out whom you've numbered stays",
+        let kept = TagLibrary.placed(incoming, existing: dauphin)
+        expect("someone you've numbered keeps it",
                kept.players.first { $0.name == "Nolan Brunel" }?.number, "(0)")
-        expect("and isn't called left out", kept.leftOut.map(\.name),
-               ["Champ Vannus", "Seth Hooper", "Nash Lenton"])
-        expect("Replace keeps them and drops who the league has dropped",
+        expect("a call-up gets a letter, the regular doesn't",
+               kept.players.filter { ShirtNumber.worn($0.number) == "1" }.map(\.number), ["1", "1b"])
+        expect("nobody with the number plain, so the letters start at a",
+               kept.players.first { $0.name == "Seth Hooper" }?.number, "0a")
+        expect("only someone with no shirt is left out", kept.leftOut.map(\.name), ["Nash Lenton"])
+        expect("Replace keeps them all and drops who the league has dropped",
                TagLibrary.importedTeam(kept, into: dauphin, mode: .replace).players.map(\.name).sorted(),
-               ["Brady Shields", "Cole Bell", "Nolan Brunel"])
-        expect("keeping yours twice is the same as once",
-               TagLibrary.keepingYours(kept, existing: dauphin).players.map(\.name), kept.players.map(\.name))
-        expect("a list reads the same before and after keeping yours",
+               ["Brady Shields", "Champ Vannus", "Cole Bell", "Nolan Brunel", "Seth Hooper"])
+        expect("placing twice is the same as once",
+               TagLibrary.placed(kept, existing: dauphin).players.map(\.number), kept.players.map(\.number))
+        expect("a list reads the same before and after placing",
                RosterWatchRule.fingerprint(kept), RosterWatchRule.fingerprint(incoming))
+
+        // The next download lists them the other way round.
+        let after = TagLibrary.importedTeam(kept, into: dauphin, mode: .replace)
+        let again = try? RosterSource.mjhl.incoming(
+            rows.reversed(), team: LeagueTeam(code: "DAU", name: "Dauphin Kings", feedID: "1", seasons: ["1"])).first
+        expectTrue("a letter stays with its player whatever order they're listed in",
+                   again.map { TagLibrary.rosterChanges(
+                       old: after.players, new: TagLibrary.placed($0, existing: after).players).isEmpty } ?? false)
+    }
+
+    // MARK: - Shared numbers
+
+    private static func sharedNumbers() {
+        section("Two players in one number")
+        expect("a letter isn't on the shirt", ShirtNumber.worn("15b"), "15")
+        expect("a number you've typed your own way is left be", ShirtNumber.worn("(15)"), "(15)")
+        expect("so is one that's only letters", ShirtNumber.worn("RS"), "RS")
+        expectTrue("typing 15 finds all three",
+                   ["15", "15b", "(15)"].allSatisfy { ShirtNumber.matches($0, typed: "15") })
+        expectTrue("but not 5", !ShirtNumber.matches("15b", typed: "5"))
+        func p(_ number: String, _ name: String = "A") -> Player {
+            Player(teamID: "t", number: number, name: name)
+        }
+        expect("they sit together, plain one first",
+               ["RS", "16", "15b", "(15)", "2", "15"].map { p($0) }
+                   .sorted(by: ShirtNumber.comesBefore).map(\.number),
+               ["2", "15", "15b", "(15)", "16", "RS"])
+
+        let csv = "number,name\n14,Anthony Peluso\n14,Tim Stapleton\n9,Evander Kane\n9,Evander Kane\n"
+        let read = try? TagLibrary.parseRoster(csv: csv, fallbackTeam: "Jets").first
+        expect("a file with a number shared is read", read?.leftOut.map(\.name),
+               ["Anthony Peluso", "Tim Stapleton"])
+        expect("and a player on two rows is one player", read?.players.map(\.name), ["Evander Kane"])
+        let sorted = read.map { TagLibrary.sortImport([$0], against: []) }
+        expect("each gets a letter", sorted?.new.first?.players.map(\.number), ["9", "14a", "14b"])
+        let peluso = Team(id: "jets", name: "Jets", players: [p("14", "Anthony Peluso")])
+        expect("whoever had it already keeps it",
+               read.map { TagLibrary.placed($0, existing: peluso).players.map(\.number) } ?? [],
+               ["9", "14", "14b"])
+        expectTrue("two blanks are still refused, with nothing to put a letter on",
+                   (try? TagLibrary.parseRoster(csv: "number,name\n,A\n,B\n", fallbackTeam: "x")) == nil)
+
+        var tag = Tag(umid: "u", clipName: "C.MP4", volumeName: "", path: "", teamID: "jets",
+                      playerNumber: "14b", playerName: "Tim Stapleton", category: "Goal")
+        expect("a folder per player has the shirt", tag.folderSafePlayer, "14-Tim Stapleton")
+        expect("the chip says which of them", tag.chipText, "14b · Goal")
+        tag.playerNumber = "14"
+        expectTrue("numbered on their own later, their clips are still theirs",
+                   TagLibrary.rosterPlayer(for: tag, in: [Team(id: "jets", name: "Jets",
+                       players: [p("14b", "Tim Stapleton"), p("14", "Anthony Peluso")])])?.number == "14b")
+    }
+
+    // MARK: - Old clips
+
+    /// A tag says who was in the clip and what they wore. Every one of these is a way a later
+    /// roster change used to reach back into a clip already tagged.
+    private static func oldClips() {
+        section("Clips tagged before a roster changed")
+        let sam = Tag(umid: "u", clipName: "C.MP4", volumeName: "", path: "", teamID: "v",
+                      teamName: "Virden", playerNumber: "27", playerName: "Sam Marchetti",
+                      playerPosition: "Forward", category: "Goal")
+        func p(_ number: String, _ name: String, _ position: String) -> Player {
+            Player(teamID: "v", number: number, name: name, position: position)
+        }
+        func team(_ players: [Player], _ name: String = "Virden Oil Capitals") -> [Team] {
+            [Team(id: "v", name: name, players: players)]
+        }
+
+        let moved = team([p("14", "Sam Marchetti", "Defence"), p("27", "Lee Kim", "Goalie")])
+        expect("a league's update changes nothing on the tag",
+               TagLibrary.refreshed(sam, from: moved, adopt: .nothing), sam)
+        expect("nor does losing the player",
+               TagLibrary.refreshed(sam, from: team([]), adopt: .nothing), sam)
+        expect("nor losing the team", TagLibrary.refreshed(sam, from: [], adopt: .nothing), sam)
+        expect("nor an edit to another team",
+               TagLibrary.refreshed(sam, from: moved,
+                                    adopt: .edit(teamID: "x", renamed: true, repositioned: ["v/14"])), sam)
+        expect("nor one to this team that didn't touch them",
+               TagLibrary.refreshed(sam, from: moved,
+                                    adopt: .edit(teamID: "v", renamed: false, repositioned: ["v/27"])), sam)
+
+        let edited = TagLibrary.refreshed(sam, from: moved,
+                                          adopt: .edit(teamID: "v", renamed: true, repositioned: ["v/14"]))
+        expect("a position you change by hand is taken", edited.playerPosition, "Defence")
+        expect("and a team name", edited.teamName, "Virden Oil Capitals")
+        expect("and never the number", edited.playerNumber, "27")
+        expect("not even asked for by name", TagLibrary.refreshed(sam, from: moved).playerNumber, "27")
+        var blank = sam
+        blank.playerPosition = nil
+        expect("a position it never had is filled",
+               TagLibrary.refreshed(blank, from: moved, adopt: .nothing).playerPosition, "Defence")
+
+        expect("after a change of number they're still on the roster",
+               TagLibrary.rosterPlayer(for: sam, in: moved)?.number, "14")
+        expectTrue("so not marked as gone", !TagLibrary.isFormerPlayer(sam, in: moved))
+        let twins = team([p("14", "Sam Marchetti", ""), p("15", "Sam Marchetti", "")])
+        expectTrue("two with the name, and neither's number, is nobody",
+                   TagLibrary.rosterPlayer(for: sam, in: twins) == nil)
+
+        var lee = sam
+        lee.playerName = "Lee Kim"
+        expectTrue("the new 27 isn't the old one, on a clip with both",
+                   TagLibrary.who(sam, in: moved) != TagLibrary.who(lee, in: moved))
+        expectTrue("even once the old one's gone",
+                   TagLibrary.who(sam, in: team([p("27", "Lee Kim", "")]))
+                       != TagLibrary.who(lee, in: team([p("27", "Lee Kim", "")])))
+        var renumbered = sam
+        renumbered.playerNumber = "14"
+        expect("the same player under both numbers is one person",
+               TagLibrary.who(renumbered, in: moved), TagLibrary.who(sam, in: moved))
+        var crowd = sam
+        crowd.playerNumber = nil
+        crowd.playerName = "Crowd"
+        var mascot = crowd
+        mascot.playerName = "Mascot"
+        expectTrue("subjects are still told apart",
+                   TagLibrary.who(crowd, in: moved) != TagLibrary.who(mascot, in: moved))
+
+        let respelled = TagLibrary.refreshed(sam, from: team([p("14", "Sam Marchetty", "")]),
+                                             respelled: [.init(teamID: "v", number: "14", from: "Sam Marchetti")],
+                                             adopt: .nothing)
+        expect("a respelling you confirm reaches clips from before they changed number",
+               respelled.playerName, "Sam Marchetty")
+        expect("and still leaves the number", respelled.playerNumber, "27")
     }
 
     // MARK: - Roster changes

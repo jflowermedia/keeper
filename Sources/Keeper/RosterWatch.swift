@@ -179,7 +179,7 @@ enum RosterWatchRule {
         }
     }
 
-    /// Who's on the league's list. As it listed them, not as `keepingYours` leaves them: a
+    /// Who's on the league's list. As it listed them, not as `placed` leaves them: a
     /// list you'd reviewed would read as a different one, and the mark would be back tomorrow.
     /// Not positions: a league moving a winger to centre isn't news.
     static func fingerprint(_ team: TagLibrary.IncomingTeam) -> String {
@@ -188,7 +188,7 @@ enum RosterWatchRule {
     }
 
     static func differs(_ incoming: TagLibrary.IncomingTeam, from team: Team) -> Bool {
-        let theirs = TagLibrary.keepingYours(incoming, existing: team).players
+        let theirs = TagLibrary.placed(incoming, existing: team).players
         let changes = TagLibrary.rosterChanges(old: team.players, new: theirs)
         return !changes.added.isEmpty || !changes.removed.isEmpty
             || changes.changed.contains { !$0.old.isNamed($0.new.name) }

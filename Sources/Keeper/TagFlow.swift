@@ -344,7 +344,7 @@ extension AppState {
         }
         if subjectsOnly { return rosterPlayers }
         guard !numberEntry.isEmpty else { return rosterPlayers }
-        return rosterPlayers.filter { $0.number.hasPrefix(numberEntry) }
+        return rosterPlayers.filter { ShirtNumber.matches($0.number, typed: numberEntry) }
     }
 
     /// The pills in order: each team in play, then the subjects.
@@ -782,7 +782,7 @@ extension AppState {
             let attempt = numberEntry + key
             // The team bench, even from the Subjects pill: typing a number means a person,
             // and subjects have no numbers to match.
-            guard teamBenchPlayers.contains(where: { $0.number.hasPrefix(attempt) }) else {
+            guard teamBenchPlayers.contains(where: { ShirtNumber.matches($0.number, typed: attempt) }) else {
                 // Refused rather than applied, so the grid is never filtered to nothing
                 // and the digits already typed survive a fat finger.
                 status = "No #\(attempt) on \(shownTeams.first?.name ?? "this roster")."

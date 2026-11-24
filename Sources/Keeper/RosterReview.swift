@@ -31,6 +31,11 @@ struct RosterReviewSheet: View {
 
             Divider()
 
+            if review.conflicts.count > 1 {
+                setAll
+                Divider()
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if review.fromFiles {
@@ -79,6 +84,10 @@ struct RosterReviewSheet: View {
     }
 
     private var title: String {
+        if review.updating {
+            return review.conflicts.count == 1 ? "A roster that's changed"
+                : "\(review.conflicts.count) rosters that have changed"
+        }
         guard review.fromFiles else { return "Rosters you already have" }
         return review.files.count == 1 ? "Import a roster" : "Import \(review.files.count) rosters"
     }
@@ -150,7 +159,37 @@ struct RosterReviewSheet: View {
             Text(teamFacts(code: team.code, league: team.league))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            sharedNumbers(team)
         }
+    }
+
+    /// Said for every team it happens to, since a letter nobody typed needs explaining.
+    @ViewBuilder
+    private func sharedNumbers(_ team: TagLibrary.IncomingTeam) -> some View {
+        if !team.lettered.isEmpty {
+            line("·", "Sharing a number, so lettered: \(TagLibrary.IncomingTeam.list(team.lettered))",
+                 Color.keeperSecondary)
+        }
+        if !team.leftOut.isEmpty {
+            line("·", "Left out, no shirt yet: \(TagLibrary.IncomingTeam.list(team.leftOut))",
+                 Color.keeperSecondary)
+        }
+    }
+
+    /// One press for a league's worth. Each team can still be changed after.
+    private var setAll: some View {
+        HStack(spacing: 8) {
+            Text("Set all").font(.caption).foregroundStyle(.secondary)
+            ForEach(TagLibrary.ImportMode.allCases) { mode in
+                Button(mode.rawValue) {
+                    for conflict in review.conflicts { state.rosterReviewModes[conflict.id] = mode }
+                }
+                .controlSize(.small)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func unchangedRow(_ conflict: TagLibrary.RosterConflict) -> some View {
@@ -212,10 +251,7 @@ struct RosterReviewSheet: View {
                     }
                 }
 
-                if !conflict.incoming.leftOut.isEmpty {
-                    line("·", "Left out, no number of their own: \(conflict.incoming.leftOutList)",
-                         Color.keeperSecondary)
-                }
+                sharedNumbers(conflict.incoming)
 
                 // Drawn for the option that's chosen, not for the difference between the two
                 // lists. Under Merge a red minus beside a player reads as "will be removed",

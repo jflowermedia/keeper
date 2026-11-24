@@ -554,9 +554,10 @@ final class AppState: ObservableObject {
         }
         if let filterPlayerID {
             list = list.filter { clip in
-                // Numbers get handed on: the last wearer's clips aren't this player's.
+                // Numbers get handed on: the last wearer's clips aren't this player's, and
+                // the ones from before they changed number are.
                 library.tags(forUMID: clip.umid).contains {
-                    $0.playerID == filterPlayerID && library.rosterPlayer(for: $0) != nil
+                    library.rosterPlayer(for: $0)?.id == filterPlayerID
                 }
             }
         }

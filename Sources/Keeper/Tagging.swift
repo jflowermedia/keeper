@@ -206,7 +206,8 @@ struct Tag: Codable, Identifiable, Hashable {
     var folderSafePlayer: String? {
         guard let playerNumber, let playerName else { return nil }
         let clean = playerName.replacingOccurrences(of: "/", with: "-")
-        return playerNumber.isEmpty ? clean : "\(playerNumber)-\(clean)"
+        let worn = ShirtNumber.worn(playerNumber)
+        return worn.isEmpty ? clean : "\(worn)-\(clean)"
     }
 }
 
@@ -510,16 +511,36 @@ final class TagLibrary: ObservableObject {
 
     func isFormerPlayer(_ tag: Tag) -> Bool { Self.isFormerPlayer(tag, in: teams) }
 
-    /// The roster player a tag is on: same team, same number, *and* same name. Numbers get
-    /// handed on, and matching on the number alone used to relabel a season of the last #27's
-    /// clips with the new #27's name the moment a roster was re-imported. A different name is
-    /// a different person unless someone says otherwise — see `Respelling`.
+    /// The roster player a tag is on: same team and same name. Numbers get handed on, and
+    /// matching on the number alone used to relabel a season of the last #27's clips with the
+    /// new #27's name the moment a roster was re-imported. A different name is a different
+    /// person unless someone says otherwise — see `Respelling`.
+    ///
+    /// The number comes first where both agree, and otherwise doesn't matter: someone who's
+    /// changed number is still on the roster, and their old clips are still theirs. Not when
+    /// two teammates share a name, where only the number can say which.
     static func rosterPlayer(for tag: Tag, in teams: [Team]) -> Player? {
         guard let teamID = tag.teamID, let number = tag.playerNumber,
-              let player = teams.first(where: { $0.id == teamID })?
-                .players.first(where: { $0.number == number })
+              let players = teams.first(where: { $0.id == teamID })?.players
         else { return nil }
-        return tag.playerName.map(player.isNamed) ?? true ? player : nil
+        let wearing = players.first { $0.number == number }
+        guard let name = tag.playerName else { return wearing }
+        if let wearing, wearing.isNamed(name) { return wearing }
+        let named = players.filter { $0.isNamed(name) }
+        return named.count == 1 ? named[0] : nil
+    }
+
+    /// Who a tag is against, for telling whether two are the same. By the roster while they're
+    /// on it, and by number and name once they're not — the last #27's goal isn't the new
+    /// #27's, on a clip that has both.
+    static func who(_ tag: Tag, in teams: [Team]) -> String? {
+        rosterPlayer(for: tag, in: teams)?.id
+            ?? tag.benchID.map { tag.playerNumber == nil ? $0 : "\($0)|\((tag.playerName ?? "").lowercased())" }
+    }
+
+    /// The bench entries already tagged on a clip.
+    func onBench(_ tags: [Tag]) -> Set<String> {
+        Set(tags.compactMap { $0.playerNumber == nil ? $0.benchID : rosterPlayer(for: $0)?.id })
     }
 
     func rosterPlayer(for tag: Tag) -> Player? { Self.rosterPlayer(for: tag, in: teams) }
@@ -581,13 +602,14 @@ final class TagLibrary: ObservableObject {
     func add(_ newTags: [Tag], undoLabel: String?) -> [Tag] {
         var landed: [Tag] = []
         for tag in newTags {
+            let who = Self.who(tag, in: teams)
             let alreadyThere = (index[tag.umid] ?? []).contains {
-                $0.category == tag.category && $0.benchID == tag.benchID
+                $0.category == tag.category && Self.who($0, in: teams) == who
             }
             // Also against this batch, or tagging the same player twice in one call would
             // slip two identical tags through the check above.
             let inThisBatch = landed.contains {
-                $0.umid == tag.umid && $0.category == tag.category && $0.benchID == tag.benchID
+                $0.umid == tag.umid && $0.category == tag.category && Self.who($0, in: teams) == who
             }
             guard !alreadyThere, !inThisBatch else { continue }
             landed.append(tag)
@@ -647,15 +669,28 @@ final class TagLibrary: ObservableObject {
         var from: String
     }
 
-    /// Existing tags pick up a team's new name, a new position, a change of case — and a new
-    /// name only where `respelled` says it's the same person. Matched by `rosterPlayer`, so a
-    /// number that's changed hands leaves the last wearer's tags alone, and they show as
-    /// Not on roster.
+    /// How much of a roster its existing tags take on. A tag records who was in the clip and
+    /// what they were then, so it stays as it was made unless someone says otherwise.
+    enum Adoption {
+        /// Asked for by name, from the panel's menu: team names, positions and case.
+        case everything
+        /// A league's list or a file. What's changed there changed after the clip was shot.
+        case nothing
+        /// A roster edited by hand: just what the edit changed, on that team. It used to be
+        /// everything on every team, so fixing one spelling rewrote a season elsewhere.
+        case edit(teamID: String, renamed: Bool, repositioned: Set<String>)
+    }
+
+    /// Carries a roster's changes onto tags already made, as far as `adopt` says, and a new
+    /// name only where `respelled` says it's the same person. A blank position is filled
+    /// whichever way; nothing recorded is lost by it. Never the number: see `RosterEdit`.
+    /// Matched by `rosterPlayer`, so a number that's changed hands leaves the last wearer's
+    /// tags alone.
     @discardableResult
-    func refreshTagsFromRoster(respelled: [Respelling] = []) -> Int {
+    func refreshTagsFromRoster(respelled: [Respelling] = [], adopt: Adoption = .everything) -> Int {
         var changed = 0
         for index in tags.indices {
-            let updated = Self.refreshed(tags[index], from: teams, respelled: respelled)
+            let updated = Self.refreshed(tags[index], from: teams, respelled: respelled, adopt: adopt)
             if updated != tags[index] {
                 tags[index] = updated
                 changed += 1
@@ -669,22 +704,42 @@ final class TagLibrary: ObservableObject {
     }
 
     /// One tag as `refreshTagsFromRoster` leaves it.
-    static func refreshed(_ tag: Tag, from teams: [Team], respelled: [Respelling] = []) -> Tag {
+    static func refreshed(_ tag: Tag, from teams: [Team], respelled: [Respelling] = [],
+                          adopt: Adoption = .everything) -> Tag {
         guard let teamID = tag.teamID, let team = teams.first(where: { $0.id == teamID })
         else { return tag }
 
         var updated = tag
-        updated.teamName = team.name
-        let player = rosterPlayer(for: tag, in: teams) ?? respelled.lazy.compactMap { r -> Player? in
-            guard r.teamID == teamID, r.number == tag.playerNumber,
-                  let name = tag.playerName, Player.sameName(r.from, name)
+        switch adopt {
+        case .everything:
+            updated.teamName = team.name
+        case .edit(teamID, true, _):
+            updated.teamName = team.name
+        case .edit, .nothing:
+            break
+        }
+
+        let current = rosterPlayer(for: tag, in: teams)
+        // Not held to the number: clips from before they changed it are still theirs.
+        let renamed = current != nil ? nil : respelled.lazy.compactMap { r -> Player? in
+            guard r.teamID == teamID, let name = tag.playerName, Player.sameName(r.from, name)
             else { return nil }
             return team.players.first { $0.number == r.number }
         }.first
-        if let player {
+        guard let player = current ?? renamed else { return updated }
+
+        var takesPosition = (tag.playerPosition ?? "").isEmpty
+        switch adopt {
+        case .everything:
             updated.playerName = player.name
-            if !player.position.isEmpty { updated.playerPosition = player.position }
+            takesPosition = true
+        case .edit(teamID, _, let moved):
+            takesPosition = takesPosition || moved.contains(player.id)
+        case .edit, .nothing:
+            break
         }
+        if renamed != nil { updated.playerName = player.name }
+        if takesPosition, !player.position.isEmpty { updated.playerPosition = player.position }
         return updated
     }
 
@@ -696,9 +751,10 @@ final class TagLibrary: ObservableObject {
     /// first called, and every tag points at it — change it and a season of tagging detaches
     /// from its players. So renaming a team changes `name` only, and the id stays put.
     ///
-    /// A player's identity *is* their number, so renumbering genuinely moves them. Tags
-    /// recorded against the old number are carried over before the roster is replaced,
-    /// which is the whole reason this is one call rather than a setter per field.
+    /// A player's identity *is* their number, so renumbering genuinely moves them. Their tags
+    /// keep the number they were made with, since that's the shirt in the clip, unless
+    /// `moveTags` says the number was wrong all along. Then they're carried over before the
+    /// roster is replaced, which is why this is one call rather than a setter per field.
     struct RosterEdit {
         var name: String
         var code: String
@@ -708,6 +764,7 @@ final class TagLibrary: ObservableObject {
         var players: [Player]
         /// Old number to new, for players whose number this edit changes.
         var renumbered: [(from: String, to: String)] = []
+        var moveTags = false
         /// Players renamed on their own row, by their number after this edit and the name
         /// their tags carry. Same person, so their tags follow the new name.
         var respelled: [(number: String, from: String)] = []
@@ -736,7 +793,8 @@ final class TagLibrary: ObservableObject {
                 if blanks { parts.append("a blank number") }
                 return "Two players share \(parts.joined(separator: ", and more share ")). "
                      + "Keeper tells players apart by their number, so each has to be unique "
-                     + "within the team — a blank one included."
+                     + "within the team — a blank one included. Add a letter, like 15b: it's "
+                     + "left out of filenames."
             case .unnamedPlayers(let count):
                 return "\(count) \(count == 1 ? "player has" : "players have") no name."
             }
@@ -776,10 +834,14 @@ final class TagLibrary: ObservableObject {
         // Carry the tags over before the roster changes under them. Done in one pass so a
         // swap — two players exchanging numbers — can't be applied twice.
         var moved = 0
-        let moves = Dictionary(edit.renumbered.map { ($0.from, $0.to) }, uniquingKeysWith: { _, last in last })
+        let wasTeam = team(id: teamID)
+        let moves = !edit.moveTags ? [:] : Dictionary(edit.renumbered.map { ($0.from, $0.to) }, uniquingKeysWith: { _, last in last })
         if !moves.isEmpty {
             for index in tags.indices where tags[index].teamID == teamID {
-                guard let current = tags[index].playerNumber, let newNumber = moves[current] else { continue }
+                guard let current = tags[index].playerNumber, let newNumber = moves[current],
+                      // Theirs, not the last wearer's.
+                      rosterPlayer(for: tags[index])?.number == current
+                else { continue }
                 tags[index].playerNumber = newNumber
                 moved += 1
             }
@@ -787,9 +849,7 @@ final class TagLibrary: ObservableObject {
 
         let code = edit.code.trimmingCharacters(in: .whitespaces)
         let league = edit.league.trimmingCharacters(in: .whitespaces)
-        let sorted = players.sorted {
-            (Int($0.number) ?? Int.max, $0.name) < (Int($1.number) ?? Int.max, $1.name)
-        }
+        let sorted = players.sorted(by: Self.rosterOrder)
 
         if let i = teams.firstIndex(where: { $0.id == teamID }) {
             teams[i] = Team(id: teamID,
@@ -802,10 +862,18 @@ final class TagLibrary: ObservableObject {
         }
 
         rebuildIndex()
-        // Picks up the new team name, and any player name or position that changed.
-        _ = refreshTagsFromRoster(respelled: edit.respelled.map {
-            Respelling(teamID: teamID, number: $0.number, from: $0.from)
-        })
+        let was = Dictionary((wasTeam?.players ?? []).map { ($0.number, $0.position) },
+                             uniquingKeysWith: { first, _ in first })
+        let from = Dictionary(edit.renumbered.map { ($0.to, $0.from) }, uniquingKeysWith: { first, _ in first })
+        let repositioned = players.filter { player in
+            was[from[player.number] ?? player.number].map { $0 != player.position } ?? false
+        }
+        _ = refreshTagsFromRoster(
+            respelled: edit.respelled.map {
+                Respelling(teamID: teamID, number: $0.number, from: $0.from)
+            },
+            adopt: .edit(teamID: teamID, renamed: wasTeam?.name != name,
+                         repositioned: Set(repositioned.map(\.id))))
         save()
         return moved
     }
@@ -1462,6 +1530,14 @@ final class TagLibrary: ObservableObject {
     /// Called from `save()`, which runs on every tag, so it's throttled — otherwise ten
     /// backups would all be from the same minute and the day's earlier work would be gone.
     /// The first save of a session always takes one, which is the version most worth having.
+    /// Before a change to a lot of rosters at once, which ⌘Z doesn't reach. Best-effort: one
+    /// already taken this second is as good.
+    func backUpNow() {
+        guard loadFailure == nil else { return }
+        lastBackup = nil
+        backUpIfDue()
+    }
+
     private func backUpIfDue() {
         let fm = FileManager.default
         let source = Self.storeURL
@@ -1624,7 +1700,9 @@ final class TagLibrary: ObservableObject {
     @discardableResult
     func importRoster(csv text: String,
                       fallbackTeam: String) throws -> (team: String, players: Int, tagsUpdated: Int) {
-        let incoming = try Self.parseRoster(csv: text, fallbackTeam: fallbackTeam)
+        let incoming = try Self.parseRoster(csv: text, fallbackTeam: fallbackTeam).map {
+            Self.placed($0, existing: Self.importTarget(slug: $0.slug, name: $0.name, in: teams))
+        }
         let result = applyImport(incoming)
         return (result.team, result.players, result.tagsUpdated)
     }
@@ -1639,35 +1717,57 @@ final class TagLibrary: ObservableObject {
         let league: String?
         var players: [Player]
         var mascots: [String] = []
-        /// On the league's list, but with no number of their own to go in under.
+        /// On the list, but with no number of their own to go in under. `placed` finds most of
+        /// them one; whoever's here after it has no shirt yet.
         var leftOut: [Player] = []
-        /// The league's own list, kept by `keepingYours` before it puts yours in. Nil while
-        /// `players` and `leftOut` still are that list.
+        /// The list as it came, kept by `placed`. Nil while `players` and `leftOut` still are it.
         var asListed: [Player]? = nil
 
-        var leftOutList: String {
-            leftOut.map { "\($0.name) #\($0.number)" }.joined(separator: ", ")
+        /// Given a letter to tell them apart.
+        var lettered: [Player] { players.filter { ShirtNumber.isLettered($0.number) } }
+
+        static func list(_ players: [Player]) -> String {
+            players.map { "\($0.name) #\($0.number)" }.joined(separator: ", ")
         }
     }
 
-    /// Someone left out of a download whom you've already got under a number of your own
-    /// stays on the list as you have them. Otherwise Replace would remove a player the league
-    /// still lists, and the review would call them gone.
-    static func keepingYours(_ team: IncomingTeam, existing: Team) -> IncomingTeam {
+    /// Finds a number for everyone left out of a list because they share one.
+    ///
+    /// Anyone you already have, under any number, keeps it: your own (15), or the letter they
+    /// were given last time, so a download can't swap two people's letters over. The rest get
+    /// the next letter free. Doing it again changes nothing.
+    static func placed(_ team: IncomingTeam, existing: Team?) -> IncomingTeam {
         var out = team
         out.asListed = team.asListed ?? team.players + team.leftOut
         out.leftOut = []
+        let yours = existing?.players ?? []
+
+        var waiting: [Player] = []
         for player in team.leftOut {
-            let mine = existing.players.first { have in
+            let mine = yours.first { have in
                 have.isNamed(player.name) && !out.players.contains { $0.number == have.number }
             }
             guard let mine else {
-                out.leftOut.append(player)
+                waiting.append(player)
                 continue
             }
             out.players.append(Player(teamID: team.slug, number: mine.number, name: mine.name,
-                                      position: mine.position))
+                                      position: player.position))
         }
+        for player in waiting {
+            let held = out.players.contains { $0.number == player.number }
+            // Not a letter of yours either, though it's going: the last 15b's clips say 15b.
+            let taken = Set(out.players.map(\.number) + yours.map(\.number))
+            guard !ShirtNumber.isPlaceholder(player.number),
+                  let number = ShirtNumber.lettered(player.number, taken: taken, plainIsHeld: held)
+            else {
+                out.leftOut.append(player)
+                continue
+            }
+            out.players.append(Player(teamID: team.slug, number: number, name: player.name,
+                                      position: player.position))
+        }
+        out.players.sort(by: rosterOrder)
         return out
     }
 
@@ -1724,7 +1824,7 @@ final class TagLibrary: ObservableObject {
 
     /// The order a roster is kept in: by number, numberless last, then by name.
     static func rosterOrder(_ a: Player, _ b: Player) -> Bool {
-        (Int(a.number) ?? Int.max, a.name) < (Int(b.number) ?? Int.max, b.name)
+        ShirtNumber.comesBefore(a, b)
     }
 
     /// The reading half of an import, with the file-reading taken out — the same split
@@ -1772,18 +1872,23 @@ final class TagLibrary: ObservableObject {
 
         guard !grouped.isEmpty else { throw ImportError.noRows }
 
-        // The same rule the roster editor enforces, which the import used to skip. A player's
-        // id is team-and-number, so two players sharing one share an id — and a duplicate id
-        // in a SwiftUI list is the thing that misbehaves rather than merely looking wrong.
-        // Refused whole rather than half-imported: a team missing the player who lost the
-        // clash would be worse than one that didn't arrive.
-        for (id, players) in grouped {
+        // A player's id is team-and-number, so two players sharing one share an id — and a
+        // duplicate id in a SwiftUI list is the thing that misbehaves rather than merely
+        // looking wrong. They're set aside for `placed` to letter. Blanks can't be: there's no
+        // number to put a letter on, so a list with two is refused whole rather than
+        // half-imported.
+        var shared: [String: [Player]] = [:]
+        for (id, everyone) in grouped {
+            // One player on two rows isn't two players.
+            var listed: Set<String> = []
+            let players = everyone.filter { listed.insert("\($0.number)|\($0.name.lowercased())").inserted }
             var counts: [String: Int] = [:]
             for player in players { counts[player.number, default: 0] += 1 }
-            let clashes = counts.filter { $0.value > 1 }.map(\.key)
-            if !clashes.isEmpty {
-                throw ImportError.duplicateNumbers(team: teamNames[id] ?? id, numbers: clashes)
+            if counts["", default: 0] > 1 {
+                throw ImportError.duplicateNumbers(team: teamNames[id] ?? id, numbers: [""])
             }
+            grouped[id] = players.filter { counts[$0.number] == 1 }
+            shared[id] = players.filter { counts[$0.number, default: 0] > 1 }
         }
 
         return grouped.map { id, players in
@@ -1792,7 +1897,8 @@ final class TagLibrary: ObservableObject {
                          code: teamCodes[id],
                          league: teamLeagues[id],
                          players: players.sorted(by: rosterOrder),
-                         mascots: Team.cleanMascots(teamMascots[id] ?? []))
+                         mascots: Team.cleanMascots(teamMascots[id] ?? []),
+                         leftOut: shared[id] ?? [])
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -1921,10 +2027,10 @@ final class TagLibrary: ObservableObject {
         var sorted = ImportSort()
         for team in incoming {
             guard let existing = importTarget(slug: team.slug, name: team.name, in: teams) else {
-                sorted.new.append(team)
+                sorted.new.append(placed(team, existing: nil))
                 continue
             }
-            let team = keepingYours(team, existing: existing)
+            let team = placed(team, existing: existing)
             let conflict = RosterConflict(incoming: team,
                                           existingName: existing.name,
                                           changes: rosterChanges(old: existing.players, new: team.players),
@@ -2060,8 +2166,8 @@ final class TagLibrary: ObservableObject {
             names.append(team.name)
         }
 
-        // Existing tags adopt any corrected names and newly added columns.
-        let updated = written.isEmpty ? 0 : refreshTagsFromRoster(respelled: respelled)
+        // Only names you've said are the same person, and positions the tags never had.
+        let updated = written.isEmpty ? 0 : refreshTagsFromRoster(respelled: respelled, adopt: .nothing)
         let label = names.count == 1 ? names[0] : "\(names.count) teams"
         return (label, players, updated, written)
     }

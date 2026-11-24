@@ -258,9 +258,8 @@ enum WelcomeTour {
                  + "several files at once if you like. Keeper shows what it read from each "
                  + "before anything is written.\n\n"
                  + "Already have the team? Keeper shows what's changed, its code included, "
-                 + "and asks before it touches your roster.\n\n"
-                 + "Want a nickname in the filenames? Click the speech bubble on a player's row in "
-                 + "Edit Rosters.",
+                 + "and asks before it touches your roster. Clips you've already tagged keep the "
+                 + "name and number they were tagged with.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 

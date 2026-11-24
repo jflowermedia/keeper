@@ -317,19 +317,16 @@ enum RosterFeed {
         rows(from: data).map { csv(rows: $0, team: team, league: league) }
     }
 
-    /// Who can be imported, and who can't.
+    /// Who has a number of their own, and who doesn't. `TagLibrary.placed` deals with the rest.
     ///
-    /// The importer refuses a team with a number shared, so the rest of the team gets in by
-    /// leaving those players out. Junior leagues list call-ups in a number a regular already
-    /// wears; where exactly one of them isn't a call-up, they keep it. Otherwise nobody does:
-    /// picking one would file the other's clips under the wrong name.
-    ///
-    /// Three digits isn't a shirt. The feeds use them, and 999, for players with none yet.
+    /// Junior leagues list call-ups in a number a regular already wears; where exactly one of
+    /// them isn't a call-up, they keep it. Otherwise nobody does: picking one would file the
+    /// other's clips under the wrong name.
     static func usable(_ rows: [Row]) -> (rows: [Row], leftOut: [Row]) {
         // A league can list one player twice, who'd otherwise clash with themselves.
         var listed: Set<String> = []
         let rows = rows.filter { listed.insert("\($0.number)|\($0.name.lowercased())").inserted }
-        let byNumber = Dictionary(grouping: rows.filter { $0.number.count <= 2 }, by: \.number)
+        let byNumber = Dictionary(grouping: rows.filter { !ShirtNumber.isPlaceholder($0.number) }, by: \.number)
         var keep: [Row] = [], leave: [Row] = []
         for row in rows {
             let wearers = byNumber[row.number] ?? []
@@ -431,8 +428,8 @@ struct RosterDownloadSheet: View {
 
                 let leftOut = Set(RosterFeed.usable(state.previewRows).leftOut)
                 if !leftOut.isEmpty {
-                    Label("\(leftOut.count) in orange won't import: they share a number or don't "
-                          + "have a shirt yet. Add them in Edit Rosters once you know it.",
+                    Label("In orange: players sharing a number come in with a letter, like 15b. "
+                          + "Three digits means no shirt yet, so they're left out.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.keeperOrange)

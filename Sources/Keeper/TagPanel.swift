@@ -50,10 +50,10 @@ struct TagPanel: View {
         Set(currentTags.map(\.category))
     }
 
-    /// Players and subjects already tagged on the clip in the viewer. `Tag.benchID` is built
-    /// the same way as `Player.id`, so the two compare directly.
+    /// Players and subjects already tagged on the clip in the viewer. By who they are, not the
+    /// number: on an old clip the last #27 was marked as the new one.
     private var playersOnClip: Set<String> {
-        Set(currentTags.compactMap(\.benchID))
+        library.onBench(currentTags)
     }
 
     /// Accent means "picked, about to be tagged". Green means "already on this clip". Picking

@@ -141,7 +141,7 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward,
 
 Before anything is written, Keeper shows which columns it read from each file and the code each team will get. A team you already have whose players, code, league or name differ is held for you to choose: **Merge** keeps yours and adds new players, **Replace** uses the file, **Skip** leaves it alone. So a `code` column can't quietly undo a code you changed in the roster editor.
 
-If **Replace** puts a different name on a number you have, Keeper treats it as a new player: clips already tagged keep the old name and show **Not on roster**. For a corrected spelling, tick **Same player** next to it under **Show player changes**, and those clips take the new name.
+If **Replace** puts a different name on a number you have, Keeper treats it as a new player: clips already tagged keep the old name, and show **Not on roster** if that player has gone. For a corrected spelling, tick **Same player** next to it under **Show player changes**, and those clips take the new name.
 
 **File → Download a Roster…** imports teams from these leagues, with the same review for teams you already have:
 
@@ -151,7 +151,17 @@ If **Replace** puts a different name on a number you have, Keeper treats it as a
 | Major Junior | WHL, OHL, QMJHL |
 | Junior A | MJHL, SJHL, AJHL, BCHL |
 
-NHL teams come with their mascots. Junior leagues often list a call-up in a number a regular wears; the regular gets it and the call-up is left out. If it isn't clear whose number it is, or a player has no shirt yet (0 for several, or three digits), they're left out too. The preview shows them in orange. Add them in **Edit Rosters** once you know the number, and later downloads keep them.
+NHL teams come with their mascots. Players listed with a three-digit number have no shirt yet and are left out; add them in **Edit Rosters** once you know it.
+
+**File → Update All Rosters…** checks every team you have from those leagues and shows what's changed in one list. **Set all** picks Merge, Replace or Skip for every team at once. Replace is the one that removes players who've left. A backup is saved before anything is written.
+
+### Two players in one number
+
+Junior leagues often list a call-up in a number a regular wears. The regular keeps it and the call-up gets a letter: **15** and **15b**. If it isn't clear whose number it is, they're **15a** and **15b**. Typing 15 on the bench shows everyone in it. A player keeps their letter on later downloads, or a number of your own if you've given them one. Letters are left out of filenames and folders. CSV files work the same way.
+
+### Old clips
+
+A tag keeps the name, number, position and team it was made with. When a player changes number, their old clips keep the old one and still come up under their name. When they leave, the clips keep their name and show **Not on roster**. Importing, downloading and updating never change a tag, except a name you tick as **Same player**, or a position the tag didn't have.
 
 These lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you already have aren't affected.
 
@@ -159,7 +169,7 @@ An orange icon beside a team on the tagging panel means the league has changed t
 
 ![The Download a Roster sheet: a league menu set to NHL and a list of teams with tick boxes and Select All](docs/roster_download.png)
 
-**⇧⌘R** edits rosters. Player numbers must be unique within a team, and team names must be unique. Removed players keep their tags, marked **Not on roster**. Editing a name on its row counts as the same player, so their clips follow the new name. Removing a player and adding someone new in that number doesn't.
+**⇧⌘R** edits rosters. Player numbers must be unique within a team (add a letter if two share one), and team names must be unique. Changing a number leaves old clips on the number worn in them; tick **Change old tags too** if it was simply wrong. Removed players keep their tags, marked **Not on roster**. Editing a name on its row counts as the same player, so their clips follow the new name. Removing a player and adding someone new in that number doesn't.
 
 To export a player under a nickname, click the speech bubble on their row. Filenames use the nickname in place of the surname; everywhere else keeps the real name. **Replace** keeps a nickname only while the player's name and number still match.
 

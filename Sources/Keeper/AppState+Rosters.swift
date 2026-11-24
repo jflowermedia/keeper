@@ -20,6 +20,8 @@ struct RosterImportReview {
     var new: [TagLibrary.IncomingTeam] = []
     var unchanged: [TagLibrary.RosterConflict] = []
     var conflicts: [TagLibrary.RosterConflict] = []
+    /// Teams you have, asked after rather than imported. Leaves the benches where they are.
+    var updating = false
 
     var fromFiles: Bool { !files.isEmpty }
     /// New and unchanged teams aren't in the modes, so they go in as Replace, which for them
@@ -127,12 +129,12 @@ extension AppState {
         var note = incoming.isEmpty
             ? (failed.isEmpty ? "Nothing was imported." : "")
             : stageImport(incoming, fromDownload: true)
-        let leftOut = incoming.reduce(0) { $0 + $1.leftOut.count }
-        if leftOut > 0 {
-            note += " Left out \(leftOut) who share a number or have no shirt yet — the debug log "
-                + "names them."
-            for team in incoming where !team.leftOut.isEmpty {
-                addLog("Left out of \(team.name): \(team.leftOutList)")
+        let unshirted = incoming.map { TagLibrary.placed($0, existing: nil) }.filter { !$0.leftOut.isEmpty }
+        if !unshirted.isEmpty {
+            note += " Left out \(unshirted.reduce(0) { $0 + $1.leftOut.count }) with no shirt yet — "
+                + "the debug log names them."
+            for team in unshirted {
+                addLog("Left out of \(team.name): \(TagLibrary.IncomingTeam.list(team.leftOut))")
             }
         }
         if !failed.isEmpty {
@@ -155,7 +157,85 @@ extension AppState {
         rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
         rosterReviewSamePlayer = [:]
         rosterReviewFromDownload = false
-        rosterReview = RosterImportReview(conflicts: conflicts)
+        rosterReview = RosterImportReview(conflicts: conflicts, updating: true)
+    }
+
+    /// Asks after every roster you have from a league Keeper can ask, and puts what's changed
+    /// in one review. The icon only ever asks about the teams in play.
+    func updateAllRosters() {
+        guard !isFetchingRosters, !aSheetIsUp else {
+            status = isFetchingRosters ? "Already fetching rosters." : "Close the open sheet first."
+            return
+        }
+        let teams = library.teams.filter { RosterWatchRule.source(for: $0) != nil }
+        guard !teams.isEmpty else {
+            status = "None of your rosters are filed under a league Keeper can download from."
+            return
+        }
+        isFetchingRosters = true
+        Task { await fetchUpdates(teams) }
+    }
+
+    private func fetchUpdates(_ teams: [Team]) async {
+        defer { isFetchingRosters = false }
+        var incoming: [TagLibrary.IncomingTeam] = []
+        var failed: [String] = []
+        var unlisted: [String] = []
+        var listed: [RosterSource: [LeagueTeam]] = [:]
+        var unreachable: Set<RosterSource> = []
+
+        for (index, team) in teams.enumerated() {
+            guard let source = RosterWatchRule.source(for: team) else { continue }
+            status = "Checking \(index + 1) of \(teams.count) — \(team.name)…"
+            if listed[source] == nil, !unreachable.contains(source) {
+                if let found = try? await source.fetchTeams(), !found.isEmpty {
+                    listed[source] = found
+                } else {
+                    // Once per league, or no signal means a timeout for every team in it.
+                    unreachable.insert(source)
+                    failed.append("the \(source.name)")
+                }
+            }
+            guard let league = listed[source] else { continue }
+            guard let match = RosterWatchRule.match(team, in: league, library: library.teams) else {
+                unlisted.append(team.name)
+                continue
+            }
+            do {
+                guard let rows = try await source.fetchRows(match) else {
+                    failed.append(team.name)
+                    continue
+                }
+                incoming += try source.incoming(rows, team: match)
+            } catch {
+                failed.append(team.name)
+                addLog("Couldn't update \(team.name): \(error.localizedDescription)")
+            }
+        }
+
+        // A sheet opened while this ran has to close first: SwiftUI won't reliably put a
+        // second one up from the window.
+        if aSheetIsUp { status = "Rosters checked. Close this to see what's changed." }
+        while aSheetIsUp { try? await Task.sleep(nanoseconds: 400_000_000) }
+
+        let sorted = TagLibrary.sortImport(incoming, against: library.teams)
+        RosterWatch.shared.markSeen(sorted.unchanged.map(\.incoming))
+        if !unlisted.isEmpty { addLog("Not on their league's list: \(unlisted.joined(separator: ", "))") }
+
+        var note = sorted.conflicts.isEmpty
+            ? (incoming.isEmpty ? "" : "All \(incoming.count) rosters are up to date.")
+            : "\(sorted.conflicts.count) of \(incoming.count) rosters have changed — choose what to do."
+        if !unlisted.isEmpty {
+            note += " \(unlisted.count) aren't on their league's list — the debug log names them."
+        }
+        if !failed.isEmpty { note += " Couldn't get \(failed.joined(separator: ", "))." }
+        status = note.trimmingCharacters(in: .whitespaces)
+
+        guard !sorted.conflicts.isEmpty else { return }
+        rosterReviewModes = Dictionary(uniqueKeysWithValues: sorted.conflicts.map { ($0.id, .merge) })
+        rosterReviewSamePlayer = [:]
+        rosterReviewFromDownload = false
+        rosterReview = RosterImportReview(conflicts: sorted.conflicts, updating: true)
     }
 
     /// Writes what needs no asking — teams you don't have, and ones that come in identical —
@@ -267,6 +347,8 @@ extension AppState {
             if review.fromFiles { importMessage = status }
             return
         }
+        // Roster changes aren't on the undo stack, so this is the way back.
+        library.backUpNow()
         let result = library.applyImport(review.toWrite, modes: rosterReviewModes,
                                          samePlayer: rosterReviewSamePlayer)
         let skipped = review.conflicts.filter { rosterReviewModes[$0.id] == .skip }.count
@@ -284,7 +366,7 @@ extension AppState {
         rosterDownloadNote = note
         if review.fromFiles { importMessage = note }
         addLog(note)
-        adoptImported(result.teamIDs)
+        if !review.updating { adoptImported(result.teamIDs) }
         dropDanglingFilters()
     }
 

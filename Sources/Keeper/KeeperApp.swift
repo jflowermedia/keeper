@@ -144,6 +144,10 @@ struct KeeperApp: App {
                 Button("Download a Roster…") { state.showRosterDownload = true }
                     .help("Fetches a team's current roster from the league, so the numbers "
                           + "are today's rather than whenever the file was made.")
+                Button("Update All Rosters…") { state.updateAllRosters() }
+                    .disabled(state.isFetchingRosters || state.aSheetIsUp)
+                    .help("Checks every roster you have from a league Keeper can download, and "
+                          + "shows what's changed. Nothing is written until you say.")
                 Button("Import Roster CSV…") { state.importRoster() }
                     .keyboardShortcut(shortcuts.equivalent(.importRoster),
                                       modifiers: shortcuts.modifiers(.importRoster))
