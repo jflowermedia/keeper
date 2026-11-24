@@ -376,15 +376,14 @@ struct TagPanel: View {
             // thirteen-team league menu between every tag is what makes tagging slow.
             // A Menu rather than a Picker, because only a menu takes section headings.
             Menu {
-                if library.leaguesAreWorthShowing {
-                    ForEach(library.teamsByLeague) { group in
-                        Section(group.name) {
-                            ForEach(group.teams) { teamChoice($0) }
-                        }
+                // Folded into submenus, the ticks would be out of sight.
+                if TagLibrary.foldsLeagues(library.teams) {
+                    let inPlay = library.teams.filter { state.isActiveTeam($0.id) }
+                    if !inPlay.isEmpty {
+                        Section("In play") { ForEach(inPlay) { teamChoice($0) } }
                     }
-                } else {
-                    ForEach(library.teams) { teamChoice($0) }
                 }
+                LeagueMenu(teams: library.teams) { teamChoice($0) }
                 // No "just this one" item here: the pills below narrow the grid to one
                 // bench without taking the other out of play, and two near-identical
                 // actions a few pixels apart is how you pick the wrong one. Untick to
@@ -1276,6 +1275,28 @@ private struct KeyCap: View {
             // Tinted, not solid. Solid on every chip made the bench a wall of accent, and
             // accent is also what says "cursor" and "picked" — those have to stand out.
             .background(Color.keeperAccent.opacity(0.2), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// Teams in a menu: under their league's heading, or in a submenu per league once there are
+/// too many to fit the screen. Every menu of teams is one of these.
+struct LeagueMenu<Item: View>: View {
+    let teams: [Team]
+    @ViewBuilder let item: (Team) -> Item
+
+    var body: some View {
+        let groups = TagLibrary.byLeague(teams)
+        if TagLibrary.foldsLeagues(teams) {
+            ForEach(groups) { group in
+                Menu(group.name) { ForEach(group.teams) { item($0) } }
+            }
+        } else if groups.count > 1 {
+            ForEach(groups) { group in
+                Section(group.name) { ForEach(group.teams) { item($0) } }
+            }
+        } else {
+            ForEach(teams) { item($0) }
+        }
     }
 }
 

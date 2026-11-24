@@ -331,20 +331,8 @@ struct ContentView: View {
                 Menu {
                     Button("Any team") { state.filterTeamID = nil }
                     Divider()
-                    // Headed by league once there's more than one, because a flat list of
-                    // every roster you've ever imported gets long fast.
-                    if state.library.leaguesAreWorthShowing {
-                        ForEach(state.library.teamsByLeague) { group in
-                            Section(group.name) {
-                                ForEach(group.teams) { team in
-                                    Button(team.name) { state.filterTeamID = team.id }
-                                }
-                            }
-                        }
-                    } else {
-                        ForEach(state.library.teams) { team in
-                            Button(team.name) { state.filterTeamID = team.id }
-                        }
+                    LeagueMenu(teams: state.library.teams) { team in
+                        Button(team.name) { state.filterTeamID = team.id }
                     }
                 } label: {
                     Text(state.library.team(id: state.filterTeamID)?.name ?? "Any team")
@@ -361,8 +349,9 @@ struct ContentView: View {
                         Button(player.label) { state.filterPlayerID = player.id }
                     }
                 } else {
-                    ForEach(state.teamsForFilter) { team in
-                        Section(team.name) {
+                    // A team each, or it's every player of every roster in one menu.
+                    LeagueMenu(teams: state.teamsForFilter) { team in
+                        Menu(team.name) {
                             ForEach(team.players) { player in
                                 Button(player.label) { state.filterPlayerID = player.id }
                             }

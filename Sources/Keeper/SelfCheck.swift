@@ -77,6 +77,7 @@ enum SelfCheck {
         hockeyTech()
         rosterWatch()
         sharedNumbers()
+        teamMenus()
         oldClips()
         categorySections()
         keepSplit()
@@ -2071,6 +2072,19 @@ enum SelfCheck {
         expectTrue("numbered on their own later, their clips are still theirs",
                    TagLibrary.rosterPlayer(for: tag, in: [Team(id: "jets", name: "Jets",
                        players: [p("14b", "Tim Stapleton"), p("14", "Anthony Peluso")])])?.number == "14b")
+    }
+
+    private static func teamMenus() {
+        section("Menus of teams")
+        func teams(_ count: Int, _ leagues: Int) -> [Team] {
+            (0..<count).map { Team(id: "t\($0)", name: "T\($0)", league: "L\($0 % leagues)") }
+        }
+        expectTrue("a short list keeps its headings", !TagLibrary.foldsLeagues(teams(20, 4)))
+        expectTrue("a long one folds", TagLibrary.foldsLeagues(teams(21, 4)))
+        expectTrue("but not one league on its own, which would only be a click more",
+                   !TagLibrary.foldsLeagues(teams(40, 1)))
+        expect("every team is in exactly one submenu",
+               TagLibrary.byLeague(teams(53, 8)).flatMap(\.teams).count, 53)
     }
 
     // MARK: - Old clips

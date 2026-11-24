@@ -963,7 +963,9 @@ final class TagLibrary: ObservableObject {
 
     /// Teams under their league headings, alphabetically, with the unfiled ones last so a
     /// roster missing a league doesn't push the real groups down the menu.
-    var teamsByLeague: [LeagueGroup] {
+    var teamsByLeague: [LeagueGroup] { Self.byLeague(teams) }
+
+    static func byLeague(_ teams: [Team]) -> [LeagueGroup] {
         var groups: [String: [Team]] = [:]
         for team in teams {
             groups[Self.leagueKey(team), default: []].append(team)
@@ -984,6 +986,15 @@ final class TagLibrary: ObservableObject {
 
     /// Whether the menus are worth splitting up. One group is just a header over everything.
     var leaguesAreWorthShowing: Bool { teamsByLeague.count > 1 }
+
+    /// More than this in one menu and the end of it is off the bottom of a laptop screen,
+    /// where macOS makes you hover an arrow to reach it.
+    static let longMenu = 20
+
+    /// Whether a menu of these needs its leagues folded into submenus.
+    static func foldsLeagues(_ teams: [Team]) -> Bool {
+        teams.count > longMenu && byLeague(teams).count > 1
+    }
 
     func upsert(team: Team) {
         if let i = teams.firstIndex(where: { $0.id == team.id }) {
