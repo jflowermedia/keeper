@@ -4,7 +4,7 @@
 
 Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases) · macOS 13 or later
 
-> **Alpha, version 1.3.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
+> **Alpha, version 1.4.0.** Tested with one camera on one Mac. It never writes to your cards, but keep a second copy of anything that matters. Bug reports welcome in [Issues](../../issues).
 
 ![The Keeper window on the Picks tab: clips down the left with green KEEP and yellow OK badges and player tags, a clip playing top right, and the tagging panel under it with the roster on the left and numbered categories across the rest](docs/keeper-1.3.png)
 
@@ -157,14 +157,6 @@ NHL teams come with their mascots. Players listed with a three-digit number have
 
 ![The Update All Rosters review: Set all buttons for Merge, Replace and Skip above a list of changed teams, each with its own choice](docs/update-rosters-1.4.png)
 
-### Two players in one number
-
-Junior leagues often list a call-up in a number a regular wears. The regular keeps it and the call-up gets a letter: **15** and **15b**. If it isn't clear whose number it is, they're **15a** and **15b**. Typing 15 on the bench shows everyone in it. A player keeps their letter on later downloads, or a number of your own if you've given them one. Letters are left out of filenames and folders. CSV files work the same way.
-
-### Old clips
-
-A tag keeps the name, number, position and team it was made with. When a player changes number, their old clips keep the old one and still come up under their name. When they leave, the clips keep their name and show **Not on roster**. Importing, downloading and updating never change a tag, except a name you tick as **Same player**, or a position the tag didn't have.
-
 These lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you already have aren't affected.
 
 An orange icon beside a team on the tagging panel means the league has changed that roster. Click it to see what's different and Merge, Replace or Skip. Nothing changes by itself, and the icon goes once you've looked, until the next change. Keeper asks once a day, and only about teams in play that are filed under one of the leagues above.
@@ -176,6 +168,14 @@ An orange icon beside a team on the tagging panel means the league has changed t
 To export a player under a nickname, click the speech bubble on their row. Filenames use the nickname in place of the surname; everywhere else keeps the real name. **Replace** keeps a nickname only while the player's name and number still match.
 
 **Subjects** are things that aren't players: mascot, crowd, anthem. They're on their own pill after the teams, and typing a name on a team's bench finds them too. A team's own mascots join the pill while it's in play; set them in the roster editor's **Mascots** field. A clip row shows the subject with its tag, like `Mascot · Goal`, where a player shows `17 · Goal`. Hover over a tag for the full name and team. The **Any subject** menu in the filter bar finds them. A subject you've removed stays in that menu while clips still carry it.
+
+### Two players in one number
+
+Junior leagues often list a call-up in a number a regular wears. The regular keeps it and the call-up gets a letter: **15** and **15b**. If it isn't clear whose number it is, they're **15a** and **15b**. Typing 15 on the bench shows everyone in it. A player keeps their letter on later downloads, or a number of your own if you've given them one. Letters are left out of filenames and folders. CSV files work the same way.
+
+### Old clips
+
+A tag keeps the name, number, position and team it was made with. When a player changes number, their old clips keep the old one and still come up under their name. When they leave, the clips keep their name and show **Not on roster**. Importing, downloading and updating never change a tag, except a name you tick as **Same player**, or a position the tag didn't have.
 
 ## Tagging
 
