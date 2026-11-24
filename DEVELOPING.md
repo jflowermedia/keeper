@@ -84,6 +84,7 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/RosterEditor.swift` | editing teams and players after import |
 | `Sources/Keeper/RosterDownload.swift` | the leagues, the NHL's feed, and the download sheet |
 | `Sources/Keeper/HockeyTech.swift` | the feed every other league is read from |
+| `Sources/Keeper/ShirtNumber.swift` | numbers two players share: their letters, order and typing |
 | `Sources/Keeper/RosterWatch.swift` | the daily check on rosters in play, and what counts as a change |
 | `Sources/Keeper/PresetEditor.swift` | the preset builder sheet |
 | `Sources/Keeper/MultiDragHandle.swift` | the drag-to-Finder handles |
@@ -165,10 +166,14 @@ reported unmatched. Don't reintroduce assign-as-you-go.
 **A player's identity is `teamID/number`, and a team's is the slug of its first name.** Both
 are computed, not stored, so anything that changes a number or a team id detaches the tags
 hanging off it. That's why `TagLibrary.apply(_:to:)` is a single call rather than a setter
-per field: it migrates tags for renumbered players *before* replacing the roster, in one
-pass so two players swapping numbers can't be applied twice. Renaming a team deliberately
+per field: with `moveTags` it migrates tags for renumbered players *before* replacing the
+roster, in one pass so two players swapping numbers can't be applied twice. Without it, the
+default, tags keep the number worn in the clip and `rosterPlayer(for:)` finds the player by
+name. Anything asking who a tag is against goes through that or `who(_:in:)`, never the
+number alone. Renaming a team deliberately
 leaves `Team.id` alone — only `name` changes — and `refreshTagsFromRoster` then carries the
-new name onto the tags. Don't add a path that writes a team id.
+new name onto the tags. An import passes `adopt: .nothing`, so old tags stay as they were
+made. Don't add a path that writes a team id.
 
 **Nothing is ever written to a card.** A changed KEEP flag is held in the library and
 applied to the *copied* sidecar by `KeepWriter`, after the copy has been size-checked.
