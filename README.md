@@ -135,7 +135,7 @@ MJHL,Virden Oil Capitals,VIR,27,Liam Goertzen,Forward,
 ```
 
 - `code` is the short team name used in filenames.
-- `league` groups teams in the menus. Past 20 teams, each league becomes a submenu.
+- `league` groups teams in the menus. Past 20 teams, each league becomes a submenu. Click the star beside a team in **Edit Rosters** to put it under **Favourites** at the top of the team menus, or use **Add to Favourites** at the bottom of the tagging panel's.
 - `mascots` is the team's own mascots, separated by semicolons. Any row can carry them.
 - Without a `team` column, the filename is the team name.
 

@@ -384,6 +384,16 @@ struct TagPanel: View {
                     }
                 }
                 LeagueMenu(teams: library.teams) { teamChoice($0) }
+                if !state.activeTeams.isEmpty {
+                    Divider()
+                    ForEach(state.activeTeams) { team in
+                        let on = library.isFavourite(team.id)
+                        Button(on ? "Remove \(team.name) from Favourites"
+                                  : "Add \(team.name) to Favourites") {
+                            library.setFavourite(team.id, !on)
+                        }
+                    }
+                }
                 // No "just this one" item here: the pills below narrow the grid to one
                 // bench without taking the other out of play, and two near-identical
                 // actions a few pixels apart is how you pick the wrong one. Untick to
@@ -1279,12 +1289,23 @@ private struct KeyCap: View {
 }
 
 /// Teams in a menu: under their league's heading, or in a submenu per league once there are
-/// too many to fit the screen. Every menu of teams is one of these.
+/// too many to fit the screen. Your favourites sit above them. Every menu of teams is one of these.
 struct LeagueMenu<Item: View>: View {
     let teams: [Team]
     @ViewBuilder let item: (Team) -> Item
+    @ObservedObject private var library = TagLibrary.shared
+
+    init(teams: [Team], @ViewBuilder item: @escaping (Team) -> Item) {
+        self.teams = teams
+        self.item = item
+    }
 
     var body: some View {
+        // In their leagues as well: a team missing from its own would look deleted.
+        let favourites = TagLibrary.favourites(of: teams, ids: library.favouriteTeamIDs)
+        if !favourites.isEmpty {
+            Section("Favourites") { ForEach(favourites) { item($0) } }
+        }
         let groups = TagLibrary.byLeague(teams)
         if TagLibrary.foldsLeagues(teams) {
             ForEach(groups) { group in

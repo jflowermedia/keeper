@@ -259,7 +259,9 @@ enum WelcomeTour {
                  + "before anything is written.\n\n"
                  + "Already have the team? Keeper shows what's changed, its code included, "
                  + "and asks before it touches your roster. Clips you've already tagged keep the "
-                 + "name and number they were tagged with.",
+                 + "name and number they were tagged with.\n\n"
+                 + "Star the teams you shoot most in Edit Rosters, and they're at the top of every "
+                 + "team menu.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 

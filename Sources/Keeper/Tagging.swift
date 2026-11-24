@@ -299,6 +299,9 @@ final class TagLibrary: ObservableObject {
     @Published private(set) var tags: [Tag] = [] {
         didSet { mostUsedCache = nil }
     }
+    /// The teams at the top of every team menu. Beside the teams rather than on them: an import
+    /// and the roster editor both build a team afresh, and either would forget it.
+    @Published private(set) var favouriteTeamIDs: [String] = []
     /// The games cards have been split into, and which one each clip is in, by UMID. See
     /// Games.swift. Nothing here is on a card.
     @Published private(set) var games: [Game] = []
@@ -1008,7 +1011,23 @@ final class TagLibrary: ObservableObject {
 
     func deleteTeam(id: String) {
         teams.removeAll { $0.id == id }
+        // Or a new team that happened on the same id would arrive a favourite.
+        favouriteTeamIDs.removeAll { $0 == id }
         save()
+    }
+
+    func isFavourite(_ id: String) -> Bool { favouriteTeamIDs.contains(id) }
+
+    func setFavourite(_ id: String, _ on: Bool) {
+        guard isFavourite(id) != on else { return }
+        if on { favouriteTeamIDs.append(id) } else { favouriteTeamIDs.removeAll { $0 == id } }
+        save()
+    }
+
+    /// The favourites among these teams, in the order the menus list teams.
+    static func favourites(of teams: [Team], ids: [String]) -> [Team] {
+        let wanted = Set(ids)
+        return byLeague(teams.filter { wanted.contains($0.id) }).flatMap(\.teams)
     }
 
     /// Adds to a section, or to the first one when none is named. A category has to be
@@ -1351,6 +1370,7 @@ final class TagLibrary: ObservableObject {
         var dismissedMostUsed: [String]?
         var games: [Game]?
         var clipGames: [String: String]?
+        var favouriteTeamIDs: [String]?
     }
 
     /// The overrides as `load()` reads them. A library from before OK and NG has only the
@@ -1431,6 +1451,7 @@ final class TagLibrary: ObservableObject {
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
         dismissedMostUsed = archive.dismissedMostUsed ?? []
+        favouriteTeamIDs = archive.favouriteTeamIDs ?? []
         games = archive.games ?? []
         clipGames = archive.clipGames ?? [:]
         tags = archive.tags
@@ -1489,7 +1510,8 @@ final class TagLibrary: ObservableObject {
                               flagOverrides: flagOverrides.mapValues { $0.flag?.rawValue ?? "" },
                               dismissedMostUsed: dismissedMostUsed,
                               games: games,
-                              clipGames: clipGames)
+                              clipGames: clipGames,
+                              favouriteTeamIDs: favouriteTeamIDs)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -1646,6 +1668,8 @@ final class TagLibrary: ObservableObject {
         subjects = archive.subjects ?? Subjects.defaults
         recentCategories = archive.recentCategories ?? []
         dismissedMostUsed = archive.dismissedMostUsed ?? []
+        // A backup from before favourites says nothing about them, so it doesn't clear yours.
+        favouriteTeamIDs = archive.favouriteTeamIDs ?? favouriteTeamIDs
         games = archive.games ?? []
         clipGames = archive.clipGames ?? [:]
         tags = archive.tags

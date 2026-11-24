@@ -149,12 +149,27 @@ struct RosterEditor: View {
     }
 
     private func teamRow(_ item: Team) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(item.name).lineLimit(1)
-            Text("\(item.players.count) player\(item.players.count == 1 ? "" : "s")"
-                 + (item.code.map { " · \($0)" } ?? ""))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        let favourite = library.isFavourite(item.id)
+        return HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name).lineLimit(1)
+                Text("\(item.players.count) player\(item.players.count == 1 ? "" : "s")"
+                     + (item.code.map { " · \($0)" } ?? ""))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Button {
+                library.setFavourite(item.id, !favourite)
+            } label: {
+                Image(systemName: favourite ? "star.fill" : "star")
+                    .foregroundStyle(favourite ? Color.keeperYellow : .keeperSecondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help(favourite ? "Take \(item.name) out of Favourites"
+                            : "Add \(item.name) to Favourites, at the top of the team menus")
+            .accessibilityLabel(favourite ? "Remove from Favourites" : "Add to Favourites")
         }
         .tag(item.id)
         .id(item.id)

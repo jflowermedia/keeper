@@ -2083,6 +2083,16 @@ enum SelfCheck {
         expectTrue("a long one folds", TagLibrary.foldsLeagues(teams(21, 4)))
         expectTrue("but not one league on its own, which would only be a click more",
                    !TagLibrary.foldsLeagues(teams(40, 1)))
+        expect("favourites keep the menus' order, and a deleted team's id does no harm",
+               TagLibrary.favourites(of: teams(9, 2), ids: ["t3", "gone", "t2", "t1"]).map(\.id),
+               ["t2", "t1", "t3"])
+        let before = #"{"teams":[],"categories":[],"tags":[]}"#
+        let old = try? TagLibrary.decodeArchive(Data(before.utf8))
+        expectTrue("a library from before favourites still reads", old != nil && old?.favouriteTeamIDs == nil)
+        let stored = TagLibrary.Archive(teams: [], tags: [], favouriteTeamIDs: ["virden"])
+        expect("favourites survive a save",
+               (try? JSONEncoder().encode(stored)).flatMap { try? TagLibrary.decodeArchive($0) }?
+                   .favouriteTeamIDs ?? [], ["virden"])
         expect("every team is in exactly one submenu",
                TagLibrary.byLeague(teams(53, 8)).flatMap(\.teams).count, 53)
     }
