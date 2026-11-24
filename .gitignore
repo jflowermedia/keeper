@@ -23,6 +23,9 @@ __pycache__/
 # Personal notes for Claude Code, kept off GitHub
 CLAUDE.local.md
 
+# Developer notes, kept off GitHub the same way
+DEVELOPING.md
+
 .claude/settings.local.json
 
 # Sony LookProfile LUTs: no licence came with them and this repo is public.

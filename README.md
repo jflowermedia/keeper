@@ -55,7 +55,7 @@ Allow it in one line:
 xattr -dr com.apple.quarantine /Applications/Keeper.app
 ```
 
-Build from source (needs Xcode's command line tools). See [DEVELOPING.md](DEVELOPING.md) for more.
+Build from source (needs Xcode's command line tools).
 
 ```
 git clone https://github.com/jflowermedia/keeper.git
