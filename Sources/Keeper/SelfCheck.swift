@@ -74,6 +74,8 @@ enum SelfCheck {
         games()
         mostUsedCategories()
         rosterDownload()
+        hockeyTech()
+        rosterWatch()
         categorySections()
         keepSplit()
         flags()
@@ -454,12 +456,17 @@ enum SelfCheck {
         section("Downloading a roster")
         // Every league needs a name to show and endpoints to ask, or its entry in the picker
         // would open a sheet that can only say "Couldn't reach the league".
-        let team = LeagueTeam(code: "XYZ", name: "Test")
+        let team = LeagueTeam(code: "XYZ", name: "Test", feedID: "1", seasons: ["2", "1"])
         expect("every league has a name", RosterSource.allCases.filter { $0.name.isEmpty }.count, 0)
         expect("league names are distinct",
                Set(RosterSource.allCases.map(\.name)).count, RosterSource.allCases.count)
         expect("every league has endpoints",
-               RosterSource.allCases.filter { $0.teamsURL == nil || $0.rosterURL(for: team) == nil }.count, 0)
+               RosterSource.allCases.filter { $0.rosterURLs(for: team).isEmpty }.count, 0)
+        expectTrue("and every HockeyTech league has somewhere to ask for its seasons and teams",
+                   RosterSource.allCases.compactMap(\.hockeyTech)
+                       .allSatisfy { $0.seasonsURL != nil && $0.teamsURL(season: "1") != nil })
+        expect("every league is in exactly one menu group",
+               RosterSource.Group.allCases.flatMap(\.sources).count, RosterSource.allCases.count)
 
         let jets = LeagueTeam(code: "WPG", name: "Winnipeg Jets")
 
@@ -481,7 +488,7 @@ enum SelfCheck {
             expect("the header is what the importer reads", lines[0],
                    "league,team,code,number,name,position,mascots")
             expect("a forward, carrying the team's mascots", lines[1],
-                   "NHL,Winnipeg Jets,WPG,26,Blake Wheeler,Forward,Mick E. Moose; Benny")
+                   "NHL,Winnipeg Jets,WPG,26,Blake Wheeler,Forward,\"Mick E. Moose; Benny\"")
             expect("a defenceman", lines[2], "NHL,Winnipeg Jets,WPG,33,Dustin Byfuglien,Defence,")
             expect("a goalie", lines[3], "NHL,Winnipeg Jets,WPG,34,Michael Hutchinson,Goalie,")
         } else {
@@ -497,7 +504,7 @@ enum SelfCheck {
         expect("a flat name and a numeric string still read",
                RosterFeed.csv(from: Data(flat.utf8), team: jets)?
                    .split(separator: "\n").last.map(String.init) ?? "none",
-               "NHL,Winnipeg Jets,WPG,9,Evander Kane,Forward,Mick E. Moose; Benny")
+               "NHL,Winnipeg Jets,WPG,9,Evander Kane,Forward,\"Mick E. Moose; Benny\"")
 
         // A player with no number is dropped, not carried through — an import refuses a
         // blank number, so one unsigned call-up would otherwise cost the whole team.
@@ -524,14 +531,26 @@ enum SelfCheck {
                     RosterFeed.Row(number: "9", name: "C", position: ""),
                     RosterFeed.Row(number: "12", name: "D", position: ""),
                     RosterFeed.Row(number: "33", name: "E", position: "")]
-        expect("shared numbers are found, in order", RosterFeed.sharedNumbers(rows), ["9", "12"])
-        expect("a clean roster shares none", RosterFeed.sharedNumbers(Array(rows.suffix(3))), [])
+        expect("players sharing a number are left out", RosterFeed.usable(rows).rows.map(\.name), ["E"])
+        expect("all of them", RosterFeed.usable(rows).leftOut.map(\.name), ["A", "B", "C", "D"])
+        expect("a clean roster leaves nobody out", RosterFeed.usable(Array(rows.suffix(3))).leftOut.count, 0)
         expect("the preview and the import read the same players",
                RosterFeed.rows(from: Data(nested.utf8))?.count,
                RosterFeed.csv(from: Data(nested.utf8), team: jets)
                    .map { $0.split(separator: "\n").count - 1 })
 
         expect("a plain field isn't quoted", RosterFeed.field("Winnipeg Jets"), "Winnipeg Jets")
+        expect("a semicolon is quoted", RosterFeed.field("Mick; Benny"), "\"Mick; Benny\"")
+        expect("a semicolon in a comma file is text",
+               CSV.parse("a,b,c\n1,x; y,3").last ?? [], ["1", "x; y", "3"])
+        expect("a semicolon file still divides on them",
+               CSV.parse("a;b\n1;x, y").last ?? [], ["1", "x, y"])
+        expect("a tab file on tabs", CSV.parse("a\tb\n1\t2").last ?? [], ["1", "2"])
+        expect("a mascots column with several, unquoted, as the guide shows it",
+               (try? TagLibrary.parseRoster(csv: "number,name,mascots,position\n1,A,Mick; Benny,Goalie",
+                                            fallbackTeam: "T").first).map {
+                   $0.mascots + [$0.players.first?.position ?? ""] },
+               ["Mick", "Benny", "Goalie"])
         expect("a comma is quoted", RosterFeed.field("Jets, The"), "\"Jets, The\"")
         expect("a quote is doubled", RosterFeed.field("Da \"Bus\""), "\"Da \"\"Bus\"\"\"")
 
@@ -1895,6 +1914,176 @@ enum SelfCheck {
     //
     // Two at most, one league. A pair across leagues is a mis-click in a long menu, and
     // three benches was never something the panel could show.
+
+    // MARK: - The HockeyTech leagues
+
+    private static func hockeyTech() {
+        section("The HockeyTech leagues")
+
+        // As the feed really sends them: newest first, not started, events among them.
+        let seasons = """
+        {"SiteKit":{"Seasons":[
+          {"season_id":"11","season_name":"2026-27 Regular Season","playoff":"0","start_date":"2026-12-04"},
+          {"season_id":"12","season_name":"2026 Western All-Star Challenge","playoff":"0","start_date":"2026-11-03"},
+          {"season_id":"10","season_name":"2026-27 Pre-Season","playoff":"0","start_date":"2026-10-01"},
+          {"season_id":"9","season_name":"2026 Playoffs","playoff":"1","start_date":"2026-04-28"},
+          {"season_id":"8","season_name":"2025-26 Regular Season","playoff":"0","start_date":"2025-11-21"}]}}
+        """
+        expect("the newest started season, then the one before",
+               HockeyTechFeed.seasons(in: Data(seasons.utf8), today: "2026-11-23"), ["10", "8"])
+        expect("a season counts from its first day",
+               HockeyTechFeed.seasons(in: Data(seasons.utf8), today: "2026-12-04"), ["11", "10"])
+        expect("in the playoffs, the season they follow",
+               HockeyTechFeed.seasons(in: Data(seasons.utf8), today: "2026-05-01"), ["8"])
+        expect("rubbish gives no seasons", HockeyTechFeed.seasons(in: Data("no".utf8), today: "2026-11-23"), [])
+        expect("today is written the feed's way",
+               HockeyTechFeed.today(Date(timeIntervalSince1970: 1_800_000_000)).count, 10)
+
+        let teams = """
+        {"SiteKit":{"Teamsbyseason":[
+          {"id":"13","name":"- Ottawa, 67's (OHL) -","code":"Ott"},
+          {"id":"7","name":"Lake Cowichan Kraken ","code":"LCK"},
+          {"id":"2","name":"Halifax, Mooseheads","code":"Hal"}]}}
+        """
+        let found = HockeyTechFeed.teams(in: Data(teams.utf8), seasons: ["10"])
+        expect("names are tidied, and another league's club isn't offered",
+               found.map(\.name), ["Halifax Mooseheads", "Lake Cowichan Kraken"])
+        expect("codes are capitals", found.map(\.code), ["HAL", "LCK"])
+        expect("the feed's own id is kept", found.map(\.feedID), ["2", "7"])
+
+        // The stray empty array really is how every roster ends.
+        let roster = """
+        {"SiteKit":{"Roster":[
+          {"first_name":"Brady","last_name":" Shields","tp_jersey_number":"1","position":"G","flags":[]},
+          {"first_name":"Champ","last_name":"Vannus","tp_jersey_number":"1","position":"G",
+           "flags":["ht-rookie","ht-affiliate"]},
+          {"first_name":"Seth","last_name":"Hooper","tp_jersey_number":"0","position":"LD","flags":[]},
+          {"first_name":"Nolan","last_name":"Brunel","tp_jersey_number":"0","position":"RW","flags":[]},
+          {"first_name":"Nash","last_name":"Lenton","tp_jersey_number":"211","position":"F","flags":[]},
+          {"first_name":"Cole","last_name":"Bell","tp_jersey_number":8,"position":"F",
+           "flags":["ht-affiliate"]},
+          {"first_name":"Cole","last_name":"Bell","tp_jersey_number":8,"position":"F",
+           "flags":["ht-affiliate"]},
+          {"first_name":"No","last_name":"Number","tp_jersey_number":""},
+          []]}}
+        """
+        guard let rows = HockeyTechFeed.rows(from: Data(roster.utf8)) else {
+            failures.append("the HockeyTech roster shape didn't parse")
+            print("  FAIL the HockeyTech roster shape didn't parse")
+            return
+        }
+        expect("everyone with a number is read", rows.count, 7)
+        expect("a name is tidied", rows.first?.name, "Brady Shields")
+        expect("positions map", rows.map(\.position),
+               ["Goalie", "Goalie", "Defence", "Forward", "Forward", "Forward", "Forward"])
+        let sorted = RosterFeed.usable(rows)
+        expect("a regular keeps their number from a call-up, and a call-up alone is in once",
+               sorted.rows.map(\.name), ["Brady Shields", "Cole Bell"])
+        expect("the call-up, the shared placeholder and the three-digit number are left out",
+               sorted.leftOut.map(\.name),
+               ["Champ Vannus", "Seth Hooper", "Nolan Brunel", "Nash Lenton"])
+        expectTrue("an empty roster reads as nothing",
+                   HockeyTechFeed.rows(from: Data(#"{"SiteKit":{"Roster":[[]]}}"#.utf8)) == nil)
+        expectTrue("so does an error page", HockeyTechFeed.rows(from: Data("denied".utf8)) == nil)
+
+        let flames = LeagueTeam(code: "CGY", name: "Calgary Wranglers", feedID: "1", seasons: ["1"])
+        let wranglers = try? RosterSource.ahl.incoming(rows, team: flames).first
+        expect("an AHL team doesn't get the NHL's mascot for its code", wranglers?.mascots, [])
+        expect("it's filed under its own league", wranglers?.league, "AHL")
+        expect("and carries who was left out", wranglers?.leftOut.count, 4)
+        let jets = try? RosterSource.nhl.incoming(rows, team: LeagueTeam(code: "WPG", name: "Winnipeg Jets")).first
+        expect("every mascot survives the trip through CSV", jets?.mascots, ["Mick E. Moose", "Benny"])
+
+        // Dauphin, with Brunel typed in under a number of your own.
+        var dauphin = Team(id: "dauphin-kings", name: "Dauphin Kings")
+        dauphin.players = [Player(teamID: "dauphin-kings", number: "(0)", name: "Nolan Brunel", position: "Forward"),
+                           Player(teamID: "dauphin-kings", number: "40", name: "Gone Already")]
+        guard let incoming = try? RosterSource.mjhl.incoming(
+            rows, team: LeagueTeam(code: "DAU", name: "Dauphin Kings", feedID: "1", seasons: ["1"])).first
+        else {
+            failures.append("a HockeyTech roster didn't import")
+            return
+        }
+        let kept = TagLibrary.keepingYours(incoming, existing: dauphin)
+        expect("someone left out whom you've numbered stays",
+               kept.players.first { $0.name == "Nolan Brunel" }?.number, "(0)")
+        expect("and isn't called left out", kept.leftOut.map(\.name),
+               ["Champ Vannus", "Seth Hooper", "Nash Lenton"])
+        expect("Replace keeps them and drops who the league has dropped",
+               TagLibrary.importedTeam(kept, into: dauphin, mode: .replace).players.map(\.name).sorted(),
+               ["Brady Shields", "Cole Bell", "Nolan Brunel"])
+        expect("keeping yours twice is the same as once",
+               TagLibrary.keepingYours(kept, existing: dauphin).players.map(\.name), kept.players.map(\.name))
+        expect("a list reads the same before and after keeping yours",
+               RosterWatchRule.fingerprint(kept), RosterWatchRule.fingerprint(incoming))
+    }
+
+    // MARK: - Roster changes
+
+    private static func rosterWatch() {
+        section("Marking a roster that's changed")
+        func p(_ number: String, _ name: String, _ position: String = "") -> Player {
+            Player(teamID: "winnipeg-jets", number: number, name: name, position: position)
+        }
+        func list(_ players: [Player]) -> TagLibrary.IncomingTeam {
+            TagLibrary.IncomingTeam(slug: "winnipeg-jets", name: "Winnipeg Jets", code: "WPG",
+                                    league: "NHL", players: players)
+        }
+        var jets = Team(id: "winnipeg-jets", name: "Winnipeg Jets", code: "WPG", league: " nhl ")
+        jets.players = [p("9", "Alex Iafallo", "Forward"), p("33", "Clay Stevenson", "Goalie")]
+
+        let same = list(jets.players)
+        expectTrue("the same list isn't news", !RosterWatchRule.isNews(same, for: jets, seen: nil))
+        let respelled = list([p("9", "ALEX IAFALLO", "Defence"), p("33", "Clay Stevenson")])
+        expectTrue("nor is case or a position", !RosterWatchRule.isNews(respelled, for: jets, seen: nil))
+
+        let called = list(jets.players + [p("29", "Brayden Yager")])
+        expectTrue("a new player is", RosterWatchRule.isNews(called, for: jets, seen: nil))
+        expectTrue("someone leaving is", RosterWatchRule.isNews(list([jets.players[0]]), for: jets, seen: nil))
+        expectTrue("a new name on a number is",
+                   RosterWatchRule.isNews(list([jets.players[0], p("33", "Someone Else")]), for: jets, seen: nil))
+
+        // The whole reason a seen list is kept: none of these can be answered by the roster.
+        let dropped = list([jets.players[0]])
+        expectTrue("a list you've looked at isn't news again, though Merge kept a player it drops",
+                   !RosterWatchRule.isNews(dropped, for: jets, seen: RosterWatchRule.fingerprint(dropped)))
+        expectTrue("but the next change is",
+                   RosterWatchRule.isNews(list([jets.players[0], p("8", "Henry Thrun")]), for: jets,
+                                          seen: RosterWatchRule.fingerprint(dropped)))
+        expect("order doesn't matter",
+               RosterWatchRule.fingerprint(list(jets.players.reversed())), RosterWatchRule.fingerprint(same))
+
+        expect("a team is matched to its league, give or take case", RosterWatchRule.source(for: jets), .nhl)
+        jets.league = "Heritage Classic"
+        expect("a league nobody can ask is left alone", RosterWatchRule.source(for: jets), nil)
+        jets.league = nil
+        expect("so is a team with none", RosterWatchRule.source(for: jets), nil)
+
+        var renamed = Team(id: "new-team", name: "Winnipeg Jets", league: "NHL")
+        renamed.players = jets.players
+        let listed = [LeagueTeam(code: "MTL", name: "Montréal Canadiens"),
+                      LeagueTeam(code: "WPG", name: "Winnipeg Jets")]
+        expect("matched the way the importer would, id or no",
+               RosterWatchRule.match(renamed, in: listed, library: [renamed])?.code, "WPG")
+        let alumni = Team(id: "winnipeg-jets-alumni", name: "Winnipeg Jets Alumni", league: "NHL")
+        expectTrue("a team the league doesn't list isn't matched",
+                   RosterWatchRule.match(alumni, in: listed, library: [alumni]) == nil)
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func due(_ checked: Double?, _ attempted: Double? = nil, lost: Bool = false) -> Bool {
+            RosterWatchRule.isDue(checked: checked.map { now.addingTimeInterval(-$0 * 3600) },
+                                  attempted: attempted.map { now.addingTimeInterval(-$0 * 3600) },
+                                  lostMark: lost, now: now)
+        }
+        expectTrue("never checked is due", due(nil))
+        expectTrue("an hour ago isn't", !due(1))
+        expectTrue("a day ago is", due(25))
+        expectTrue("a clock set back doesn't stop the checks", due(-48))
+        expectTrue("a failure waits before trying again", !due(nil, 0.5))
+        expectTrue("and then does", due(nil, 1.5))
+        expectTrue("a mark from before a relaunch is fetched again", due(1, nil, lost: true))
+        expectTrue("but not over and over", !due(1, 0.1, lost: true))
+    }
 
     // MARK: - Re-importing a roster
     //

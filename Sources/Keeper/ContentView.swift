@@ -116,7 +116,14 @@ struct ContentView: View {
             // is the normal case, not something worth a banner.
             UpdateCheck.shared.check()
             state.offerWelcomeIfFirstLaunch()
+            RosterWatch.shared.check(state.activeTeamIDs)
         }
+        // Left open between shoots, the app would otherwise only ever ask at launch. Throttled
+        // inside, so switching back and forth costs nothing.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            RosterWatch.shared.check(state.activeTeamIDs)
+        }
+        .onChange(of: state.activeTeamIDs) { RosterWatch.shared.check($0) }
         .onReceive(NotificationCenter.default.publisher(for: .keeperLibraryBackedUp)) { _ in
             state.refreshBackups()
         }
@@ -131,6 +138,7 @@ struct ContentView: View {
         // A roster can be edited or deleted while the cursor is sitting in it.
         .onChange(of: state.library.teams) { _ in
             state.clampFlowCursors()
+            RosterWatch.shared.prune()
         }
         // Tags come off by undo, the clear key and the panel, and the last one can take a
         // removed subject out of the filter menu while it's still the filter.

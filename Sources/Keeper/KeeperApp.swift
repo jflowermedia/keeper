@@ -37,6 +37,7 @@ struct KeeperApp: App {
     @ObservedObject private var library = TagLibrary.shared
     /// For the Help menu's toggle and its disabled state while a check is running.
     @ObservedObject private var updates = UpdateCheck.shared
+    @ObservedObject private var rosterWatch = RosterWatch.shared
 
     init() {
         // `swift run Keeper --self-check` runs the checks and exits without ever opening a
@@ -54,7 +55,11 @@ struct KeeperApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Keeper") {
+        // The id is what macOS files the window's size under. Without one SwiftUI uses the
+        // root view's type name, and `KeeperThemed` being private puts a memory address in
+        // that — different every launch, so the saved size was never found again and the
+        // window opened at its minimum. Changing the id forgets everyone's size once.
+        WindowGroup("Keeper", id: "main") {
             ContentView(state: state)
                 .keeperThemed()
                 // The theme's colours are read as views draw, so the window is rebuilt when
@@ -62,6 +67,9 @@ struct KeeperApp: App {
                 // nothing else is lost, because the state lives in `AppState`.
                 .id("\(themeFlavor)-\(themeAccent)")
         }
+        // Fills the screen until there's a saved size, which wins from then on.
+        .defaultSize(NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900))
+        .defaultPosition(.topLeading)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Keeper") { Self.showAbout() }
@@ -234,6 +242,9 @@ struct KeeperApp: App {
                 Toggle("Check for Updates Automatically", isOn: $updates.enabled)
                     .help("Asks GitHub once a day whether there's a newer release. Nothing "
                           + "is sent and nothing is downloaded.")
+                Toggle("Check Rosters for Changes", isOn: $rosterWatch.enabled)
+                    .help("Asks the league once a day whether the rosters you have in play have "
+                          + "changed, and marks the team if so. Nothing changes until you say.")
                 Divider()
                 Button("JFlowerMedia Website") { NSWorkspace.shared.open(AppInfo.website) }
                 Button("JFlowerMedia on Instagram") { NSWorkspace.shared.open(AppInfo.instagram) }

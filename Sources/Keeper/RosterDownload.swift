@@ -4,51 +4,114 @@ import SwiftUI
 struct LeagueTeam: Identifiable, Hashable {
     let code: String
     let name: String
+    /// What the feed calls the team, for the leagues whose feed doesn't go by code, and the
+    /// seasons to ask for it in, best first.
+    var feedID: String? = nil
+    var seasons: [String] = []
     var id: String { code }
 }
 
 /// A league Keeper can fetch rosters from.
 ///
-/// Every case needs its own endpoints *and* its own parser, because no two leagues publish the
-/// same JSON — which is why the switches below are exhaustive and have no default. Adding a
-/// league is a new case, and the compiler then points at each place that has to learn about it.
+/// Two feeds: the NHL's own, and HockeyTech's, which serves every other league here in one
+/// shape. A league on HockeyTech is a case, a name, a group and a key. The switches are
+/// exhaustive and have no default, so the compiler points at each place a new one is missing.
 enum RosterSource: String, CaseIterable, Identifiable {
-    case nhl
+    case nhl, ahl, echl, pwhl
+    case whl, ohl, qmjhl
+    case mjhl, sjhl, ajhl, bchl
 
     var id: String { rawValue }
 
-    var name: String {
+    /// What a downloaded team is filed under, and how a team you have is matched to its feed.
+    var name: String { rawValue.uppercased() }
+
+    enum Group: String, CaseIterable {
+        case pro = "Professional"
+        case major = "Major Junior"
+        case juniorA = "Junior A"
+
+        var sources: [RosterSource] { RosterSource.allCases.filter { $0.group == self } }
+    }
+
+    var group: Group {
         switch self {
-        case .nhl: return "NHL"
+        case .nhl, .ahl, .echl, .pwhl:    return .pro
+        case .whl, .ohl, .qmjhl:          return .major
+        case .mjhl, .sjhl, .ajhl, .bchl:  return .juniorA
         }
     }
 
-    var teamsURL: URL? {
+    /// Nil for a league with a feed of its own.
+    var hockeyTech: HockeyTechLeague? {
         switch self {
-        case .nhl: return URL(string: "\(RosterFeed.api)/standings/now")
+        case .nhl:   return nil
+        case .ahl:   return HockeyTechLeague(client: "ahl", key: "ccb91f29d6744675")
+        case .echl:  return HockeyTechLeague(client: "echl", key: "2c2b89ea7345cae8")
+        case .pwhl:  return HockeyTechLeague(client: "pwhl", key: "446521baf8c38984")
+        case .whl:   return HockeyTechLeague(client: "whl", key: "f1aa699db3d81487")
+        case .ohl:   return HockeyTechLeague(client: "ohl", key: "f1aa699db3d81487")
+        case .qmjhl: return HockeyTechLeague(client: "lhjmq", key: "f322673b6bcae299")
+        case .mjhl:  return HockeyTechLeague(client: "mjhl", key: "f894c324fe5fd8f0")
+        case .sjhl:  return HockeyTechLeague(client: "sjhl", key: "2fb5c2e84bf3e4a8")
+        case .ajhl:  return HockeyTechLeague(client: "ajhl", key: "cbe60a1d91c44ade")
+        case .bchl:  return HockeyTechLeague(client: "bchl", key: "f3ed30007ad2124e")
         }
     }
 
-    func rosterURL(for team: LeagueTeam) -> URL? {
-        switch self {
-        case .nhl: return URL(string: "\(RosterFeed.api)/roster/\(team.code)/current")
+    /// Where to ask for a team's roster, best first. More than one only where the feed may
+    /// have opened a season it hasn't filled in yet.
+    func rosterURLs(for team: LeagueTeam) -> [URL] {
+        if let league = hockeyTech {
+            guard let id = team.feedID else { return [] }
+            return team.seasons.compactMap { league.rosterURL(team: id, season: $0) }
         }
-    }
-
-    func teams(in data: Data) -> [LeagueTeam] {
-        switch self {
-        case .nhl: return RosterFeed.teams(in: data)
-        }
+        return [URL(string: "\(RosterFeed.api)/roster/\(team.code)/current")].compactMap { $0 }
     }
 
     func rows(from data: Data) -> [RosterFeed.Row]? {
-        switch self {
-        case .nhl: return RosterFeed.rows(from: data)
-        }
+        hockeyTech == nil ? RosterFeed.rows(from: data) : HockeyTechFeed.rows(from: data)
     }
 
-    func csv(from data: Data, team: LeagueTeam) -> String? {
-        rows(from: data).map { RosterFeed.csv(rows: $0, team: team, league: name) }
+    /// Through the file importer's reader, so a downloaded roster gets the same column
+    /// handling an imported one does. Players who can't go in travel alongside.
+    func incoming(_ rows: [RosterFeed.Row], team: LeagueTeam) throws -> [TagLibrary.IncomingTeam] {
+        let sorted = RosterFeed.usable(rows)
+        let csv = RosterFeed.csv(rows: sorted.rows, team: team, league: name)
+        var parsed = try TagLibrary.parseRoster(csv: csv, fallbackTeam: team.name)
+        for i in parsed.indices {
+            parsed[i].leftOut = sorted.leftOut.map {
+                Player(teamID: parsed[i].slug, number: $0.number, name: $0.name, position: $0.position)
+            }
+        }
+        return parsed
+    }
+
+    // MARK: Asking
+
+    func fetchTeams() async throws -> [LeagueTeam] {
+        guard let league = hockeyTech else {
+            guard let url = URL(string: "\(RosterFeed.api)/standings/now") else { return [] }
+            return RosterFeed.teams(in: try await RosterFeed.fetch(url))
+        }
+        guard let url = league.seasonsURL else { return [] }
+        let seasons = HockeyTechFeed.seasons(in: try await RosterFeed.fetch(url),
+                                             today: HockeyTechFeed.today())
+        for (i, season) in seasons.enumerated() {
+            guard let url = league.teamsURL(season: season) else { continue }
+            let teams = HockeyTechFeed.teams(in: try await RosterFeed.fetch(url),
+                                             seasons: Array(seasons[i...]))
+            if !teams.isEmpty { return teams }
+        }
+        return []
+    }
+
+    /// Nil when the league answered and listed nobody.
+    func fetchRows(_ team: LeagueTeam) async throws -> [RosterFeed.Row]? {
+        for url in rosterURLs(for: team) {
+            if let rows = rows(from: try await RosterFeed.fetch(url)) { return rows }
+        }
+        return nil
     }
 }
 
@@ -155,10 +218,10 @@ enum RosterFeed {
 
     static func position(_ code: String?) -> String {
         switch (code ?? "").uppercased() {
-        case "C", "L", "R": return "Forward"
-        case "D":           return "Defence"
-        case "G":           return "Goalie"
-        default:            return ""
+        case "C", "L", "R", "LW", "RW", "F": return "Forward"
+        case "D", "LD", "RD":                return "Defence"
+        case "G":                            return "Goalie"
+        default:                             return ""
         }
     }
 
@@ -167,6 +230,8 @@ enum RosterFeed {
         let number: String
         let name: String
         let position: String
+        /// Up from another club for a game or two. See `usable`.
+        var affiliate = false
     }
 
     /// The players in an NHL roster response, in the league's order.
@@ -196,7 +261,9 @@ enum RosterFeed {
         var lines = ["league,team,code,number,name,position,mascots"]
         // Semicolons, because a comma would end the field. Only the first row carries them;
         // the importer gathers the column across the team.
-        let mascots = (Self.mascots[team.code] ?? []).joined(separator: "; ")
+        // The NHL's only: its codes are shared, and the AHL's CGY isn't the Flames.
+        let mascots = (league == RosterSource.nhl.name ? Self.mascots[team.code] ?? [] : [])
+            .joined(separator: "; ")
         for (i, row) in rows.enumerated() {
             lines.append([league, team.name, team.code, row.number, row.name, row.position,
                           i == 0 ? mascots : ""]
@@ -250,19 +317,51 @@ enum RosterFeed {
         rows(from: data).map { csv(rows: $0, team: team, league: league) }
     }
 
-    /// Numbers more than one player wears. The importer refuses such a team outright, so the
-    /// preview says so before you try — the same rule, asked early rather than re-stated.
-    static func sharedNumbers(_ rows: [Row]) -> [String] {
-        var count: [String: Int] = [:]
-        for row in rows { count[row.number, default: 0] += 1 }
-        return count.filter { $0.value > 1 }.keys
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    /// Who can be imported, and who can't.
+    ///
+    /// The importer refuses a team with a number shared, so the rest of the team gets in by
+    /// leaving those players out. Junior leagues list call-ups in a number a regular already
+    /// wears; where exactly one of them isn't a call-up, they keep it. Otherwise nobody does:
+    /// picking one would file the other's clips under the wrong name.
+    ///
+    /// Three digits isn't a shirt. The feeds use them, and 999, for players with none yet.
+    static func usable(_ rows: [Row]) -> (rows: [Row], leftOut: [Row]) {
+        // A league can list one player twice, who'd otherwise clash with themselves.
+        var listed: Set<String> = []
+        let rows = rows.filter { listed.insert("\($0.number)|\($0.name.lowercased())").inserted }
+        let byNumber = Dictionary(grouping: rows.filter { $0.number.count <= 2 }, by: \.number)
+        var keep: [Row] = [], leave: [Row] = []
+        for row in rows {
+            let wearers = byNumber[row.number] ?? []
+            let regulars = wearers.filter { !$0.affiliate }
+            if wearers.count == 1 || (regulars.count == 1 && regulars[0] == row) {
+                keep.append(row)
+            } else {
+                leave.append(row)
+            }
+        }
+        return (keep, leave)
+    }
+
+    /// A GET that treats an error page as an error. Without the status check a 404 or a 503
+    /// body just fails to decode, and the sheet blames the league's data rather than saying
+    /// the league answered with an error.
+    static func fetch(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.setValue("Keeper/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse,
+                           userInfo: [NSLocalizedDescriptionKey: "the league answered \(http.statusCode)"])
+        }
+        return data
     }
 
     /// Quotes a field if it needs it. Team names don't contain commas today, but a league or
     /// a name that did would silently shift every column after it.
     static func field(_ text: String) -> String {
-        guard text.contains(",") || text.contains("\"") || text.contains("\n") else { return text }
+        guard text.contains(",") || text.contains(";") || text.contains("\"") || text.contains("\n") else { return text }
         return "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
@@ -330,11 +429,10 @@ struct RosterDownloadSheet: View {
                 }
                 .padding(12)
 
-                let shared = RosterFeed.sharedNumbers(state.previewRows)
-                if !shared.isEmpty {
-                    Label("More than one player wears #\(shared.joined(separator: ", #")), so "
-                          + "this team won't import. Keeper tells players apart by number — fix "
-                          + "it in a CSV and import that instead.",
+                let leftOut = Set(RosterFeed.usable(state.previewRows).leftOut)
+                if !leftOut.isEmpty {
+                    Label("\(leftOut.count) in orange won't import: they share a number or don't "
+                          + "have a shirt yet. Add them in Edit Rosters once you know it.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.keeperOrange)
@@ -364,7 +462,7 @@ struct RosterDownloadSheet: View {
                                 HStack(spacing: 8) {
                                     Text("#\(row.number)")
                                         .font(.callout.monospacedDigit())
-                                        .foregroundStyle(shared.contains(row.number)
+                                        .foregroundStyle(leftOut.contains(row)
                                                          ? Color.keeperOrange : Color.keeperSecondary)
                                         .frame(width: 36, alignment: .trailing)
                                     Text(row.name)
@@ -403,7 +501,11 @@ struct RosterDownloadSheet: View {
                     Text("Download a Roster").font(.headline)
                     Spacer()
                     Picker("League", selection: $state.rosterSource) {
-                        ForEach(RosterSource.allCases) { Text($0.name).tag($0) }
+                        ForEach(RosterSource.Group.allCases, id: \.self) { group in
+                            Section(group.rawValue) {
+                                ForEach(group.sources) { Text($0.name).tag($0) }
+                            }
+                        }
                     }
                     .frame(width: 150)
                     .disabled(state.isFetchingRosters)

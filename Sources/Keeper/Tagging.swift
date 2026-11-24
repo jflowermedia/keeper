@@ -1637,8 +1637,38 @@ final class TagLibrary: ObservableObject {
         let name: String
         let code: String?
         let league: String?
-        let players: [Player]
+        var players: [Player]
         var mascots: [String] = []
+        /// On the league's list, but with no number of their own to go in under.
+        var leftOut: [Player] = []
+        /// The league's own list, kept by `keepingYours` before it puts yours in. Nil while
+        /// `players` and `leftOut` still are that list.
+        var asListed: [Player]? = nil
+
+        var leftOutList: String {
+            leftOut.map { "\($0.name) #\($0.number)" }.joined(separator: ", ")
+        }
+    }
+
+    /// Someone left out of a download whom you've already got under a number of your own
+    /// stays on the list as you have them. Otherwise Replace would remove a player the league
+    /// still lists, and the review would call them gone.
+    static func keepingYours(_ team: IncomingTeam, existing: Team) -> IncomingTeam {
+        var out = team
+        out.asListed = team.asListed ?? team.players + team.leftOut
+        out.leftOut = []
+        for player in team.leftOut {
+            let mine = existing.players.first { have in
+                have.isNamed(player.name) && !out.players.contains { $0.number == have.number }
+            }
+            guard let mine else {
+                out.leftOut.append(player)
+                continue
+            }
+            out.players.append(Player(teamID: team.slug, number: mine.number, name: mine.name,
+                                      position: mine.position))
+        }
+        return out
     }
 
     /// How a roster file's columns were read: which field each column feeds, and the
@@ -1894,6 +1924,7 @@ final class TagLibrary: ObservableObject {
                 sorted.new.append(team)
                 continue
             }
+            let team = keepingYours(team, existing: existing)
             let conflict = RosterConflict(incoming: team,
                                           existingName: existing.name,
                                           changes: rosterChanges(old: existing.players, new: team.players),
@@ -2052,6 +2083,29 @@ enum CSV {
         return text
     }
 
+    /// What divides the fields, going by the first line. All three used to everywhere, so a
+    /// mascots column reading `Mick E. Moose; Benny` in a comma file lost Benny, and with a
+    /// column after it shifted that one along too. A first line with none keeps all three.
+    static func separators(_ text: String) -> Set<Character> {
+        let all: Set<Character> = [",", ";", "\t"]
+        var counts: [Character: Int] = [:]
+        var inQuotes = false
+        var seen = false
+        for character in text {
+            if character == "\n" {
+                // Blank lines above the headings aren't the first line.
+                if seen { break }
+                continue
+            }
+            seen = true
+            if character == "\"" { inQuotes.toggle() }
+            if !inQuotes, all.contains(character) { counts[character, default: 0] += 1 }
+        }
+        guard let most = counts.values.max() else { return all }
+        // A tie is too close to call, so it stays as it was.
+        return Set(counts.filter { $0.value == most }.map(\.key))
+    }
+
     /// Handles quoted fields, escaped quotes, commas inside quotes, and CRLF.
     static func parse(_ text: String) -> [[String]] {
         // Line endings are normalised before the loop rather than handled inside it, because
@@ -2070,6 +2124,8 @@ enum CSV {
         var inQuotes = false
         var iterator = normalised.makeIterator()
         var pending: Character?
+
+        let separators = Self.separators(normalised)
 
         func endField() { row.append(field); field = "" }
 
@@ -2097,8 +2153,8 @@ enum CSV {
             }
             switch character {
             case "\"":            inQuotes = true
-            case ",", ";", "\t":  endField()
             case "\n":            endRow()       // normalised above, so this is every form
+            case _ where separators.contains(character): endField()
             default:              field.append(character)
             }
         }

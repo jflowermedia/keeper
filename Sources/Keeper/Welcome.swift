@@ -251,13 +251,16 @@ enum WelcomeTour {
              key: .toggleKeep),
 
         Step(title: "Load your roster",
-             body: "File → Download a Roster… fetches today's numbers for a league — the NHL, "
-                 + "for now.\n\n"
+             body: "File → Download a Roster… fetches today's numbers for a league: the NHL, "
+                 + "AHL, ECHL, PWHL, the three major junior leagues and western Junior A. An "
+                 + "orange icon beside a team later on means its league has changed the list.\n\n"
                  + "Any other league: import a CSV with a number and a name per player — "
                  + "several files at once if you like. Keeper shows what it read from each "
                  + "before anything is written.\n\n"
                  + "Already have the team? Keeper shows what's changed, its code included, "
-                 + "and asks before it touches your roster.",
+                 + "and asks before it touches your roster.\n\n"
+                 + "Want a nickname in the filenames? Click the speech bubble on a player's row in "
+                 + "Edit Rosters.",
              key: .importRoster,
              doIt: [.downloadRoster, .importRoster]),
 
@@ -274,7 +277,8 @@ enum WelcomeTour {
                  + "finds subjects too. At the categories, type the number on a tag's key and "
                  + "Return, or type a word to find a tag or add one nobody planned for.\n\n"
                  + "Two games on one card? Right-click the first clip of the second and choose "
-                 + "New Game Starts Here. Each game gets a tab with its own teams.",
+                 + "New Game Starts Here. Each game gets a tab with its own teams, and ⌘1 to ⌘9 "
+                 + "switch between them.",
              key: .keyboardFlow),
 
         Step(title: "Export",
@@ -297,7 +301,8 @@ enum WelcomeTour {
              body: "That's the whole shoot-day loop. The guide covers the rest: filename "
                  + "presets for each client, every setting, rebinding keys, backups and "
                  + "restoring your tags, and what to do when something's off.\n\n"
-                 + "It's always under Help → Keeper Guide.",
+                 + "It's always under Help → Keeper Guide. To change how Keeper looks, try "
+                 + "View → Theme.",
              link: (label: "Open the Keeper Guide", url: AppInfo.guide))
     ]
 }

@@ -48,9 +48,7 @@ extension AppState {
             var rows: [RosterFeed.Row]? = nil
             var note: String? = nil
             do {
-                if let url = source.rosterURL(for: team) {
-                    rows = source.rows(from: try await fetch(url))
-                }
+                rows = try await source.fetchRows(team)
                 if rows == nil { note = "The league didn't list anyone for \(team.name)." }
             } catch {
                 note = "Couldn't reach the league — \(error.localizedDescription)"
@@ -78,10 +76,8 @@ extension AppState {
     private func fetchLeagueTeams() async {
         defer { isFetchingRosters = false }
         let source = rosterSource
-        guard let url = source.teamsURL else { return }
         do {
-            let data = try await fetch(url)
-            let teams = source.teams(in: data)
+            let teams = try await source.fetchTeams()
             guard !teams.isEmpty else {
                 rosterDownloadNote = "The league list came back empty. Try again later, or "
                     + "import a CSV instead."
@@ -114,19 +110,12 @@ extension AppState {
             if teams.count > 1 {
                 rosterDownloadNote = "Fetching \(index + 1) of \(teams.count) — \(team.name)…"
             }
-            guard let url = source.rosterURL(for: team) else {
-                failed.append(team.code)
-                continue
-            }
             do {
-                let data = try await fetch(url)
-                guard let csv = source.csv(from: data, team: team) else {
+                guard let rows = try await source.fetchRows(team) else {
                     failed.append(team.name)
                     continue
                 }
-                // Through the file importer's reader, so a downloaded roster gets the same
-                // duplicate refusal and column handling an imported one does.
-                incoming += try TagLibrary.parseRoster(csv: csv, fallbackTeam: team.name)
+                incoming += try source.incoming(rows, team: team)
             } catch {
                 // Named rather than counted: one team failing out of thirty-two is worth
                 // knowing which, and the usual reason is a roster the league hasn't filled in.
@@ -138,11 +127,35 @@ extension AppState {
         var note = incoming.isEmpty
             ? (failed.isEmpty ? "Nothing was imported." : "")
             : stageImport(incoming, fromDownload: true)
+        let leftOut = incoming.reduce(0) { $0 + $1.leftOut.count }
+        if leftOut > 0 {
+            note += " Left out \(leftOut) who share a number or have no shirt yet — the debug log "
+                + "names them."
+            for team in incoming where !team.leftOut.isEmpty {
+                addLog("Left out of \(team.name): \(team.leftOutList)")
+            }
+        }
         if !failed.isEmpty {
             note += (note.isEmpty ? "" : " ") + "Couldn't get \(failed.joined(separator: ", "))."
         }
         rosterDownloadNote = note
         status = note
+    }
+
+    /// Opens the review for a team whose league has changed its list. The icon's click.
+    func reviewRosterUpdate(_ teamID: String) {
+        guard !aSheetIsUp, rosterReview == nil,
+              let incoming = RosterWatch.shared.updates[teamID] else { return }
+        let conflicts = TagLibrary.sortImport([incoming], against: library.teams).conflicts
+        guard !conflicts.isEmpty else {
+            RosterWatch.shared.markSeen([incoming])
+            status = "\(incoming.name) already matches the league's list."
+            return
+        }
+        rosterReviewModes = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .merge) })
+        rosterReviewSamePlayer = [:]
+        rosterReviewFromDownload = false
+        rosterReview = RosterImportReview(conflicts: conflicts)
     }
 
     /// Writes what needs no asking — teams you don't have, and ones that come in identical —
@@ -151,6 +164,12 @@ extension AppState {
         let sorted = TagLibrary.sortImport(incoming, against: library.teams)
         let straight = RosterImportReview(new: sorted.new, unchanged: sorted.unchanged).toWrite
         let conflicts = sorted.conflicts
+        defer {
+            // After the write, so a team that's just arrived has an id to be filed under.
+            if fromDownload {
+                RosterWatch.shared.markSeen(sorted.new + sorted.unchanged.map(\.incoming))
+            }
+        }
 
         var parts: [String] = []
         if !straight.isEmpty {
@@ -239,6 +258,9 @@ extension AppState {
     func finishRosterReview(apply: Bool) {
         guard let review = rosterReview else { return }
         rosterReview = nil
+        // Looked at, whatever was chosen. Skipping has to count, or the same list would be
+        // offered again tomorrow.
+        if !review.fromFiles { RosterWatch.shared.markSeen(review.conflicts.map(\.incoming)) }
         guard apply, review.writesAnything else {
             status = review.fromFiles ? "Nothing was imported." : "Kept your rosters as they were."
             rosterDownloadNote = status
@@ -284,26 +306,6 @@ extension AppState {
         focusedTeamID = id
         subjectsOnly = false
         lastImportedTeamID = id
-    }
-
-    /// A GET that treats an error page as an error. Without the status check a 404 or a 503
-    /// body just fails to decode, and the sheet blames the league's data rather than saying
-    /// the league answered with an error.
-    private func fetch(_ url: URL) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request(url))
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw URLError(.badServerResponse,
-                           userInfo: [NSLocalizedDescriptionKey: "the league answered \(http.statusCode)"])
-        }
-        return data
-    }
-
-    /// A plain GET with a name on it, the same shape the update check uses.
-    private func request(_ url: URL) -> URLRequest {
-        var request = URLRequest(url: url)
-        request.setValue("Keeper/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 20
-        return request
     }
 
     /// The tag filters point at a team, a player or a position by value, and a roster edit

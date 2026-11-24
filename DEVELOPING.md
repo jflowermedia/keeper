@@ -82,6 +82,9 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/Renaming.swift` | filename tokens, presets, and building a name |
 | `Sources/Keeper/ExportSheet.swift` | the one sheet that decides what leaves and how |
 | `Sources/Keeper/RosterEditor.swift` | editing teams and players after import |
+| `Sources/Keeper/RosterDownload.swift` | the leagues, the NHL's feed, and the download sheet |
+| `Sources/Keeper/HockeyTech.swift` | the feed every other league is read from |
+| `Sources/Keeper/RosterWatch.swift` | the daily check on rosters in play, and what counts as a change |
 | `Sources/Keeper/PresetEditor.swift` | the preset builder sheet |
 | `Sources/Keeper/MultiDragHandle.swift` | the drag-to-Finder handles |
 | `Sources/Keeper/Shortcuts.swift` | which key does what, and the rules about changing it |

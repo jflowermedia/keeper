@@ -21,7 +21,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 - **Reads camera flags** (KEEP, OK, NG) from the XML sidecars on a card, drive or folder.
 - **Previews clips** with keyboard playback, shuttle and full screen.
 - **Tags clips** to players, subjects (mascot, crowd, anthem) and categories (Goal, Save, or your own). Several tags per clip.
-- **Rosters** by CSV import, NHL download, or typed in.
+- **Rosters** by CSV import, download from eleven hockey leagues, or typed in.
 - **Keyboard tagging**: clip, shirt number, category, done, with no mouse.
 - **Filters** by team, player, position, category and subject.
 - **Renames** to your own filename presets, one per client.
@@ -100,6 +100,9 @@ See [DEVELOPING.md](DEVELOPING.md) for more.
 | ⌘D | Debug log |
 | / | Clear tags on selected clips |
 | § | Subjects pill, at the bench |
+| T | Tag with no player, with keyboard tagging on |
+| ⌘] | Next game |
+| ⌘0, ⌘1 to ⌘9 | All games, or one of them |
 | ⌘, | Change any shortcut |
 
 ## Clips and flags
@@ -140,7 +143,19 @@ Before anything is written, Keeper shows which columns it read from each file an
 
 If **Replace** puts a different name on a number you have, Keeper treats it as a new player: clips already tagged keep the old name and show **Not on roster**. For a corrected spelling, tick **Same player** next to it under **Show player changes**, and those clips take the new name.
 
-**File → Download a Roster…** imports NHL teams and their mascots, with the same review for teams you already have.
+**File → Download a Roster…** imports teams from these leagues, with the same review for teams you already have:
+
+| | |
+|---|---|
+| Professional | NHL, AHL, ECHL, PWHL |
+| Major Junior | WHL, OHL, QMJHL |
+| Junior A | MJHL, SJHL, AJHL, BCHL |
+
+NHL teams come with their mascots. Junior leagues often list a call-up in a number a regular wears; the regular gets it and the call-up is left out. If it isn't clear whose number it is, or a player has no shirt yet (0 for several, or three digits), they're left out too. The preview shows them in orange. Add them in **Edit Rosters** once you know the number, and later downloads keep them.
+
+These lists come from the leagues' websites and aren't an official service, so a league can stop working without notice. Rosters you already have aren't affected.
+
+An orange icon beside a team on the tagging panel means the league has changed that roster. Click it to see what's different and Merge, Replace or Skip. Nothing changes by itself, and the icon goes once you've looked, until the next change. Keeper asks once a day, and only about teams in play that are filed under one of the leagues above.
 
 ![The Download a Roster sheet: a league menu set to NHL and a list of teams with tick boxes and Select All](docs/roster_download.png)
 
@@ -226,6 +241,7 @@ Typing at the categories searches every section. If nothing matches, Return tags
 | Include XML Sidecars | View menu | On |
 | Keep the Mac Awake While Transferring | View menu | On |
 | Check for Updates Automatically | Help menu | On |
+| Check Rosters for Changes | Help menu | On |
 
 **Theme** recolours Keeper with one of [Catppuccin](https://catppuccin.com/palette/)'s four flavours: Latte (light), Frappé, Macchiato or Mocha. **Accent** picks one of its fourteen accent colours for highlights; it's greyed under System, which uses the accent from System Settings. Native controls such as dropdowns, checkboxes and menus follow the theme's light or dark but keep the macOS look.
 
@@ -239,12 +255,13 @@ Typing at the categories searches every section. If nothing matches, Return tags
 
 ## Updates
 
-Keeper checks GitHub once a day and shows a notice when a new version is out. Nothing downloads automatically. Turn it off under **Help → Check for Updates Automatically**. The only other network use is downloading a roster.
+Keeper checks GitHub once a day and shows a notice when a new version is out. Nothing downloads automatically. Turn it off under **Help → Check for Updates Automatically**. The only other network use is rosters: downloading one, and asking once a day whether the ones in play have changed. Turn that off under **Help → Check Rosters for Changes**.
 
 ## Known gaps
 
 - Proxy files in `SUB` folders aren't handled.
 - Clips without an XML sidecar aren't listed.
+- Only NHL downloads include mascots.
 
 ## Credits
 

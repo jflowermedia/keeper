@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct TagPanel: View {
     @ObservedObject var state: AppState
     @ObservedObject private var library = TagLibrary.shared
+    @ObservedObject private var rosterWatch = RosterWatch.shared
     // Which rosters are in play is `AppState.activeTeamIDs` now, not view state: the
     // keyboard flow walks the same grid and has to agree with what's on screen.
     @State private var selectedPlayerIDs: Set<String> = []
@@ -419,7 +420,10 @@ struct TagPanel: View {
         // the subjects with the mouse, and it sits to the right of the teams the way a
         // second team's does.
         HStack(spacing: 4) {
-            ForEach(state.activeTeams) { focusPill(for: $0) }
+            ForEach(state.activeTeams) { team in
+                focusPill(for: team)
+                if rosterWatch.updates[team.id] != nil { rosterUpdateButton(for: team) }
+            }
             subjectsPill
 
             Spacer(minLength: 0)
@@ -452,6 +456,22 @@ struct TagPanel: View {
                     .help("Switch bench from the keyboard")
             }
         }
+    }
+
+    /// Beside the pill rather than inside it: a press meant to change bench shouldn't be able
+    /// to open a sheet.
+    private func rosterUpdateButton(for team: Team) -> some View {
+        Button {
+            state.reviewRosterUpdate(team.id)
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.caption)
+                .foregroundStyle(Color.keeperOrange)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("The league has changed \(team.name)'s roster · click to see what's different")
+        .accessibilityLabel("\(team.name)'s roster has changed")
     }
 
     private var subjectsPill: some View {

@@ -212,6 +212,11 @@ struct RosterReviewSheet: View {
                     }
                 }
 
+                if !conflict.incoming.leftOut.isEmpty {
+                    line("·", "Left out, no number of their own: \(conflict.incoming.leftOutList)",
+                         Color.keeperSecondary)
+                }
+
                 // Drawn for the option that's chosen, not for the difference between the two
                 // lists. Under Merge a red minus beside a player reads as "will be removed",
                 // which is exactly what Merge doesn't do.
