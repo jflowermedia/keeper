@@ -253,7 +253,8 @@ enum WelcomeTour {
         Step(title: "Load your roster",
              body: "File → Download a Roster… fetches today's numbers for a league: the NHL, "
                  + "AHL, ECHL, PWHL, the three major junior leagues and western Junior A. An "
-                 + "orange icon beside a team later on means its league has changed the list.\n\n"
+                 + "orange icon beside a team later on means its league has changed the list, and "
+                 + "File → Update All Rosters… checks every team at once.\n\n"
                  + "Any other league: import a CSV with a number and a name per player — "
                  + "several files at once if you like. Keeper shows what it read from each "
                  + "before anything is written.\n\n"

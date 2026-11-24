@@ -118,8 +118,15 @@ struct RosterEditor: View {
                 }
                 // Opening on a team halfway down a league's worth would otherwise select it
                 // out of sight. No anchor, so a click on a row already in view doesn't jump.
+                //
+                // Again a moment later: the first goes by a guess at the height of rows not
+                // drawn yet, and stops short in a long list.
                 .onChange(of: selectedTeamID) { id in
-                    if let id { proxy.scrollTo(id) }
+                    guard let id else { return }
+                    proxy.scrollTo(id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        if selectedTeamID == id { proxy.scrollTo(id) }
+                    }
                 }
             }
 

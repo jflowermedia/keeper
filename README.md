@@ -28,7 +28,7 @@ Built by [JFlowerMedia](https://jflowermedia.com/) · [Download](../../releases)
 - **Exports** to one folder, a folder per player or per category, or splits picks and unpicked into two folders.
 - **Checks copies** against the card by the camera's clip ID, so renamed copies still match.
 
-![The roster editor: NHL teams listed down the left, and on the right the Winnipeg Jets with their code and league above an editable list of numbers, names and positions](docs/rosters.png)
+![The roster editor: NHL teams down the left with favourites starred, and on the right the Winnipeg Jets with their code, league and mascots above an editable list of numbers, names, positions and nickname buttons](docs/rosters-1.4.png)
 
 ## Copy safety
 
@@ -155,6 +155,8 @@ NHL teams come with their mascots. Players listed with a three-digit number have
 
 **File → Update All Rosters…** checks every team you have from those leagues and shows what's changed in one list. **Set all** picks Merge, Replace or Skip for every team at once. Replace is the one that removes players who've left. A backup is saved before anything is written.
 
+![The Update All Rosters review: Set all buttons for Merge, Replace and Skip above a list of changed teams, each with its own choice](docs/update-rosters-1.4.png)
+
 ### Two players in one number
 
 Junior leagues often list a call-up in a number a regular wears. The regular keeps it and the call-up gets a letter: **15** and **15b**. If it isn't clear whose number it is, they're **15a** and **15b**. Typing 15 on the bench shows everyone in it. A player keeps their letter on later downloads, or a number of your own if you've given them one. Letters are left out of filenames and folders. CSV files work the same way.
@@ -167,7 +169,7 @@ These lists come from the leagues' websites and aren't an official service, so a
 
 An orange icon beside a team on the tagging panel means the league has changed that roster. Click it to see what's different and Merge, Replace or Skip. Nothing changes by itself, and the icon goes once you've looked, until the next change. Keeper asks once a day, and only about teams in play that are filed under one of the leagues above.
 
-![The Download a Roster sheet: a league menu set to NHL and a list of teams with tick boxes and Select All](docs/roster_download.png)
+![The Download a Roster sheet set to the MJHL, with the Dauphin Kings previewed and two call-ups who share a number shown in orange](docs/roster-download-1.4.png)
 
 **⇧⌘R** edits rosters. Player numbers must be unique within a team (add a letter if two share one), and team names must be unique. Changing a number leaves old clips on the number worn in them; tick **Change old tags too** if it was simply wrong. Removed players keep their tags, marked **Not on roster**. Editing a name on its row counts as the same player, so their clips follow the new name. Removing a player and adding someone new in that number doesn't.
 
