@@ -21,8 +21,8 @@ SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" vie
   <rect x="92" y="92" width="840" height="840" rx="188" fill="{PLATE}"/>
 
   <!-- SD card: a rounded rectangle with the bevelled top-left corner, softened at both ends -->
-  <path d="M 424 268 L 660 268 Q 696 268 696 304 L 696 720 Q 696 756 660 756 L 364 756
-           Q 328 756 328 720 L 328 364 Q 328 340 345 323 L 383 285 Q 400 268 424 268 Z"
+  <path d="M 412 268 L 660 268 Q 696 268 696 304 L 696 720 Q 696 756 660 756 L 364 756
+           Q 328 756 328 720 L 328 352 Q 328 340 336 332 L 392 276 Q 400 268 412 268 Z"
         fill="{CARD}"/>
 
   <!-- contacts -->
