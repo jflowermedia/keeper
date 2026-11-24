@@ -44,7 +44,7 @@ open .
 
 ## The app icon
 
-`icon.png` is the app's icon — replace it with any square PNG (1024×1024 ideal) and rebuild. `make_icon.py` draws the current one if you'd rather edit than replace: `python3 make_icon.py`, needs `pip install cairosvg`.
+`icon.png` is the app's icon — replace it with any square PNG (1024×1024 ideal) and rebuild. `make_icon.swift` draws the current one if you'd rather edit than replace: `swift make_icon.swift`. `docs/icon-mocha.png` is the README's copy, 256×256; give a new one a new name, or GitHub goes on serving the old.
 
 ## Notarizing (removing the macOS warning)
 
@@ -93,7 +93,7 @@ DEVID="Developer ID Application: Your Name (AB12CD34EF)" NOTARY_PROFILE=NOTARY .
 | `Sources/Keeper/ShortcutsSheet.swift` | the shortcut editor and its key recorder |
 | `Sources/Keeper/SelfCheck.swift` | `--self-check` — the CSV parser, the stored format, the scanner |
 | `build_app.sh` | turns the build into Keeper.app, makes the icon, signs it |
-| `icon.png` / `make_icon.py` | the app icon and the script that draws it |
+| `icon.png` / `make_icon.swift` | the app icon and the script that draws it |
 
 ## Checks
 
