@@ -198,7 +198,7 @@ struct WelcomeSheet: View {
 /// At file scope rather than inside the view for the same reason `ReleaseFeed` is: the
 /// self-check reads it back, and a static tucked inside a SwiftUI view carries that view's
 /// isolation along with it. Text in a plain array is also the easiest thing in this app to
-/// keep honest — it sits next to nothing it has to agree with except the README.
+/// keep honest — it sits next to nothing it has to agree with except GUIDE.md.
 enum WelcomeTour {
 
     struct Step {
@@ -213,8 +213,7 @@ enum WelcomeTour {
         var link: (label: String, url: URL)? = nil
     }
 
-    /// A shoot day in order, and the same six steps under the same headings as the guide in the
-    /// README, so the two can't drift into describing different apps. Change one, change both.
+    /// A shoot day in order, and the same six steps under the same headings as GUIDE.md, so the two can't drift into describing different apps. Change one, change both.
     /// Each is one job and a few lines; anything longer belongs in the guide's Reference.
     static let steps: [Step] = [
         // First, because it happens in the camera before there's a card to point at — and

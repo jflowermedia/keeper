@@ -11,8 +11,9 @@ enum AppInfo {
     static let instagram = URL(string: "https://www.instagram.com/jflowermedia/")!
 
     static let repo = URL(string: "https://github.com/jflowermedia/keeper")!
-    /// The guide lives in the README, under its own heading.
-    static let guide = URL(string: "https://github.com/jflowermedia/keeper#guide")!
+    /// Versions up to 1.4 open the README at its Guide heading, so that has to stay and go on
+    /// pointing here.
+    static let guide = URL(string: "https://github.com/jflowermedia/keeper/blob/main/GUIDE.md")!
     static let issues = URL(string: "https://github.com/jflowermedia/keeper/issues")!
     /// Sony's own page on setting up Clip Flag. It's the FX3 guide — Sony has no
     /// model-neutral one — but the custom key setting reads the same across its bodies.
