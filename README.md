@@ -9,7 +9,7 @@
 Flag good clips on the camera as you shoot. Keeper starts you on those,<br>
 tags who's in them and what happened, and copies them out named and sorted.
 
-[![Latest release](https://img.shields.io/github/v/release/jflowermedia/keeper?include_prereleases&label=release&color=cba6f7)](../../releases)
+[![Latest release](https://img.shields.io/badge/release-1.4.1--alpha-cba6f7)](../../releases)
 ![macOS 13 or later](https://img.shields.io/badge/macOS-13%2B-1e1e2e)
 ![Free, MIT licence](https://img.shields.io/badge/licence-MIT-1e1e2e)
 
