@@ -575,6 +575,8 @@ struct ContentView: View {
                     Link("jflowermedia.com", destination: AppInfo.website)
                     Text("·").foregroundStyle(.tertiary)
                     Link("Instagram", destination: AppInfo.instagram)
+                    Text("·").foregroundStyle(.tertiary)
+                    Link("Donate", destination: AppInfo.donate)
                 }
                 .font(.caption)
             }

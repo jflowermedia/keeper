@@ -9,6 +9,9 @@ enum AppInfo {
 
     static let website = URL(string: "https://jflowermedia.com/")!
     static let instagram = URL(string: "https://www.instagram.com/jflowermedia/")!
+    /// Kept to the quiet places the other links live: the welcome screen, About and the Help
+    /// menu. Never during work — a free tool that asks mid-export costs more than it raises.
+    static let donate = URL(string: "https://www.paypal.com/donate/?hosted_button_id=SJV6H27DLHWG6")!
 
     static let repo = URL(string: "https://github.com/jflowermedia/keeper")!
     /// Versions up to 1.4.0 open the README at its Guide heading, so that has to stay and go on
@@ -253,6 +256,7 @@ struct KeeperApp: App {
                 Divider()
                 Button("JFlowerMedia Website") { NSWorkspace.shared.open(AppInfo.website) }
                 Button("JFlowerMedia on Instagram") { NSWorkspace.shared.open(AppInfo.instagram) }
+                Button("Donate to Keeper") { NSWorkspace.shared.open(AppInfo.donate) }
             }
         }
     }
@@ -305,6 +309,8 @@ struct KeeperApp: App {
         credits.append(link("jflowermedia.com", AppInfo.website))
         credits.append(NSAttributedString(string: "   ·   ", attributes: body))
         credits.append(link("Instagram", AppInfo.instagram))
+        credits.append(NSAttributedString(string: "\n\nFree to use. ", attributes: body))
+        credits.append(link("Donate", AppInfo.donate))
 
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])

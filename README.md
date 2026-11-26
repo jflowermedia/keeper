@@ -13,7 +13,7 @@ tags who's in them and what happened, and copies them out named and sorted.
 ![macOS 13 or later](https://img.shields.io/badge/macOS-13%2B-1e1e2e)
 ![Free, MIT licence](https://img.shields.io/badge/licence-MIT-1e1e2e)
 
-**[Download](../../releases)** &nbsp;·&nbsp; **[Guide](GUIDE.md)** &nbsp;·&nbsp; **[Report a problem](../../issues)**
+**[Download](../../releases)** &nbsp;·&nbsp; **[Guide](GUIDE.md)** &nbsp;·&nbsp; **[Report a problem](../../issues)** &nbsp;·&nbsp; **[Donate](https://www.paypal.com/donate/?hosted_button_id=SJV6H27DLHWG6)**
 
 </div>
 
@@ -79,6 +79,8 @@ cd keeper
 ## Credits
 
 Built by **JFlowerMedia** · [jflowermedia.com](https://jflowermedia.com/) · [@jflowermedia](https://www.instagram.com/jflowermedia/)
+
+Keeper is free. If it saves you an evening, you can [donate through PayPal](https://www.paypal.com/donate/?hosted_button_id=SJV6H27DLHWG6).
 
 Themes use the [Catppuccin](https://github.com/catppuccin/catppuccin) palette, MIT. Keeper is [MIT licensed](LICENSE).
 
